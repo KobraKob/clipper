@@ -41,8 +41,8 @@ class Settings:
     # Groq API
     groq_api_key: str = _env("GROQ_API_KEY", "")
     groq_stt_model: str = _env("GROQ_STT_MODEL", "whisper-large-v3-turbo")
-    groq_fast: str = _env("GROQ_FAST_MODEL", "llama-3.1-8b-instant")
-    groq_strong: str = _env("GROQ_STRONG_MODEL", "llama-3.3-70b-versatile")
+    groq_fast: str = _env("GROQ_FAST_MODEL", "openai/gpt-oss-20b")
+    groq_strong: str = _env("GROQ_STRONG_MODEL", "openai/gpt-oss-120b")
     chunk_seconds: int = int(_env("STT_CHUNK_SECONDS", "600"))
 
     # Scoring & candidate constraints

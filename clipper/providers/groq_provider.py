@@ -4,6 +4,7 @@ Groq API provider implementation for hosted Whisper STT and LLM scoring.
 
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import subprocess
@@ -12,6 +13,8 @@ from typing import Any, Dict, List, Optional
 from ..config import Settings
 from .base import parse_json
 from .retry import with_retry
+
+logger = logging.getLogger(__name__)
 
 
 class GroqTranscriber:
@@ -68,7 +71,6 @@ class GroqTranscriber:
 
         chunks = sorted(out_dir.glob("chunk_*.wav"))
         if not chunks:
-            # If segmentation didn't produce chunks (e.g. very short audio), use source wav
             chunks = [wav]
         return chunks
 
@@ -137,7 +139,7 @@ class GroqTranscriber:
 
 
 class GroqLLM:
-    """LLM client powered by Groq API."""
+    """LLM client powered by Groq API with automatic model fallback."""
 
     def __init__(self, s: Settings) -> None:
         self.s = s
@@ -157,6 +159,7 @@ class GroqLLM:
                 groq.APIConnectionError,
                 groq.InternalServerError,
             )
+            self._not_found_error = groq.NotFoundError
         except ImportError as exc:
             raise ImportError(
                 "groq package is not installed. Install via `pip install groq`."
@@ -165,16 +168,38 @@ class GroqLLM:
         self.tokens_used: int = 0
 
     def complete_json(self, prompt: str, tier: str = "strong") -> Dict[str, Any]:
-        """Request JSON completion using fast or strong tier model."""
+        """Request JSON completion using fast or strong tier model with automatic fallback."""
         model = self.s.groq_fast if tier == "fast" else self.s.groq_strong
 
         def call():
-            return self.client.chat.completions.create(
-                model=model,
-                temperature=0.2,
-                response_format={"type": "json_object"},
-                messages=[{"role": "user", "content": prompt}],
-            )
+            try:
+                return self.client.chat.completions.create(
+                    model=model,
+                    temperature=0.2,
+                    response_format={"type": "json_object"},
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except self._not_found_error:
+                # If configured model is deprecated or not available, fallback to active Groq models
+                fallbacks = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+                for fb in fallbacks:
+                    if fb == model:
+                        continue
+                    try:
+                        logger.warning(
+                            "[groq] Model %r not found; falling back to active model %r",
+                            model,
+                            fb,
+                        )
+                        return self.client.chat.completions.create(
+                            model=fb,
+                            temperature=0.2,
+                            response_format={"type": "json_object"},
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                    except Exception:
+                        continue
+                raise
 
         resp = with_retry(call, retries=5, retry_on=self._retryable_errors)
         if getattr(resp, "usage", None) and hasattr(resp.usage, "total_tokens"):

@@ -15,6 +15,12 @@ from typing import Any, List, Optional, Set, Tuple
 import cv2
 import numpy as np
 
+# Suppress noisy OpenCV internal graph engine warnings
+try:
+    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+except Exception:
+    pass
+
 logger = logging.getLogger(__name__)
 
 YUNET_MODEL_URL = (
