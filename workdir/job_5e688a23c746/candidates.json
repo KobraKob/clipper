@@ -1,0 +1,112 @@
+[
+  {
+    "start": 74.22,
+    "end": 106.117,
+    "duration": 31.9,
+    "text": "Don't loosen your grip, gotta hold on me Now forever, let's get back together Lord, take it so far away I pray to God we don't pray I want you to take me up and down and round and round again I know it hard to see you but I wish you were right here Oh it hard to leave you when I get you everywhere",
+    "start_idx": 16,
+    "end_idx": 20,
+    "word_count": 67,
+    "first_text": "Don't loosen your grip, gotta hold on me",
+    "heuristic_score": 82.0
+  },
+  {
+    "start": 17.98,
+    "end": 49.699997,
+    "duration": 31.72,
+    "text": "Slow down, be cool, I miss ya, come here now It's yours now, keep it, or hold on until now I need ya right now, once I leave you I'm strung out If I get you, I'm slowly breaking down And oh, it's hard to see you, but I wish you were right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinking we could never be a pair Oh, no, I don't need you, but I miss you, come here",
+    "start_idx": 2,
+    "end_idx": 9,
+    "word_count": 88,
+    "first_text": "Slow down, be cool, I miss ya, come here now",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 33.1,
+    "end": 62.08,
+    "duration": 28.98,
+    "text": "And oh, it's hard to see you, but I wish you were right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinking we could never be a pair Oh, no, I don't need you, but I miss you, come here And oh, it's hard to leave you when I get you right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinking I'm strong enough to sink it",
+    "start_idx": 6,
+    "end_idx": 12,
+    "word_count": 83,
+    "first_text": "And oh, it's hard to see you, but I wish you were right here",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 41.6,
+    "end": 87.159996,
+    "duration": 45.56,
+    "text": "All this time I'm thinking we could never be a pair Oh, no, I don't need you, but I miss you, come here And oh, it's hard to leave you when I get you right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinking I'm strong enough to sink it Oh no, I don't need you, but I miss you, come here Soon as you leave me, we always lose connection It's getting messy, I faint for your affection Don't loosen your grip, gotta hold on me Now forever, let's get back together Lord, take it so far away",
+    "start_idx": 8,
+    "end_idx": 18,
+    "word_count": 108,
+    "first_text": "All this time I'm thinking we could never be a pair",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 87.159996,
+    "end": 122.216995,
+    "duration": 35.06,
+    "text": "I pray to God we don't pray I want you to take me up and down and round and round again I know it hard to see you but I wish you were right here Oh it hard to leave you when I get you everywhere All this time I'm thinking we could never be a pair Oh, no, I don't need you but I miss you from here I know it's hard to see you but I wish you were right here Oh, it's hard to leave you when I get you everywhere",
+    "start_idx": 19,
+    "end_idx": 24,
+    "word_count": 94,
+    "first_text": "I pray to God we don't pray",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 106.117,
+    "end": 136.557,
+    "duration": 30.44,
+    "text": "All this time I'm thinking we could never be a pair Oh, no, I don't need you but I miss you from here I know it's hard to see you but I wish you were right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinkin I'm strong enough to sink it Oh, no, I don't need you but I miss you, come here You love me now, you love me",
+    "start_idx": 21,
+    "end_idx": 27,
+    "word_count": 79,
+    "first_text": "All this time I'm thinking we could never be a pair",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 118.397,
+    "end": 154.937,
+    "duration": 36.54,
+    "text": "Oh, it's hard to leave you when I get you everywhere All this time I'm thinkin I'm strong enough to sink it Oh, no, I don't need you but I miss you, come here You love me now, you love me He hold me tight, and lets me go You love me now, you love me You hold me tight, and lets me go You hold me tight, and lets me go You love me now, you love me You hold me tight, and lets me go Hold me tight and let me go",
+    "start_idx": 24,
+    "end_idx": 34,
+    "word_count": 96,
+    "first_text": "Oh, it's hard to leave you when I get you everywhere",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 136.557,
+    "end": 166.99701,
+    "duration": 30.44,
+    "text": "He hold me tight, and lets me go You love me now, you love me You hold me tight, and lets me go You hold me tight, and lets me go You love me now, you love me You hold me tight, and lets me go Hold me tight and let me go He loved me now, he loved me He hold me tight and let me go You gotta say that you're sorry At the end of the night Wake up in the morning, everything's alright",
+    "start_idx": 28,
+    "end_idx": 39,
+    "word_count": 89,
+    "first_text": "He hold me tight, and lets me go",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 148.69699,
+    "end": 186.337,
+    "duration": 37.64,
+    "text": "You hold me tight, and lets me go Hold me tight and let me go He loved me now, he loved me He hold me tight and let me go You gotta say that you're sorry At the end of the night Wake up in the morning, everything's alright At the end of the story You're holding me tight I don't need to worry Am I out of my own? It's hard to see you, but I wish you were right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinking I'm strong enough to sink it",
+    "start_idx": 33,
+    "end_idx": 46,
+    "word_count": 106,
+    "first_text": "You hold me tight, and lets me go",
+    "heuristic_score": 60.0
+  },
+  {
+    "start": 0.0,
+    "end": 37.84,
+    "duration": 37.84,
+    "text": "See right now, I need ya, I'll meet ya somewhere now You up now, I see ya, I get ya to care now Slow down, be cool, I miss ya, come here now It's yours now, keep it, or hold on until now I need ya right now, once I leave you I'm strung out If I get you, I'm slowly breaking down And oh, it's hard to see you, but I wish you were right here",
+    "start_idx": 0,
+    "end_idx": 6,
+    "word_count": 78,
+    "first_text": "See right now, I need ya, I'll meet ya somewhere now",
+    "heuristic_score": 50.0
+  }
+]

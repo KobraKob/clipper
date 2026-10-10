@@ -1,0 +1,35 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,72,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,80,480,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.67,0:00:01.67,Default,,0,0,0,,{\k26}HOLD {\k20}ME {\k52}TIGHT, {\k2}AND
+Dialogue: 0,0:00:01.67,0:00:02.69,Default,,0,0,0,,{\k28}LETS {\k20}ME {\k28}GO {\k68}YOU
+Dialogue: 0,0:00:02.69,0:00:03.65,Default,,0,0,0,,{\k24}LOVE {\k18}ME {\k50}NOW, {\k4}YOU
+Dialogue: 0,0:00:03.65,0:00:04.97,Default,,0,0,0,,{\k34}LOVE {\k22}ME {\k16}YOU {\k34}HOLD
+Dialogue: 0,0:00:04.97,0:00:05.97,Default,,0,0,0,,{\k16}ME {\k42}TIGHT, {\k12}AND {\k30}LETS
+Dialogue: 0,0:00:05.97,0:00:09.01,Default,,0,0,0,,{\k22}ME {\k34}GO {\k30}YOU {\k4}HOLD
+Dialogue: 0,0:00:09.01,0:00:10.01,Default,,0,0,0,,{\k20}ME {\k38}TIGHT, {\k12}AND {\k30}LETS
+Dialogue: 0,0:00:10.01,0:00:10.99,Default,,0,0,0,,{\k18}ME {\k28}GO {\k62}YOU {\k32}LOVE
+Dialogue: 0,0:00:10.99,0:00:12.01,Default,,0,0,0,,{\k16}ME {\k44}NOW, {\k8}YOU {\k34}LOVE
+Dialogue: 0,0:00:12.01,0:00:13.13,Default,,0,0,0,,{\k24}ME {\k88}YOU {\k32}HOLD {\k14}ME
+Dialogue: 0,0:00:13.13,0:00:14.17,Default,,0,0,0,,{\k44}TIGHT, {\k10}AND {\k32}LETS {\k18}ME
+Dialogue: 0,0:00:14.17,0:00:17.41,Default,,0,0,0,,{\k40}GO {\k22}HOLD {\k16}ME {\k28}TIGHT
+Dialogue: 0,0:00:17.41,0:00:18.43,Default,,0,0,0,,{\k26}AND {\k32}LET {\k16}ME {\k28}GO
+Dialogue: 0,0:00:18.25,0:00:19.15,Default,,0,0,0,,{\k50}HE {\k50}HE {\k20}LOVED {\k20}ME
+Dialogue: 0,0:00:19.15,0:00:20.21,Default,,0,0,0,,{\k28}NOW, {\k22}HE {\k28}LOVED {\k28}ME
+Dialogue: 0,0:00:19.79,0:00:21.09,Default,,0,0,0,,{\k90}HE {\k90}HE {\k26}HOLD {\k14}ME
+Dialogue: 0,0:00:21.09,0:00:22.07,Default,,0,0,0,,{\k30}TIGHT {\k22}AND {\k22}LET {\k24}ME
+Dialogue: 0,0:00:22.07,0:00:23.87,Default,,0,0,0,,{\k30}GO {\k90}YOU {\k40}GOTTA {\k42}SAY
+Dialogue: 0,0:00:23.87,0:00:25.45,Default,,0,0,0,,{\k24}THAT {\k24}YOU'RE {\k68}SORRY {\k58}AT
+Dialogue: 0,0:00:25.45,0:00:26.33,Default,,0,0,0,,{\k18}THE {\k30}END {\k18}OF {\k22}THE
+Dialogue: 0,0:00:26.33,0:00:28.13,Default,,0,0,0,,{\k38}NIGHT {\k62}WAKE {\k28}UP {\k18}IN
+Dialogue: 0,0:00:28.13,0:00:30.35,Default,,0,0,0,,{\k20}THE {\k80}MORNING, {\k84}EVERYTHING'S {\k38}ALRIGHT
+Dialogue: 0,0:00:30.11,0:00:31.31,Default,,0,0,0,,{\k120}AT

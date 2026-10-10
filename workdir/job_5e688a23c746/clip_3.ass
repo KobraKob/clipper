@@ -1,0 +1,40 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,72,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,80,480,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.71,0:00:01.93,Default,,0,0,0,,{\k44}ALL {\k30}THIS {\k28}TIME {\k20}I'M
+Dialogue: 0,0:00:01.93,0:00:03.31,Default,,0,0,0,,{\k32}THINKING {\k46}WE {\k18}COULD {\k42}NEVER
+Dialogue: 0,0:00:03.31,0:00:05.33,Default,,0,0,0,,{\k42}BE {\k24}A {\k26}PAIR {\k146}OH,
+Dialogue: 0,0:00:05.33,0:00:06.25,Default,,0,0,0,,{\k32}NO, {\k10}I {\k18}DON'T {\k32}NEED
+Dialogue: 0,0:00:06.25,0:00:07.27,Default,,0,0,0,,{\k32}YOU, {\k22}BUT {\k16}I {\k32}MISS
+Dialogue: 0,0:00:07.27,0:00:08.73,Default,,0,0,0,,{\k36}YOU, {\k12}COME {\k30}HERE {\k52}AND
+Dialogue: 0,0:00:08.73,0:00:09.97,Default,,0,0,0,,{\k64}OH, {\k20}IT'S {\k20}HARD {\k20}TO
+Dialogue: 0,0:00:09.97,0:00:10.97,Default,,0,0,0,,{\k32}LEAVE {\k20}YOU {\k34}WHEN {\k14}I
+Dialogue: 0,0:00:10.97,0:00:12.37,Default,,0,0,0,,{\k26}GET {\k28}YOU {\k42}RIGHT {\k44}HERE
+Dialogue: 0,0:00:12.35,0:00:13.99,Default,,0,0,0,,{\k94}OH, {\k30}IT'S {\k18}HARD {\k22}TO
+Dialogue: 0,0:00:13.99,0:00:15.01,Default,,0,0,0,,{\k34}LEAVE {\k20}YOU {\k34}WHEN {\k14}I
+Dialogue: 0,0:00:15.01,0:00:17.11,Default,,0,0,0,,{\k26}GET {\k28}YOU {\k62}EVERYWHERE {\k24}ALL
+Dialogue: 0,0:00:17.11,0:00:18.41,Default,,0,0,0,,{\k44}THIS {\k28}TIME {\k28}I'M {\k30}THINKING
+Dialogue: 0,0:00:18.41,0:00:20.05,Default,,0,0,0,,{\k32}I'M {\k36}STRONG {\k68}ENOUGH {\k28}TO
+Dialogue: 0,0:00:20.05,0:00:21.63,Default,,0,0,0,,{\k28}SINK {\k26}IT {\k52}OH {\k50}NO,
+Dialogue: 0,0:00:21.63,0:00:22.77,Default,,0,0,0,,{\k22}I {\k20}DON'T {\k32}NEED {\k40}YOU,
+Dialogue: 0,0:00:22.77,0:00:23.71,Default,,0,0,0,,{\k12}BUT {\k12}I {\k34}MISS {\k36}YOU,
+Dialogue: 0,0:00:23.71,0:00:25.91,Default,,0,0,0,,{\k20}COME {\k52}HERE {\k30}SOON {\k32}AS
+Dialogue: 0,0:00:25.91,0:00:27.09,Default,,0,0,0,,{\k14}YOU {\k36}LEAVE {\k50}ME, {\k18}WE
+Dialogue: 0,0:00:27.09,0:00:29.69,Default,,0,0,0,,{\k50}ALWAYS {\k34}LOSE {\k42}CONNECTION {\k96}IT'S
+Dialogue: 0,0:00:29.69,0:00:31.37,Default,,0,0,0,,{\k36}GETTING {\k90}MESSY, {\k14}I {\k28}FAINT
+Dialogue: 0,0:00:31.37,0:00:34.23,Default,,0,0,0,,{\k24}FOR {\k36}YOUR {\k78}AFFECTION {\k150}DON'T
+Dialogue: 0,0:00:34.23,0:00:35.79,Default,,0,0,0,,{\k38}LOOSEN {\k34}YOUR {\k58}GRIP, {\k26}GOTTA
+Dialogue: 0,0:00:35.79,0:00:37.59,Default,,0,0,0,,{\k56}HOLD {\k38}ON {\k22}ME {\k108}NOW
+Dialogue: 0,0:00:36.51,0:00:39.71,Default,,0,0,0,,{\k108}NOW {\k150}FOREVER, {\k30}LET'S {\k32}GET
+Dialogue: 0,0:00:39.71,0:00:43.05,Default,,0,0,0,,{\k66}BACK {\k74}TOGETHER {\k86}LORD, {\k24}TAKE
+Dialogue: 0,0:00:43.05,0:00:45.63,Default,,0,0,0,,{\k24}IT {\k94}SO {\k80}FAR {\k60}AWAY
+Dialogue: 0,0:00:45.71,0:00:46.27,Default,,0,0,0,,{\k56}I

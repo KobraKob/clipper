@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #dfe6f4;
+  --ink: #14103a;
+  --court: #1b1480;
+  --volt: #ffd000;
+  --punch: #ff2d55;
+  --ice: #0098c9;
+  --white: #f7f8fc;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-court: var(--court);
+  --color-volt: var(--volt);
+  --color-punch: var(--punch);
+  --color-ice: var(--ice);
+  --color-white: var(--white);
+  --font-sans: var(--font-figtree);
+  --font-display: var(--font-barlow);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-figtree), "Segoe UI", sans-serif;
+}
+
+::selection {
+  background: var(--volt);
+  color: var(--ink);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--punch);
+  outline-offset: 3px;
+}
+
+.display {
+  font-family: var(--font-barlow), "Arial Narrow", sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 0.88;
+  text-wrap: balance;
+}
+
+.stamp {
+  box-shadow: 6px 6px 0 var(--court);
+}
+
+.stamp-sm {
+  box-shadow: 4px 4px 0 var(--court);
+}
+
+.hatch {
+  background-color: var(--court);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "job_id": "job_5e688a23c746",
+  "source": "https://youtu.be/BcQnHzrc24Y?si=h4BdCF5p_8d46xUP",
+  "clips_exported": 5,
+  "tokens_used": 0,
+  "clips": [
+    {
+      "rank": 1,
+      "title": "Featured Clip",
+      "score": 82,
+      "hook": "Don't loosen your grip, gotta hold on me Now forever, let's get back together Lord, take it so far away I pray to God we don't pray I want you to take me up and down and round and round again I know it hard to see you but I wish you were right here Oh it hard to leave you when I get you everywhere",
+      "reason": "Candidate selected by Stage 1 screening.",
+      "start": 74.22,
+      "end": 106.117,
+      "duration": 31.9,
+      "file": "C:\\Users\\badhu\\OneDrive\\Desktop\\project-hire\\clipping\\outputs\\01_featured_clip.mp4"
+    },
+    {
+      "rank": 2,
+      "title": "Featured Clip",
+      "score": 60,
+      "hook": "Slow down, be cool, I miss ya, come here now It's yours now, keep it, or hold on until now I need ya right now, once I leave you I'm strung out If I get you, I'm slowly breaking down And oh, it's hard to see you, but I wish you were right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinking we could never be a pair Oh, no, I don't need you, but I miss you, come here",
+      "reason": "Candidate selected by Stage 1 screening.",
+      "start": 17.98,
+      "end": 49.699997,
+      "duration": 31.72,
+      "file": "C:\\Users\\badhu\\OneDrive\\Desktop\\project-hire\\clipping\\outputs\\02_featured_clip.mp4"
+    },
+    {
+      "rank": 3,
+      "title": "Featured Clip",
+      "score": 60,
+      "hook": "All this time I'm thinking we could never be a pair Oh, no, I don't need you, but I miss you, come here And oh, it's hard to leave you when I get you right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinking I'm strong enough to sink it Oh no, I don't need you, but I miss you, come here Soon as you leave me, we always lose connection It's getting messy, I faint for your affection Don't loosen your grip, gotta hold on me Now forever, let's get back together Lord, take it so far away",
+      "reason": "Candidate selected by Stage 1 screening.",
+      "start": 41.6,
+      "end": 87.159996,
+      "duration": 45.56,
+      "file": "C:\\Users\\badhu\\OneDrive\\Desktop\\project-hire\\clipping\\outputs\\03_featured_clip.mp4"
+    },
+    {
+      "rank": 4,
+      "title": "Featured Clip",
+      "score": 60,
+      "hook": "All this time I'm thinking we could never be a pair Oh, no, I don't need you but I miss you from here I know it's hard to see you but I wish you were right here Oh, it's hard to leave you when I get you everywhere All this time I'm thinkin I'm strong enough to sink it Oh, no, I don't need you but I miss you, come here You love me now, you love me",
+      "reason": "Candidate selected by Stage 1 screening.",
+      "start": 106.117,
+      "end": 136.557,
+      "duration": 30.44,
+      "file": "C:\\Users\\badhu\\OneDrive\\Desktop\\project-hire\\clipping\\outputs\\04_featured_clip.mp4"
+    },
+    {
+      "rank": 5,
+      "title": "Featured Clip",
+      "score": 60,
+      "hook": "He hold me tight, and lets me go You love me now, you love me You hold me tight, and lets me go You hold me tight, and lets me go You love me now, you love me You hold me tight, and lets me go Hold me tight and let me go He loved me now, he loved me He hold me tight and let me go You gotta say that you're sorry At the end of the night Wake up in the morning, everything's alright",
+      "reason": "Candidate selected by Stage 1 screening.",
+      "start": 136.557,
+      "end": 166.99701,
+      "duration": 30.44,
+      "file": "C:\\Users\\badhu\\OneDrive\\Desktop\\project-hire\\clipping\\outputs\\05_featured_clip.mp4"
+    }
+  ]
+}
