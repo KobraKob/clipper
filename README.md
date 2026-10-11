@@ -17,7 +17,9 @@ Cost: **₹0 / $0**. Supports local open models (faster-whisper + Ollama) and ho
   - *Temporal Deduplication*: IoU filtering prevents redundant overlapping clips.
 - **Frame-Accurate Cutting**: Re-encoded cuts with padding to ensure pristine word starts and payoffs.
 - **Face-Tracked 9:16 Reframing**: YuNet (OpenCV DNN) face detection with exponential smoothing and dead-zone filtering to eliminate camera jitter, with instant snapping at scene cuts.
-- **Animated Subtitles**: Word-by-word highlighted ASS subtitles (`\k` karaoke effect) burned directly into the video.
+- **Animated Captions**: 7 selectable social-media styles (Bold Pop, Beast, One Word, Highlight Box, Neon, Karaoke, Clean) with per-word pop/colour animation, burned in the same encode as the 1080x1920 reframe.
+- **High-quality source**: downloads at least 1080p (configurable) and records the real resolution obtained.
+- **SEO + Publishing**: generates title, description, hashtags per clip and uploads to YouTube Shorts / Instagram Reels (`publish` command or UI buttons). See `amendment.md`.
 - **Caching**: Full cache pipeline (`audio.wav`, `transcript.json`, `candidates.json`) prevents re-transcription and saves API quota.
 
 ---

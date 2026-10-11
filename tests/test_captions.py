@@ -24,20 +24,46 @@ class TestCaptions(unittest.TestCase):
         self.assertIn("[V4+ Styles]", content)
         self.assertIn("[Events]", content)
 
-    def test_build_ass_karaoke_events(self):
-        words = [
-            {"w": "Never", "start": 10.0, "end": 10.4},
-            {"w": "make", "start": 10.4, "end": 10.7},
-            {"w": "this", "start": 10.7, "end": 11.0},
-            {"w": "mistake", "start": 11.0, "end": 11.6},
-        ]
-        # Shifted by clip_start=10.0
-        ass_str = build_ass(words, clip_start=10.0, group_size=4)
-        self.assertIn("Dialogue: 0,0:00:00.00,0:00:01.60", ass_str)
-        self.assertIn(r"{\k40}NEVER", ass_str)
-        self.assertIn(r"{\k30}MAKE", ass_str)
-        self.assertIn(r"{\k30}THIS", ass_str)
-        self.assertIn(r"{\k60}MISTAKE", ass_str)
+    WORDS = [
+        {"w": "Never", "start": 10.0, "end": 10.4},
+        {"w": "make", "start": 10.4, "end": 10.7},
+        {"w": "this", "start": 10.7, "end": 11.0},
+        {"w": "mistake", "start": 11.0, "end": 11.6},
+    ]
+
+    def test_every_style_builds(self):
+        from clipper.captions import CAPTION_STYLES
+
+        for key in CAPTION_STYLES:
+            out = build_ass(self.WORDS, clip_start=10.0, style=key)
+            self.assertIn("Dialogue:", out, key)
+
+    def test_highlight_emits_one_event_per_word_with_pop(self):
+        out = build_ass(self.WORDS, clip_start=10.0, style="bold_pop", group_size=4)
+        events = [l for l in out.splitlines() if l.startswith("Dialogue")]
+        self.assertEqual(len(events), 4)
+        self.assertIn("\\t(", events[0])  # pop transform
+        self.assertIn("NEVER", events[0])
+        self.assertTrue(events[0].startswith("Dialogue: 0,0:00:00.00,"))
+
+    def test_single_word_mode(self):
+        out = build_ass(self.WORDS, clip_start=10.0, style="one_word")
+        events = [l for l in out.splitlines() if l.startswith("Dialogue")]
+        self.assertEqual(len(events), 4)
+        self.assertNotIn("MAKE THIS", events[1])
+
+    def test_karaoke_fill_tags(self):
+        out = build_ass(self.WORDS, clip_start=10.0, style="karaoke")
+        self.assertIn("\\kf40}NEVER", out)
+
+    def test_unknown_style_and_position(self):
+        from clipper.captions import get_style
+
+        with self.assertRaises(ValueError):
+            get_style("nope")
+        with self.assertRaises(ValueError):
+            get_style("bold_pop", "sideways")
+        self.assertEqual(get_style("bold_pop", "top").position, "top")
 
     def test_escape_ffmpeg_filter_path(self):
         p = pathlib.Path("C:/Users/test/clip.ass")

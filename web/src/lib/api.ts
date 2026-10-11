@@ -1,4 +1,4 @@
-import type { CreateJobInput, JobView, Provider } from "./types";
+import type { CreateJobInput, JobView, Platform, Provider } from "./types";
 
 async function parseError(res: Response): Promise<string> {
   try {
@@ -49,4 +49,14 @@ export function providerNote(provider: Provider): string {
   return provider === "local"
     ? "Audio and scoring stay on this machine."
     : "Audio or transcript text is sent to Groq. Use local for private material.";
+}
+
+export async function publishClip(jobId: string, clipId: string, platforms: Platform[]): Promise<JobView> {
+  const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platforms }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
 }

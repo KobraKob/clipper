@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
-import type { Clip } from "@/lib/types";
+import { publishClip } from "@/lib/api";
+import type { Clip, Platform } from "@/lib/types";
 
 export function ClipCard({
   jobId,
@@ -21,6 +22,10 @@ export function ClipCard({
   const [end, setEnd] = useState(clip.end);
   const [timeError, setTimeError] = useState("");
   const [hasVideo, setHasVideo] = useState(Boolean(clip.file));
+  const [publishing, setPublishing] = useState<Platform | "both" | null>(null);
+  const [publishState, setPublishState] = useState(clip.publish || {});
+  const [publishError, setPublishError] = useState("");
+  const [copied, setCopied] = useState("");
 
   useEffect(() => {
     setStart(clip.start);
@@ -40,6 +45,30 @@ export function ClipCard({
     }
     setTimeError("");
     onTimes(start, end);
+  }
+
+  async function copy(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(""), 1500);
+    } catch {
+      // clipboard unavailable
+    }
+  }
+
+  async function doPublish(target: Platform | "both") {
+    setPublishError("");
+    setPublishing(target);
+    try {
+      const job = await publishClip(jobId, clip.id, target === "both" ? ["youtube", "instagram"] : [target]);
+      const updated = job.clips.find((c) => c.id === clip.id);
+      setPublishState(updated?.publish || {});
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : "Publish failed.");
+    } finally {
+      setPublishing(null);
+    }
   }
 
   const videoSrc = `/api/jobs/${jobId}/clips/${clip.id}`;
@@ -121,6 +150,61 @@ export function ClipCard({
           <p role="alert" className="text-xs font-bold text-punch">
             {timeError}
           </p>
+        ) : null}
+
+        {clip.seo ? (
+          <div className="flex flex-col gap-2 border-2 border-court/30 bg-paper/50 p-3 text-sm">
+            <p className="font-bold text-court">Title, description &amp; hashtags</p>
+            <p className="font-semibold">{clip.seo.youtube.title}</p>
+            <p className="whitespace-pre-line text-ink/80">{clip.seo.youtube.description}</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold" onClick={() => copy("yt", `${clip.seo!.youtube.title}\n\n${clip.seo!.youtube.description}`)}>
+                {copied === "yt" ? "Copied" : "Copy YouTube text"}
+              </button>
+              <button type="button" className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold" onClick={() => copy("ig", clip.seo!.instagram.caption)}>
+                {copied === "ig" ? "Copied" : "Copy Instagram caption"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {hasVideo && clip.seo ? (
+          <div className="flex flex-col gap-2">
+            <p className="font-bold text-court">Publish</p>
+            <div className="flex flex-wrap gap-2">
+              {(["youtube", "instagram", "both"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  disabled={publishing !== null}
+                  onClick={() => doPublish(t)}
+                  className="border-4 border-court bg-white px-3 py-2 font-semibold hover:bg-volt transition disabled:opacity-60 disabled:cursor-wait"
+                >
+                  {publishing === t ? "Uploading…" : t === "youtube" ? "YouTube Shorts" : t === "instagram" ? "Instagram Reels" : "Both"}
+                </button>
+              ))}
+            </div>
+            {(["youtube", "instagram"] as const).map((p) => {
+              const r = publishState[p];
+              if (!r) return null;
+              return r.status === "published" ? (
+                <p key={p} className="text-xs font-semibold text-court">
+                  {p === "youtube" ? "YouTube" : "Instagram"}: published{" "}
+                  {r.url ? (
+                    <a href={r.url} target="_blank" rel="noreferrer" className="underline">
+                      open
+                    </a>
+                  ) : null}
+                </p>
+              ) : (
+                <p key={p} role="alert" className="text-xs font-bold text-punch">
+                  {p === "youtube" ? "YouTube" : "Instagram"}: {r.error}
+                </p>
+              );
+            })}
+            {publishError ? <p role="alert" className="text-xs font-bold text-punch">{publishError}</p> : null}
+            <p className="text-xs text-ink/60">YouTube uploads default to private (set YOUTUBE_PRIVACY in .env).</p>
+          </div>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t-2 border-court/20">

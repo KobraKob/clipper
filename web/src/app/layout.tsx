@@ -1,18 +1,24 @@
 import type { Metadata } from "next";
-import { Barlow_Condensed, Figtree } from "next/font/google";
+import localFont from "next/font/local";
 import { SiteFrame } from "@/components/SiteFrame";
 import "./globals.css";
 
-const figtree = Figtree({
+// Self-hosted fonts: no network access needed at dev/build time.
+const figtree = localFont({
+  src: "../fonts/Figtree-Variable.ttf",
   variable: "--font-figtree",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
 });
 
-const barlow = Barlow_Condensed({
+const barlow = localFont({
+  src: [
+    { path: "../fonts/BarlowCondensed-SemiBold.ttf", weight: "600", style: "normal" },
+    { path: "../fonts/BarlowCondensed-Bold.ttf", weight: "700", style: "normal" },
+    { path: "../fonts/BarlowCondensed-ExtraBold.ttf", weight: "800", style: "normal" },
+  ],
   variable: "--font-barlow",
-  subsets: ["latin"],
-  weight: ["600", "700", "800"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {

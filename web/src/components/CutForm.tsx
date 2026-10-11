@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createJob, providerNote } from "@/lib/api";
-import type { Provider } from "@/lib/types";
+import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
+import type { Layout, Provider } from "@/lib/types";
 
 export function CutForm() {
   const router = useRouter();
@@ -12,6 +13,8 @@ export function CutForm() {
   const [provider, setProvider] = useState<Provider>("local");
   const [vertical, setVertical] = useState(true);
   const [captions, setCaptions] = useState(true);
+  const [captionStyle, setCaptionStyle] = useState("bold_pop");
+  const [layout, setLayout] = useState<Layout>("fill");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -33,6 +36,8 @@ export function CutForm() {
         provider,
         vertical,
         captions,
+        captionStyle,
+        layout,
       });
       router.push(`/jobs/${job.id}`);
     } catch (err) {
@@ -146,7 +151,7 @@ export function CutForm() {
               onChange={(e) => setVertical(e.target.checked)}
               className="h-5 w-5 accent-punch cursor-pointer"
             />
-            Vertical 9:16 (YuNet Face-Tracking)
+            Vertical 9:16 (full screen, face-tracked)
           </label>
           <label className="flex items-center gap-2 font-semibold text-court cursor-pointer">
             <input
@@ -155,9 +160,89 @@ export function CutForm() {
               onChange={(e) => setCaptions(e.target.checked)}
               className="h-5 w-5 accent-punch cursor-pointer"
             />
-            Burned Animated Subtitles (\k Karaoke)
+            Animated captions
           </label>
         </div>
+
+        {vertical ? (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="font-semibold text-court">Framing</legend>
+            <div className="grid grid-cols-2 border-4 border-court">
+              {(
+                [
+                  ["fill", "Fill screen", "Crops to 9:16 and follows the speaker"],
+                  ["fit_blur", "Fit + blur", "Whole frame on a blurred backdrop (slides, gameplay)"],
+                ] as const
+              ).map(([value, label, note]) => (
+                <label
+                  key={value}
+                  className={`cursor-pointer px-3 py-2 text-center transition ${
+                    layout === value ? "bg-volt text-ink" : "bg-white text-ink/80 hover:bg-paper"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="layout"
+                    value={value}
+                    checked={layout === value}
+                    onChange={() => setLayout(value)}
+                    className="sr-only"
+                  />
+                  <span className="block font-semibold">{label}</span>
+                  <span className="block text-xs text-ink/70">{note}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
+
+        {captions ? (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="font-semibold text-court">Caption style</legend>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {CAPTION_STYLE_OPTIONS.map((opt) => {
+                const words = opt.key === "one_word" ? ["THIS"] : ["THIS", "IS", "WILD"];
+                const fmt = (w: string) => (opt.upper ? w : w.toLowerCase());
+                return (
+                  <label
+                    key={opt.key}
+                    className={`cursor-pointer border-4 p-2 transition ${
+                      captionStyle === opt.key ? "border-punch bg-volt/40" : "border-court bg-white hover:bg-paper"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="captionStyle"
+                      value={opt.key}
+                      checked={captionStyle === opt.key}
+                      onChange={() => setCaptionStyle(opt.key)}
+                      className="sr-only"
+                    />
+                    <span className="flex h-16 items-center justify-center gap-1 bg-ink px-1" style={{ font: opt.font }}>
+                      {words.map((w, i) => (
+                        <span
+                          key={w}
+                          style={{
+                            color: i === 0 ? opt.active : opt.base,
+                            background: i === 0 ? opt.activeBg : undefined,
+                            padding: i === 0 && opt.activeBg ? "0 4px" : undefined,
+                            borderRadius: 4,
+                            WebkitTextStroke: `1px ${opt.stroke}`,
+                            textShadow: opt.key === "neon" ? "0 0 8px #00e5ff" : undefined,
+                          }}
+                        >
+                          {fmt(w)}
+                        </span>
+                      ))}
+                    </span>
+                    <span className="mt-1 block text-sm font-semibold text-court">{opt.label}</span>
+                    <span className="block text-xs text-ink/70">{opt.description}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        ) : null}
 
         {error ? (
           <p role="alert" className="border-4 border-punch bg-punch px-3 py-2 font-semibold text-white">

@@ -2,10 +2,12 @@ import { spawn } from "child_process";
 import { openSync, closeSync, promises as fs } from "fs";
 import path from "path";
 import { buildPreviewClips, hydrateJob } from "./pipeline";
-import type { Clip, CreateJobInput, Job, JobView } from "./types";
+import type { Clip, CreateJobInput, Job, JobView, Platform } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DATA_FILE = path.join(DATA_DIR, "jobs.json");
+// PYTHON=/path/to/python overrides; otherwise `python` on Windows, `python3` elsewhere.
+const PYTHON = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 async function resolveRootDir(): Promise<string> {
   const current = process.cwd();
@@ -43,6 +45,26 @@ function persistHydration(job: Job, view: JobView): Job {
   return job;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapManifestClips(manifest: any): Clip[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (manifest.clips || []).map((c: any) => ({
+    id: `clip-${c.rank}`,
+    title: c.seo?.youtube?.title || c.title,
+    hook: c.hook,
+    reason: c.reason,
+    score: c.score,
+    start: c.start,
+    end: c.end,
+    text: c.hook || c.title,
+    kept: true,
+    file: c.file,
+    captionStyle: c.caption_style ?? null,
+    seo: c.seo,
+    publish: c.publish || {},
+  }));
+}
+
 async function spawnClipperProcess(job: Job): Promise<void> {
   try {
     const rootDir = await resolveRootDir();
@@ -69,10 +91,12 @@ async function spawnClipperProcess(job: Job): Promise<void> {
       outDir,
     ];
 
+    args.push("--caption-style", job.captionStyle || "bold_pop");
+    args.push("--layout", job.layout || "fill");
     if (!job.vertical) args.push("--no-vertical");
     if (!job.captions) args.push("--no-captions");
 
-    const child = spawn("python", args, {
+    const child = spawn(PYTHON, args, {
       cwd: rootDir,
       stdio: ["ignore", logFd, logFd],
       windowsHide: true,
@@ -83,6 +107,23 @@ async function spawnClipperProcess(job: Job): Promise<void> {
         closeSync(logFd);
       } catch {
         // already closed
+      }
+
+      if (code === 0) {
+        // Authoritative completion signal: the process exited cleanly, so read the manifest now
+        // (the poller below gives up after a few minutes, which used to strand long jobs as "running").
+        try {
+          const manifest = JSON.parse(await fs.readFile(path.join(outDir, "metadata.json"), "utf8"));
+          const currentJobs = await readJobs();
+          const idx = currentJobs.findIndex((j) => j.id === job.id);
+          if (idx !== -1) {
+            currentJobs[idx].status = "done";
+            currentJobs[idx].clips = mapManifestClips(manifest);
+            await writeJobs(currentJobs);
+          }
+        } catch {
+          // fall through: poller or a later refresh may still pick it up
+        }
       }
 
       if (code !== 0) {
@@ -126,18 +167,7 @@ async function spawnClipperProcess(job: Job): Promise<void> {
         const idx = currentJobs.findIndex((j) => j.id === job.id);
         if (idx !== -1) {
           currentJobs[idx].status = "done";
-          currentJobs[idx].clips = (manifest.clips || []).map((c: any) => ({
-            id: `clip-${c.rank}`,
-            title: c.title,
-            hook: c.hook,
-            reason: c.reason,
-            score: c.score,
-            start: c.start,
-            end: c.end,
-            text: c.hook || c.title,
-            kept: true,
-            file: c.file,
-          }));
+          currentJobs[idx].clips = mapManifestClips(manifest);
           await writeJobs(currentJobs);
         }
       } catch {
@@ -192,6 +222,8 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     provider: input.provider === "groq" ? "groq" : "local",
     vertical: Boolean(input.vertical),
     captions: Boolean(input.captions),
+    captionStyle: /^[a-z_]{2,30}$/.test(input.captionStyle || "") ? (input.captionStyle as string) : "bold_pop",
+    layout: input.layout === "fit_blur" ? "fit_blur" : "fill",
     createdAt: now,
     startedAt: now,
     status: "running",
@@ -267,4 +299,47 @@ export async function getClipVideoFile(jobId: string, clipId: string): Promise<s
   }
 
   return null;
+}
+
+/** Upload one clip to YouTube Shorts and/or Instagram Reels via the Python CLI, then sync the manifest back. */
+export async function publishClip(jobId: string, clipId: string, platforms: Platform[]): Promise<JobView> {
+  const jobs = await readJobs();
+  const index = jobs.findIndex((j) => j.id === jobId);
+  if (index === -1) throw new Error("Job not found.");
+  const rank = Number(clipId.replace("clip-", ""));
+  if (!Number.isInteger(rank)) throw new Error("Invalid clip id.");
+  const valid = platforms.filter((p): p is Platform => p === "youtube" || p === "instagram");
+  if (!valid.length) throw new Error("Choose YouTube and/or Instagram.");
+
+  const rootDir = await resolveRootDir();
+  const manifest = path.join(rootDir, "outputs", jobId, "metadata.json");
+  await fs.access(manifest).catch(() => {
+    throw new Error("This job has no exported clips yet.");
+  });
+
+  for (const platform of valid) {
+    await new Promise<void>((resolve) => {
+      const child = spawn(
+        PYTHON,
+        ["-m", "clipper.cli", "publish", manifest, "--rank", String(rank), "--platform", platform],
+        { cwd: rootDir, stdio: "ignore", windowsHide: true },
+      );
+      child.on("close", () => resolve()); // result (incl. per-platform errors) is written to the manifest
+      child.on("error", () => resolve());
+    });
+  }
+
+  const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
+  const fresh = mapManifestClips(raw);
+  const current = await readJobs();
+  const i = current.findIndex((j) => j.id === jobId);
+  if (i !== -1) {
+    current[i].clips = current[i].clips.map((c) => {
+      const f = fresh.find((x) => x.id === c.id);
+      return f ? { ...c, publish: f.publish, seo: f.seo ?? c.seo } : c;
+    });
+    await writeJobs(current);
+    return hydrateJob(current[i]);
+  }
+  throw new Error("Job not found.");
 }

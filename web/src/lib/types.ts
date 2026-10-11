@@ -1,4 +1,21 @@
 export type Provider = "local" | "groq";
+export type Layout = "fill" | "fit_blur";
+export type Platform = "youtube" | "instagram";
+
+export type ClipSeo = {
+  youtube: { title: string; description: string; tags: string[] };
+  instagram: { caption: string };
+  hashtags: string[];
+  keywords: string[];
+  generated_by?: string;
+};
+
+export type PublishResult = {
+  status: "published" | "error";
+  url?: string | null;
+  id?: string;
+  error?: string;
+};
 
 export const PIPELINE_STAGES = [
   { id: "ingest", label: "Pull source" },
@@ -27,6 +44,9 @@ export type Clip = {
   kept: boolean;
   file?: string;
   videoUrl?: string;
+  captionStyle?: string | null;
+  seo?: ClipSeo;
+  publish?: Partial<Record<Platform, PublishResult>>;
 };
 
 export type Job = {
@@ -37,6 +57,8 @@ export type Job = {
   provider: Provider;
   vertical: boolean;
   captions: boolean;
+  captionStyle: string;
+  layout: Layout;
   createdAt: number;
   startedAt: number;
   status: JobStatus;
@@ -57,4 +79,6 @@ export type CreateJobInput = {
   provider: Provider;
   vertical: boolean;
   captions: boolean;
+  captionStyle?: string;
+  layout?: Layout;
 };

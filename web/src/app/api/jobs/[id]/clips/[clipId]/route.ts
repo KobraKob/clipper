@@ -1,11 +1,12 @@
-import { promises as fs } from "fs";
+import { createReadStream, promises as fs } from "fs";
+import { Readable } from "stream";
 import { NextResponse } from "next/server";
 import { getClipVideoFile, patchClip } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string; clipId: string }> },
 ) {
   const { id, clipId } = await params;
@@ -19,15 +20,34 @@ export async function GET(
   }
 
   try {
-    const fileBuffer = await fs.readFile(filePath);
-    return new NextResponse(fileBuffer, {
-      status: 200,
-      headers: {
-        "Content-Type": "video/mp4",
-        "Content-Length": String(fileBuffer.length),
-        "Content-Disposition": `inline; filename="${clipId}.mp4"`,
-      },
-    });
+    const { size } = await fs.stat(filePath);
+    const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get("range") || "");
+    let start = 0;
+    let end = size - 1;
+    let status = 200;
+    if (range && (range[1] || range[2])) {
+      if (range[1]) {
+        start = Number(range[1]);
+        if (range[2]) end = Math.min(Number(range[2]), size - 1);
+      } else {
+        start = Math.max(0, size - Number(range[2])); // suffix range
+      }
+      if (start > end || start >= size) {
+        return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+      }
+      status = 206;
+    }
+    // Stream from disk (seekable in <video>, no whole-file buffering).
+    const nodeStream = createReadStream(filePath, { start, end });
+    const body = Readable.toWeb(nodeStream) as unknown as ReadableStream;
+    const headers: Record<string, string> = {
+      "Content-Type": "video/mp4",
+      "Content-Length": String(end - start + 1),
+      "Accept-Ranges": "bytes",
+      "Content-Disposition": `inline; filename="${clipId}.mp4"`,
+    };
+    if (status === 206) headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
+    return new NextResponse(body, { status, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to read video file.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -12,13 +12,14 @@ import re
 from typing import Any, Dict, List, Optional
 
 from .candidates import build_candidates, detect_scene_cuts, prefilter
-from .captions import build_ass, burn_captions
+from .captions import FONTS_DIR, build_ass, burn_captions, get_style
 from .config import Settings, settings as default_settings
 from .cut import cut
-from .ingest import download, extract_audio, is_url
+from .ingest import download, extract_audio, is_url, load_source_info
 from .providers import get_llm, get_transcriber
 from .providers.base import LLM, Transcriber
 from .reframe import render_vertical
+from .seo import generate_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +79,19 @@ def run_pipeline(
     app_settings: Optional[Settings] = None,
     transcriber: Optional[Transcriber] = None,
     llm: Optional[LLM] = None,
+    caption_style: Optional[str] = None,
+    layout: Optional[str] = None,
+    seo: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Execute full automated video clipping pipeline.
+
+    ``caption_style`` / ``layout`` / ``seo`` default to the values in ``Settings`` (.env).
     """
     s = app_settings or default_settings
+    style = get_style(caption_style or s.caption_style, s.caption_position or None)
+    layout = layout or s.layout
+    seo_on = s.seo_enabled if seo is None else seo
     base_work_dir = pathlib.Path(work_dir or "workdir")
     base_out_dir = pathlib.Path(output_dir or "outputs")
 
@@ -94,7 +103,14 @@ def run_pipeline(
     # 1. Ingestion
     logger.info("[pipeline] Ingesting source: %s", source)
     if is_url(source):
-        video_path = download(source, job_dir)
+        video_path = download(
+            source,
+            job_dir,
+            min_height=s.min_source_height,
+            max_height=s.max_source_height,
+            cookies_from_browser=s.ytdlp_cookies_from_browser or None,
+            cookies_file=s.ytdlp_cookies_file or None,
+        )
     else:
         video_path = pathlib.Path(source)
         if not video_path.exists():
@@ -149,8 +165,10 @@ def run_pipeline(
     if tokens_used:
         logger.info("[pipeline] LLM tokens consumed: %d", tokens_used)
 
-    # 7. Render clips (Cut -> Reframe -> Captions)
+    # 7. Render clips (Cut -> [Reframe + Captions in ONE encode] -> SEO)
     exported_clips: List[Dict[str, Any]] = []
+    pad_offset = 0.15
+    source_info = load_source_info(job_dir) if is_url(source) else {}
 
     for idx, clip in enumerate(ranked_clips, start=1):
         clip_title = clip.get("title", f"Clip {idx}")
@@ -162,44 +180,53 @@ def run_pipeline(
 
         # Frame-accurate cut
         raw_clip = job_dir / f"clip_{idx}_raw.mp4"
-        cut(video_path, start_time, end_time, raw_clip, pad=0.15)
-        current_video = raw_clip
+        cut(video_path, start_time, end_time, raw_clip, pad=pad_offset)
 
-        # Vertical 9:16 reframing
-        if vertical:
-            vertical_clip = job_dir / f"clip_{idx}_vertical.mp4"
-            logger.info("  -> Reframing to 9:16 with face tracking...")
-            # Shift scene cuts to clip relative time
-            rel_cuts = [c - start_time for c in scene_cuts if start_time <= c <= end_time]
-            render_vertical(current_video, vertical_clip, scene_cuts=rel_cuts)
-            current_video = vertical_clip
-
-        # Burn word-level animated captions
         final_clip_name = f"{idx:02d}_{slug}.mp4"
         final_clip_path = base_out_dir / final_clip_name
 
-        if captions:
-            logger.info("  -> Generating animated ASS captions...")
-            # Extract word timestamps within this time window
-            pad_offset = 0.15
-            clip_words: List[Dict[str, Any]] = []
-            for seg in segments:
-                for w in seg.get("words", []):
-                    w_s = float(w["start"])
-                    if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
-                        clip_words.append(w)
+        # Words that fall inside this clip (source time -> clip time handled by clip_start)
+        clip_start = max(0.0, start_time - pad_offset)
+        clip_words: List[Dict[str, Any]] = []
+        for seg in segments:
+            for w in seg.get("words", []):
+                w_s = float(w["start"])
+                if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
+                    clip_words.append(w)
+        transcript_text = " ".join(str(w["w"]).strip() for w in clip_words) or clip.get("text", "")
 
+        ass_file: Optional[pathlib.Path] = None
+        if captions and clip_words:
+            logger.info("  -> Building '%s' animated captions...", style.key)
             ass_file = job_dir / f"clip_{idx}.ass"
-            ass_content = build_ass(clip_words, clip_start=max(0.0, start_time - pad_offset))
-            ass_file.write_text(ass_content, encoding="utf-8")
+            ass_file.write_text(
+                build_ass(clip_words, clip_start=clip_start, style=style, play_w=s.out_width, play_h=s.out_height),
+                encoding="utf-8",
+            )
 
-            burn_captions(current_video, ass_file, final_clip_path)
+        if vertical:
+            logger.info("  -> Rendering %dx%d vertical (%s layout)...", s.out_width, s.out_height, layout)
+            rel_cuts = [c - clip_start for c in scene_cuts if start_time <= c <= end_time]
+            render_vertical(
+                raw_clip,
+                final_clip_path,
+                out_w=s.out_width,
+                out_h=s.out_height,
+                scene_cuts=rel_cuts,
+                ass_path=ass_file,
+                fonts_dir=FONTS_DIR,
+                layout=layout,
+                crf=s.video_crf,
+                preset=s.video_preset,
+            )
+        elif ass_file is not None:
+            burn_captions(raw_clip, ass_file, final_clip_path)
         else:
-            # Copy uncaptioned video to final location
             import shutil
-            shutil.copy(current_video, final_clip_path)
 
-        clip_record = {
+            shutil.copy(raw_clip, final_clip_path)
+
+        clip_record: Dict[str, Any] = {
             "rank": idx,
             "title": clip_title,
             "score": clip.get("score", 0),
@@ -209,7 +236,20 @@ def run_pipeline(
             "end": end_time,
             "duration": round(end_time - start_time, 2),
             "file": str(final_clip_path.resolve()),
+            "caption_style": style.key if captions else None,
+            "layout": layout if vertical else "original",
+            "publish": {},
         }
+        if seo_on:
+            logger.info("  -> Generating title / description / hashtags...")
+            clip_record["seo"] = generate_metadata(
+                clip,
+                transcript_text,
+                llm=llm_service,
+                language=s.seo_language,
+                source_url=source if is_url(source) else None,
+                credit_source=s.seo_credit_source,
+            )
         exported_clips.append(clip_record)
 
     # 8. Export metadata manifest
@@ -219,6 +259,7 @@ def run_pipeline(
         "source": str(source),
         "clips_exported": len(exported_clips),
         "tokens_used": tokens_used,
+        "source_quality": source_info,
         "clips": exported_clips,
     }
     metadata_path.write_text(json.dumps(metadata_manifest, indent=2), encoding="utf-8")

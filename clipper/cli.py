@@ -54,6 +54,21 @@ def run(
     workdir: str = typer.Option("workdir", "--workdir", "-w", help="Working cache directory."),
     outdir: str = typer.Option("outputs", "--outdir", "-o", help="Final clips destination directory."),
     shortlist: Optional[int] = typer.Option(None, "--shortlist", help="Shortlist size for stage 2 strong LLM."),
+    caption_style: Optional[str] = typer.Option(
+        None, "--caption-style", "-s", help="Caption look (see `caption-styles`). Default from CAPTION_STYLE in .env."
+    ),
+    caption_position: Optional[str] = typer.Option(
+        None, "--caption-position", help="Override caption position: bottom | middle | top."
+    ),
+    layout: Optional[str] = typer.Option(
+        None, "--layout", help="fill = face-tracked full-screen crop (default) | fit_blur = whole frame on blurred backdrop."
+    ),
+    seo: Optional[bool] = typer.Option(
+        None, "--seo/--no-seo", help="Generate title, description and hashtags for every clip."
+    ),
+    min_height: Optional[int] = typer.Option(
+        None, "--min-height", help="Minimum source resolution to download (short side). Default 1080."
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug logging."),
 ) -> None:
     """Run full automated clipping pipeline."""
@@ -71,6 +86,8 @@ def run(
     custom_settings = Settings.create_custom(
         provider=provider,
         shortlist=shortlist,
+        caption_position=caption_position,
+        min_source_height=min_height,
     )
 
     try:
@@ -82,6 +99,9 @@ def run(
             work_dir=pathlib.Path(workdir),
             output_dir=pathlib.Path(outdir),
             app_settings=custom_settings,
+            caption_style=caption_style,
+            layout=layout,
+            seo=seo,
         )
 
         table = Table(title="Generated Clips Summary", show_header=True, header_style="bold green")
@@ -110,6 +130,54 @@ def run(
         if verbose:
             console.print_exception()
         raise typer.Exit(code=1)
+
+
+@app.command("caption-styles")
+def caption_styles(
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output (used by the web UI)."),
+) -> None:
+    """List the available caption styles."""
+    import json as _json
+
+    from .captions import list_styles
+
+    styles = list_styles()
+    if as_json:
+        typer.echo(_json.dumps(styles))
+        return
+    table = Table(title="Caption styles", header_style="bold magenta")
+    table.add_column("Key", style="cyan")
+    table.add_column("Name")
+    table.add_column("Look")
+    for st in styles:
+        table.add_row(st["key"], st["label"], st["description"])
+    console.print(table)
+
+
+@app.command()
+def publish(
+    manifest: str = typer.Argument(..., help="Path to the outputs/metadata.json written by `run`."),
+    rank: int = typer.Option(..., "--rank", "-r", help="Clip rank to publish (see the manifest)."),
+    platform: str = typer.Option("both", "--platform", "-p", help="youtube | instagram | both"),
+    privacy: Optional[str] = typer.Option(None, "--privacy", help="YouTube privacy: private | unlisted | public."),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Upload a finished clip to YouTube Shorts and/or Instagram Reels using its generated metadata."""
+    import json as _json
+
+    from .config import settings as _settings
+    from .publish import PublishError, update_manifest
+
+    _setup_logging(verbose)
+    targets = ["youtube", "instagram"] if platform == "both" else [platform]
+    try:
+        result = update_manifest(pathlib.Path(manifest), rank, targets, _settings, privacy)
+    except PublishError as exc:
+        console.print(f"[bold red]Publish failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+    typer.echo(_json.dumps(result, indent=2))
+    if any(v.get("status") == "error" for v in result.values() if v.get("status")):
+        raise typer.Exit(code=2)
 
 
 @app.command()
