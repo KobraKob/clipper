@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { fetchJob, patchClip } from "@/lib/api";
+import { deleteJob, fetchJob, patchClip, rerenderClip } from "@/lib/api";
 import { formatTimecode } from "@/lib/pipeline";
 import type { JobView } from "@/lib/types";
 import { ClipCard } from "./ClipCard";
@@ -10,6 +11,7 @@ import { PipelineStrip } from "./PipelineStrip";
 import { WaveBars } from "./WaveBars";
 
 export function JobStudio({ jobId }: { jobId: string }) {
+  const router = useRouter();
   const [job, setJob] = useState<JobView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,8 +27,23 @@ export function JobStudio({ jobId }: { jobId: string }) {
   }, [jobId]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let ignore = false;
+    fetchJob(jobId)
+      .then((next) => {
+        if (!ignore) {
+          setJob(next);
+          setError("");
+        }
+      })
+      .catch((err: unknown) => {
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : "Could not load this job.");
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [jobId]);
 
   const isRunning = job?.status === "running";
 
@@ -46,6 +63,33 @@ export function JobStudio({ jobId }: { jobId: string }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update clip.");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRerender(clipId: string, start: number, end: number) {
+    setBusy(true);
+    try {
+      const next = await rerenderClip(jobId, clipId, start, end);
+      setJob(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not re-render clip.");
+      throw err;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteJob() {
+    if (!window.confirm("Are you sure you want to delete this cut and all its exported clips?")) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await deleteJob(jobId);
+      router.push("/library");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete cut.");
       setBusy(false);
     }
   }
@@ -87,6 +131,14 @@ export function JobStudio({ jobId }: { jobId: string }) {
           <Link href="/library" className="border-4 border-court bg-volt px-4 py-2 font-semibold stamp-sm hover:bg-volt/80">
             Open library
           </Link>
+          <button
+            type="button"
+            onClick={handleDeleteJob}
+            disabled={busy}
+            className="border-4 border-court bg-punch px-4 py-2 font-semibold text-white stamp-sm hover:bg-punch/90 transition disabled:opacity-60"
+          >
+            Delete cut
+          </button>
         </div>
       </div>
 
@@ -115,15 +167,31 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
       {running ? (
         <div className="border-4 border-court bg-white p-4">
-          <p className="font-semibold text-court">Pipeline in progress</p>
-          <p className="mt-1 text-sm text-ink/80">
-            The studio is progressing through the automated stages: ingest, speech transcription,
-            sentence windowing, two-stage LLM retention scoring, 9:16 face-tracked cropping, and subtitle burn-in.
+          <div className="flex items-center justify-between">
+            <p className="font-semibold text-court">Pipeline in progress ({(job.progress * 100).toFixed(0)}%)</p>
+            <span className="font-mono text-xs font-bold uppercase bg-volt px-2 py-1">{job.stageId}</span>
+          </div>
+          {job.progressMessage ? (
+            <p className="mt-2 font-mono text-sm text-court font-semibold bg-paper/60 p-2 border-2 border-court/30">
+              {job.progressMessage}
+            </p>
+          ) : null}
+          <p className="mt-2 text-sm text-ink/80">
+            Real-time pipeline: speech transcription, candidate windowing, LLM scoring, 9:16 vertical reframing, and animated subtitles.
           </p>
         </div>
       ) : null}
 
-      {job.status === "done" ? (
+      {job.status === "done" && job.clips.length === 0 ? (
+        <div className="border-4 border-court bg-white p-6">
+          <p className="display text-3xl text-court">No clips generated</p>
+          <p className="mt-2 text-ink/80">
+            The video was processed, but no candidate segments met the score/duration threshold.
+          </p>
+        </div>
+      ) : null}
+
+      {job.status === "done" && job.clips.length > 0 ? (
         <section className="flex flex-col gap-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="display text-5xl text-court">Ranked clips</h2>
@@ -140,13 +208,14 @@ export function JobStudio({ jobId }: { jobId: string }) {
                 busy={busy}
                 onKeep={(keptNext) => void updateClip(clip.id, { kept: keptNext })}
                 onTimes={(start, end) => void updateClip(clip.id, { start, end })}
+                onRerender={(start, end) => handleRerender(clip.id, start, end)}
               />
             ))}
           </div>
         </section>
       ) : null}
 
-      {job.status === "done" ? (
+      {job.status === "done" && job.clips.length > 0 ? (
         <p className="text-sm text-ink/70">
           Clips ready for publishing. Word-level timestamps start at:{" "}
           {job.clips.map((c) => formatTimecode(c.start)).join(", ")}.

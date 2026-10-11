@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createJob, getJob, listJobs, patchClip } from "../src/lib/store.ts";
-import { formatTimecode, hydrateJob, buildPreviewClips } from "../src/lib/pipeline.ts";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { createJob, deleteJob, getJob, listJobs, patchClip, setJobClips } from "../src/lib/store.ts";
+import { formatTimecode, hydrateJob } from "../src/lib/pipeline.ts";
 
 test("formatTimecode formats seconds correctly", () => {
   assert.equal(formatTimecode(0), "0:00");
@@ -11,17 +14,57 @@ test("formatTimecode formats seconds correctly", () => {
   assert.equal(formatTimecode(3600), "60:00");
 });
 
-test("buildPreviewClips generates requested count with valid bounds", () => {
-  const clips = buildPreviewClips("test-source", 4);
-  assert.equal(clips.length, 4);
-  for (const c of clips) {
-    assert.ok(c.id.startsWith("clip-"));
-    assert.ok(c.title.length > 0);
-    assert.ok(c.hook.length > 0);
-    assert.ok(c.score > 0);
-    assert.ok(c.end > c.start);
-    assert.equal(c.kept, true);
-  }
+test("hydrateJob uses real progressInfo without simulating timers or inventing fake clips", () => {
+  const job = {
+    id: "job-test-real",
+    source: "https://example.com/video.mp4",
+    sourceKind: "url",
+    clipCount: 3,
+    provider: "local",
+    vertical: true,
+    captions: true,
+    captionStyle: "bold_pop",
+    layout: "fill",
+    createdAt: Date.now(),
+    startedAt: Date.now(),
+    status: "running",
+    clips: [],
+    progressInfo: {
+      stage: "score",
+      percent: 55,
+      message: "Scoring viral hooks...",
+    },
+  };
+
+  const view = hydrateJob(job);
+  assert.equal(view.stageId, "score");
+  assert.equal(view.progress, 0.55);
+  assert.equal(view.progressMessage, "Scoring viral hooks...");
+  assert.equal(view.clips.length, 0); // Must NOT invent fake preview clips!
+});
+
+test("hydrateJob handles completed job with 0 clips truthfully", () => {
+  const job = {
+    id: "job-empty-done",
+    source: "https://example.com/video.mp4",
+    sourceKind: "url",
+    clipCount: 3,
+    provider: "local",
+    vertical: true,
+    captions: true,
+    captionStyle: "bold_pop",
+    layout: "fill",
+    createdAt: Date.now(),
+    startedAt: Date.now(),
+    status: "done",
+    clips: [],
+  };
+
+  const view = hydrateJob(job);
+  assert.equal(view.status, "done");
+  assert.equal(view.stageId, "done");
+  assert.equal(view.progress, 1.0);
+  assert.equal(view.clips.length, 0); // Zero clips preserved truthfully
 });
 
 test("createJob supports URLs without errors", async () => {
@@ -39,19 +82,59 @@ test("createJob supports URLs without errors", async () => {
   assert.equal(job.clipCount, 3);
 });
 
-test("createJob supports local file paths without rejection", async () => {
-  const job = await createJob({
-    sourceUrl: "C:\\videos\\interview.mp4",
-    clipCount: 4,
-    provider: "local",
-    vertical: true,
-    captions: false,
-  });
+test("createJob supports valid local file and rejects non-existent or disallowed files", async () => {
+  // 1. Create a real temporary mp4 file
+  const tmpDir = os.tmpdir();
+  const validFile = path.join(tmpDir, `test_${Date.now()}.mp4`);
+  fs.writeFileSync(validFile, Buffer.from("fake-mp4-data"));
 
-  assert.ok(job.id);
-  assert.equal(job.sourceKind, "file");
-  assert.equal(job.source, "C:\\videos\\interview.mp4");
-  assert.equal(job.provider, "local");
+  try {
+    const job = await createJob({
+      sourceUrl: validFile,
+      clipCount: 2,
+      provider: "local",
+      vertical: true,
+      captions: false,
+    });
+
+    assert.ok(job.id);
+    assert.equal(job.sourceKind, "file");
+    assert.equal(job.source, validFile);
+  } finally {
+    try {
+      fs.unlinkSync(validFile);
+    } catch {
+      // ignore cleanup
+    }
+  }
+
+  // 2. Reject non-existent file
+  await assert.rejects(
+    async () => {
+      await createJob({
+        sourceUrl: path.join(tmpDir, "non_existent_video_12345.mp4"),
+        clipCount: 2,
+        provider: "local",
+        vertical: true,
+        captions: false,
+      });
+    },
+    { message: /not found at/ }
+  );
+
+  // 3. Reject disallowed extension (e.g. .exe / .sh)
+  await assert.rejects(
+    async () => {
+      await createJob({
+        sourceUrl: "C:\\Windows\\notepad.exe",
+        clipCount: 2,
+        provider: "local",
+        vertical: true,
+        captions: false,
+      });
+    },
+    { message: /Invalid or prohibited file path/ }
+  );
 });
 
 test("createJob rejects empty source", async () => {
@@ -70,6 +153,23 @@ test("createJob rejects empty source", async () => {
   );
 });
 
+test("concurrent job creations serialize safely under mutex without race conditions", async () => {
+  const promises = [1, 2, 3].map((n) =>
+    createJob({
+      sourceUrl: `https://example.com/video_${n}.mp4`,
+      clipCount: 2,
+      provider: "local",
+      vertical: true,
+      captions: false,
+    })
+  );
+
+  const results = await Promise.all(promises);
+  assert.equal(results.length, 3);
+  const ids = new Set(results.map((r) => r.id));
+  assert.equal(ids.size, 3);
+});
+
 test("patchClip updates clip kept and timestamps", async () => {
   const job = await createJob({
     sourceUrl: "https://sample.com/podcast.mp4",
@@ -79,6 +179,22 @@ test("patchClip updates clip kept and timestamps", async () => {
     captions: true,
   });
 
+  // Attach real clips for this job
+  await setJobClips(job.id, [
+    {
+      id: "clip-1",
+      title: "Hook clip",
+      hook: "Listen",
+      reason: "Energy",
+      score: 85,
+      start: 10,
+      end: 40,
+      text: "Transcript",
+      kept: true,
+    },
+  ]);
+
+  // Update via patchClip
   const updated = await patchClip(job.id, "clip-1", {
     kept: false,
     start: 50,
@@ -101,6 +217,20 @@ test("patchClip rejects invalid timestamp range (end <= start)", async () => {
     captions: true,
   });
 
+  await setJobClips(job.id, [
+    {
+      id: "clip-1",
+      title: "Sample",
+      hook: "H",
+      reason: "R",
+      score: 70,
+      start: 10,
+      end: 20,
+      text: "T",
+      kept: true,
+    },
+  ]);
+
   await assert.rejects(
     async () => {
       await patchClip(job.id, "clip-1", {
@@ -120,3 +250,34 @@ test("listJobs returns jobs sorted by createdAt descending", async () => {
     assert.ok(jobs[i].createdAt >= jobs[i + 1].createdAt);
   }
 });
+
+test("createJob stores chosen videoEncoder", async () => {
+  const job = await createJob({
+    sourceUrl: "https://example.com/nvenc.mp4",
+    clipCount: 2,
+    provider: "local",
+    vertical: true,
+    captions: true,
+    videoEncoder: "h264_nvenc",
+  });
+
+  assert.equal(job.videoEncoder, "h264_nvenc");
+  const fetched = await getJob(job.id);
+  assert.equal(fetched.videoEncoder, "h264_nvenc");
+});
+
+test("deleteJob deletes job from store and returns true", async () => {
+  const job = await createJob({
+    sourceUrl: "https://example.com/delete-me.mp4",
+    clipCount: 1,
+    provider: "local",
+    vertical: true,
+    captions: false,
+  });
+
+  assert.ok(await getJob(job.id));
+  const deleted = await deleteJob(job.id);
+  assert.equal(deleted, true);
+  assert.equal(await getJob(job.id), null);
+});
+

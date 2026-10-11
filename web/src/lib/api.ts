@@ -9,6 +9,19 @@ async function parseError(res: Response): Promise<string> {
   }
 }
 
+export async function uploadVideo(
+  file: File,
+): Promise<{ path: string; fileName: string; originalName: string; size: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 export async function createJob(input: CreateJobInput): Promise<JobView> {
   const res = await fetch("/api/jobs", {
     method: "POST",
@@ -45,6 +58,21 @@ export async function patchClip(
   return res.json();
 }
 
+export async function rerenderClip(
+  jobId: string,
+  clipId: string,
+  start: number,
+  end: number,
+): Promise<JobView> {
+  const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/rerender`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start, end }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 export function providerNote(provider: Provider): string {
   return provider === "local"
     ? "Audio and scoring stay on this machine."
@@ -59,4 +87,9 @@ export async function publishClip(jobId: string, clipId: string, platforms: Plat
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
+}
+
+export async function deleteJob(id: string): Promise<void> {
+  const res = await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await parseError(res));
 }

@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { createJob, providerNote } from "@/lib/api";
+import { createJob, providerNote, uploadVideo } from "@/lib/api";
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
-import type { Layout, Provider } from "@/lib/types";
+import type { Layout, Provider, VideoEncoder } from "@/lib/types";
 
 export function CutForm() {
   const router = useRouter();
@@ -15,8 +15,11 @@ export function CutForm() {
   const [captions, setCaptions] = useState(true);
   const [captionStyle, setCaptionStyle] = useState("bold_pop");
   const [layout, setLayout] = useState<Layout>("fill");
+  const [videoEncoder, setVideoEncoder] = useState<VideoEncoder>("auto");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -38,6 +41,7 @@ export function CutForm() {
         captions,
         captionStyle,
         layout,
+        videoEncoder,
       });
       router.push(`/jobs/${job.id}`);
     } catch (err) {
@@ -46,10 +50,24 @@ export function CutForm() {
     }
   }
 
-  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) {
-      setSourceUrl(file.name);
+    if (!file) return;
+
+    setError("");
+    setUploading(true);
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    setUploadProgress(`Uploading ${file.name} (${sizeMb} MB)…`);
+
+    try {
+      const result = await uploadVideo(file);
+      setSourceUrl(result.path);
+      setUploadProgress(`Uploaded: ${file.name}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload file.");
+      setUploadProgress("");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -74,11 +92,12 @@ export function CutForm() {
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-2 border-court/30 bg-paper/50 p-3">
           <div className="flex items-center gap-2">
-            <label className="cursor-pointer border-2 border-court bg-white px-3 py-1 text-sm font-semibold hover:bg-volt transition">
-              Browse File…
+            <label className="cursor-pointer border-2 border-court bg-white px-3 py-1 text-sm font-semibold hover:bg-volt transition disabled:opacity-60">
+              {uploading ? uploadProgress || "Uploading…" : "Browse File…"}
               <input
                 type="file"
                 accept="video/*"
+                disabled={uploading || busy}
                 className="sr-only"
                 onChange={handleFileSelected}
               />
@@ -142,6 +161,38 @@ export function CutForm() {
             <p className="text-xs text-ink/70">{providerNote(provider)}</p>
           </fieldset>
         </div>
+
+        <fieldset className="flex flex-col gap-2">
+          <legend className="font-semibold text-court">Hardware Acceleration (Encoder)</legend>
+          <div className="grid grid-cols-2 md:grid-cols-4 border-4 border-court">
+            {(
+              [
+                ["auto", "Auto", "NVENC GPU preferred with CPU fallback"],
+                ["h264_nvenc", "NVIDIA NVENC", "Hardware GPU render (RTX/GTX)"],
+                ["libx264", "CPU (libx264)", "Standard software encoder"],
+                ["h264_qsv", "Intel QSV", "Intel QuickSync GPU"],
+              ] as const
+            ).map(([value, label, note]) => (
+              <label
+                key={value}
+                className={`cursor-pointer px-3 py-2 text-center transition ${
+                  videoEncoder === value ? "bg-volt text-ink font-bold" : "bg-white text-ink/80 hover:bg-paper"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="videoEncoder"
+                  value={value}
+                  checked={videoEncoder === value}
+                  onChange={() => setVideoEncoder(value)}
+                  className="sr-only"
+                />
+                <span className="block text-sm font-semibold">{label}</span>
+                <span className="block text-xs text-ink/70">{note}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <div className="flex flex-wrap gap-6 pt-2">
           <label className="flex items-center gap-2 font-semibold text-court cursor-pointer">
@@ -252,10 +303,10 @@ export function CutForm() {
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || uploading}
           className="display bg-punch px-4 py-4 text-3xl md:text-4xl text-white stamp-sm hover:bg-punch/90 transition disabled:opacity-60 disabled:cursor-wait"
         >
-          {busy ? "Starting cut…" : "Cut clips"}
+          {uploading ? "Uploading video…" : busy ? "Starting cut…" : "Cut clips"}
         </button>
       </div>
     </form>

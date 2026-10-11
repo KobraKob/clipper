@@ -78,9 +78,8 @@ class TestSelectFormats(unittest.TestCase):
     def test_prefers_4k_over_1080_when_available(self):
         plan = select_formats({"formats": LADDER_4K}, min_height=1080, max_height=2160)
         self.assertEqual(plan.height, 2160)
-        # VP9 outranks AV1 at the same height; audio is AAC (mp4a) over opus
         self.assertTrue(plan.attempts[0].expr.startswith("313+"))
-        self.assertEqual(plan.attempts[0].merge_format, "mkv")  # vp9 cannot go in mp4 safely
+        self.assertEqual(plan.attempts[0].merge_format, "mkv")
 
     def test_attempts_span_distinct_resolutions(self):
         plan = select_formats({"formats": LADDER_4K}, 1080, 2160)
@@ -94,7 +93,6 @@ class TestSelectFormats(unittest.TestCase):
         self.assertNotIn(2160, [a.height for a in plan.attempts])
 
     def test_only_360p_is_flagged_below_target(self):
-        # Exactly the situation from the 360p run: only the muxed 360p stream is exposed.
         plan = select_formats({"formats": [muxed(18, 640, 360)]}, min_height=1080)
         self.assertEqual(plan.height, 360)
         self.assertTrue(plan.below_target)
@@ -206,7 +204,6 @@ class TestDownloadFlow(unittest.TestCase):
             self.assertTrue(path.exists())
             cmd = fake.commands[0]
             self.assertEqual(cmd[cmd.index("-f") + 1], "137+140")
-            # Must NOT force the legacy client list that produced 360p
             self.assertNotIn("youtube:player_client=tv,android,web", " ".join(cmd))
             saved = ingest.load_source_info(pathlib.Path(tmp))
             self.assertEqual(saved["title"], "T")
@@ -240,13 +237,11 @@ class TestDownloadFlow(unittest.TestCase):
             self.assertEqual(path.name, "source.mp4")
 
     def test_cached_360p_source_is_replaced(self):
-        # Regression: a stale 360p cache from the old downloader used to be reused forever.
         info = {"formats": LADDER_1080}
         with tempfile.TemporaryDirectory() as tmp:
             (pathlib.Path(tmp) / "source.mp4").write_bytes(b"old-360p")
             fake = FakeDownloads(tmp, info)
             with fake:
-                # first probe_video call (cache check) must report 360p, later calls 1080p
                 calls = {"n": 0}
 
                 def probe(path):
@@ -268,6 +263,104 @@ class TestDownloadFlow(unittest.TestCase):
 
     def test_youtube_bot_check_gets_cookie_hint(self):
         self.assertIn("YTDLP_COOKIES_FROM_BROWSER", ingest._hint_for_error("Sign in to confirm you're not a bot"))
+
+    def test_real_world_ytdlp_dump_json_parsing(self):
+        """Simulate real yt-dlp dump json with complex audio tracks, DASH manifests, and storyboards."""
+        real_dump = {
+            "id": "sXKnmgmbkoE",
+            "title": "Lex Fridman Podcast #400",
+            "channel": "Lex Fridman",
+            "description": "Conversation with guests.",
+            "formats": [
+                {
+                    "format_id": "sb2",
+                    "format_note": "storyboard",
+                    "ext": "mhtml",
+                    "width": 160,
+                    "height": 90,
+                    "fps": 0.1,
+                    "vcodec": "none",
+                    "acodec": "none",
+                },
+                {
+                    "format_id": "139",
+                    "format_note": "low",
+                    "ext": "m4a",
+                    "acodec": "mp4a.40.5",
+                    "vcodec": "none",
+                    "abr": 48.0,
+                    "tbr": 49.0,
+                },
+                {
+                    "format_id": "140",
+                    "format_note": "medium",
+                    "ext": "m4a",
+                    "acodec": "mp4a.40.2",
+                    "vcodec": "none",
+                    "abr": 128.0,
+                    "tbr": 129.0,
+                },
+                {
+                    "format_id": "251",
+                    "format_note": "medium",
+                    "ext": "webm",
+                    "acodec": "opus",
+                    "vcodec": "none",
+                    "abr": 160.0,
+                },
+                {
+                    "format_id": "136",
+                    "format_note": "720p",
+                    "ext": "mp4",
+                    "width": 1280,
+                    "height": 720,
+                    "fps": 30,
+                    "vcodec": "avc1.4d401f",
+                    "acodec": "none",
+                    "tbr": 1150.0,
+                },
+                {
+                    "format_id": "137",
+                    "format_note": "1080p",
+                    "ext": "mp4",
+                    "width": 1920,
+                    "height": 1080,
+                    "fps": 30,
+                    "vcodec": "avc1.640028",
+                    "acodec": "none",
+                    "tbr": 2400.0,
+                },
+                {
+                    "format_id": "248",
+                    "format_note": "1080p",
+                    "ext": "webm",
+                    "width": 1920,
+                    "height": 1080,
+                    "fps": 30,
+                    "vcodec": "vp09.00.40.08",
+                    "acodec": "none",
+                    "tbr": 1800.0,
+                },
+            ],
+        }
+
+        plan = select_formats(real_dump, min_height=1080, max_height=2160)
+        self.assertEqual(plan.height, 1080)
+        self.assertFalse(plan.below_target)
+        # Prefers H.264 mp4 (137) over VP9 webm (248) and AAC (140) over Opus (251) for MP4 output
+        self.assertEqual(plan.attempts[0].expr, "137+140")
+        self.assertEqual(plan.attempts[0].merge_format, "mp4")
+
+    def test_forbidden_and_js_runtime_error_diagnosis(self):
+        err_msg = (
+            "WARNING: No supported JavaScript runtime could be found. Only deno is enabled by default. "
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+        )
+        hint = ingest._hint_for_error(err_msg)
+        self.assertTrue(len(hint) > 0)
+        self.assertTrue(
+            "YTDLP_COOKIES_FROM_BROWSER" in hint or "cookies" in hint.lower() or "runtime" in hint.lower()
+        )
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
-import { publishClip } from "@/lib/api";
+import { publishClip, rerenderClip } from "@/lib/api";
 import type { Clip, Platform } from "@/lib/types";
 
 export function ClipCard({
@@ -11,12 +11,14 @@ export function ClipCard({
   busy,
   onKeep,
   onTimes,
+  onRerender,
 }: {
   jobId: string;
   clip: Clip;
   busy?: boolean;
   onKeep: (kept: boolean) => void;
   onTimes: (start: number, end: number) => void;
+  onRerender?: (start: number, end: number) => Promise<void>;
 }) {
   const [start, setStart] = useState(clip.start);
   const [end, setEnd] = useState(clip.end);
@@ -26,13 +28,18 @@ export function ClipCard({
   const [publishState, setPublishState] = useState(clip.publish || {});
   const [publishError, setPublishError] = useState("");
   const [copied, setCopied] = useState("");
+  const [rerendering, setRerendering] = useState(false);
+  const [rerenderMessage, setRerenderMessage] = useState("");
+  const [videoKey, setVideoKey] = useState(0);
 
-  useEffect(() => {
+  const [prevClip, setPrevClip] = useState({ start: clip.start, end: clip.end, file: clip.file });
+  if (prevClip.start !== clip.start || prevClip.end !== clip.end || prevClip.file !== clip.file) {
+    setPrevClip({ start: clip.start, end: clip.end, file: clip.file });
     setStart(clip.start);
     setEnd(clip.end);
     setTimeError("");
     if (clip.file) setHasVideo(true);
-  }, [clip.start, clip.end, clip.file]);
+  }
 
   function handleBlur() {
     if (isNaN(start) || isNaN(end) || start < 0) {
@@ -45,6 +52,37 @@ export function ClipCard({
     }
     setTimeError("");
     onTimes(start, end);
+  }
+
+  async function handleRerenderClick() {
+    if (isNaN(start) || isNaN(end) || start < 0) {
+      setTimeError("Timestamps must be non-negative numbers.");
+      return;
+    }
+    if (end <= start) {
+      setTimeError("End time must be greater than start time.");
+      return;
+    }
+    setTimeError("");
+    setRerendering(true);
+    setRerenderMessage("Re-rendering video (cutting, reframing & subtitles)…");
+
+    try {
+      if (onRerender) {
+        await onRerender(start, end);
+      } else {
+        await rerenderClip(jobId, clip.id, start, end);
+      }
+      setVideoKey(Date.now());
+      setHasVideo(true);
+      setRerenderMessage("Re-render complete!");
+      setTimeout(() => setRerenderMessage(""), 3000);
+    } catch (err) {
+      setTimeError(err instanceof Error ? err.message : "Re-rendering clip failed.");
+      setRerenderMessage("");
+    } finally {
+      setRerendering(false);
+    }
   }
 
   async function copy(label: string, text: string) {
@@ -71,7 +109,7 @@ export function ClipCard({
     }
   }
 
-  const videoSrc = `/api/jobs/${jobId}/clips/${clip.id}`;
+  const videoSrc = `/api/jobs/${jobId}/clips/${clip.id}?v=${videoKey}`;
 
   return (
     <article className={`border-4 border-court bg-white stamp-sm ${clip.kept ? "" : "opacity-60"}`}>
@@ -89,6 +127,7 @@ export function ClipCard({
           {hasVideo ? (
             <div className="aspect-[9/16] max-h-80 w-44 shrink-0 overflow-hidden border-4 border-ink bg-ink">
               <video
+                key={videoKey}
                 controls
                 playsInline
                 preload="metadata"
@@ -117,33 +156,51 @@ export function ClipCard({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1 text-sm font-semibold">
-            Start Time
-            <input
-              type="number"
-              min={0}
-              step={0.1}
-              value={start}
-              className="border-4 border-court px-2 py-2"
-              onChange={(e) => setStart(Number(e.target.value))}
-              onBlur={handleBlur}
-            />
-            <span className="font-normal text-xs text-ink/70">{formatTimecode(start)}</span>
-          </label>
-          <label className="flex flex-col gap-1 text-sm font-semibold">
-            End Time
-            <input
-              type="number"
-              min={0}
-              step={0.1}
-              value={end}
-              className="border-4 border-court px-2 py-2"
-              onChange={(e) => setEnd(Number(e.target.value))}
-              onBlur={handleBlur}
-            />
-            <span className="font-normal text-xs text-ink/70">{formatTimecode(end)}</span>
-          </label>
+        <div className="flex flex-col gap-2 border-2 border-court/20 bg-paper/30 p-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-sm font-semibold">
+              Start Time (s)
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={start}
+                disabled={rerendering}
+                className="border-4 border-court px-2 py-2"
+                onChange={(e) => setStart(Number(e.target.value))}
+                onBlur={handleBlur}
+              />
+              <span className="font-normal text-xs text-ink/70">{formatTimecode(start)}</span>
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-semibold">
+              End Time (s)
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={end}
+                disabled={rerendering}
+                className="border-4 border-court px-2 py-2"
+                onChange={(e) => setEnd(Number(e.target.value))}
+                onBlur={handleBlur}
+              />
+              <span className="font-normal text-xs text-ink/70">{formatTimecode(end)}</span>
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              disabled={rerendering || busy}
+              onClick={handleRerenderClick}
+              className="border-2 border-court bg-white px-3 py-1 text-xs font-bold hover:bg-volt transition disabled:opacity-60"
+            >
+              {rerendering ? "Re-rendering…" : "Re-render Video"}
+            </button>
+            {rerenderMessage ? (
+              <span className="text-xs font-semibold text-court">{rerenderMessage}</span>
+            ) : null}
+          </div>
         </div>
 
         {timeError ? (
@@ -158,10 +215,18 @@ export function ClipCard({
             <p className="font-semibold">{clip.seo.youtube.title}</p>
             <p className="whitespace-pre-line text-ink/80">{clip.seo.youtube.description}</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold" onClick={() => copy("yt", `${clip.seo!.youtube.title}\n\n${clip.seo!.youtube.description}`)}>
+              <button
+                type="button"
+                className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold"
+                onClick={() => copy("yt", `${clip.seo!.youtube.title}\n\n${clip.seo!.youtube.description}`)}
+              >
                 {copied === "yt" ? "Copied" : "Copy YouTube text"}
               </button>
-              <button type="button" className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold" onClick={() => copy("ig", clip.seo!.instagram.caption)}>
+              <button
+                type="button"
+                className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold"
+                onClick={() => copy("ig", clip.seo!.instagram.caption)}
+              >
                 {copied === "ig" ? "Copied" : "Copy Instagram caption"}
               </button>
             </div>
@@ -180,7 +245,13 @@ export function ClipCard({
                   onClick={() => doPublish(t)}
                   className="border-4 border-court bg-white px-3 py-2 font-semibold hover:bg-volt transition disabled:opacity-60 disabled:cursor-wait"
                 >
-                  {publishing === t ? "Uploading…" : t === "youtube" ? "YouTube Shorts" : t === "instagram" ? "Instagram Reels" : "Both"}
+                  {publishing === t
+                    ? "Uploading…"
+                    : t === "youtube"
+                    ? "YouTube Shorts"
+                    : t === "instagram"
+                    ? "Instagram Reels"
+                    : "Both"}
                 </button>
               ))}
             </div>
@@ -197,13 +268,20 @@ export function ClipCard({
                   ) : null}
                 </p>
               ) : (
-                <p key={p} role="alert" className="text-xs font-bold text-punch">
-                  {p === "youtube" ? "YouTube" : "Instagram"}: {r.error}
-                </p>
+                <div key={p} role="alert" className="border-2 border-punch/40 bg-punch/5 p-2 text-xs font-semibold text-punch">
+                  <p className="font-bold">{p === "youtube" ? "YouTube Shorts" : "Instagram Reels"} Publish Notice:</p>
+                  <p className="mt-1">{r.error}</p>
+                </div>
               );
             })}
-            {publishError ? <p role="alert" className="text-xs font-bold text-punch">{publishError}</p> : null}
-            <p className="text-xs text-ink/60">YouTube uploads default to private (set YOUTUBE_PRIVACY in .env).</p>
+            {publishError ? (
+              <div role="alert" className="border-2 border-punch/40 bg-punch/5 p-2 text-xs font-bold text-punch">
+                {publishError}
+              </div>
+            ) : null}
+            <p className="text-xs text-ink/60">
+              YouTube uploads default to public (set YOUTUBE_PRIVACY in .env). Instagram requires INSTAGRAM_ACCESS_TOKEN.
+            </p>
           </div>
         ) : null}
 

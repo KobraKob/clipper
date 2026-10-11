@@ -9,6 +9,8 @@ import json
 import logging
 import pathlib
 import re
+import shutil
+import time
 from typing import Any, Dict, List, Optional
 
 from .candidates import build_candidates, detect_scene_cuts, prefilter
@@ -40,6 +42,31 @@ def get_job_id(source: str) -> str:
     name_slug = slugify(p.stem, max_len=20)
     hasher = hashlib.sha256(str(p.resolve()).encode("utf-8")).hexdigest()[:8]
     return f"{name_slug}_{hasher}"
+
+
+def write_progress(
+    job_dir: pathlib.Path,
+    stage: str,
+    percent: int,
+    message: str,
+    out_dir: Optional[pathlib.Path] = None,
+) -> None:
+    """Write real progress update to progress.json in workdir and output directory."""
+    payload = json.dumps(
+        {
+            "stage": stage,
+            "percent": percent,
+            "message": message,
+            "updatedAt": int(time.time() * 1000),
+        },
+        indent=2,
+    )
+    try:
+        (job_dir / "progress.json").write_text(payload, encoding="utf-8")
+        if out_dir is not None:
+            (out_dir / "progress.json").write_text(payload, encoding="utf-8")
+    except Exception as exc:
+        logger.debug("[pipeline] Could not write progress.json: %s", exc)
 
 
 def get_transcript(
@@ -82,11 +109,10 @@ def run_pipeline(
     caption_style: Optional[str] = None,
     layout: Optional[str] = None,
     seo: Optional[bool] = None,
+    encoder: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Execute full automated video clipping pipeline.
-
-    ``caption_style`` / ``layout`` / ``seo`` default to the values in ``Settings`` (.env).
+    Execute full automated video clipping pipeline with real stage progress tracking.
     """
     s = app_settings or default_settings
     style = get_style(caption_style or s.caption_style, s.caption_position or None)
@@ -100,169 +126,348 @@ def run_pipeline(
     job_dir.mkdir(parents=True, exist_ok=True)
     base_out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Ingestion
-    logger.info("[pipeline] Ingesting source: %s", source)
-    if is_url(source):
-        video_path = download(
-            source,
+    try:
+        # 1. Ingestion
+        write_progress(job_dir, "ingest", 5, f"Ingesting source: {source}", base_out_dir)
+        logger.info("[pipeline] Ingesting source: %s", source)
+        if is_url(source):
+            video_path = download(
+                source,
+                job_dir,
+                min_height=s.min_source_height,
+                max_height=s.max_source_height,
+                cookies_from_browser=s.ytdlp_cookies_from_browser or None,
+                cookies_file=s.ytdlp_cookies_file or None,
+            )
+        else:
+            video_path = pathlib.Path(source)
+            if not video_path.exists():
+                raise FileNotFoundError(f"Source video file not found: {video_path}")
+
+        write_progress(job_dir, "ingest", 15, "Source downloaded. Extracting audio...", base_out_dir)
+
+        # 2. Extract audio (16 kHz mono WAV)
+        wav_path = job_dir / "audio.wav"
+        if not wav_path.exists():
+            logger.info("[pipeline] Extracting 16 kHz mono audio...")
+            extract_audio(video_path, wav_path)
+
+        # 3. Transcribe or read cache
+        write_progress(job_dir, "transcribe", 25, "Transcribing speech to text...", base_out_dir)
+        tr_data = get_transcript(wav_path, job_dir, transcriber=transcriber, s=s)
+        segments = tr_data.get("segments", [])
+        if not segments:
+            raise RuntimeError("Transcription produced zero segments.")
+
+        write_progress(job_dir, "transcribe", 38, "Transcript ready.", base_out_dir)
+
+        # 4. Detect visual scene cuts (cached in scenes.json to avoid expensive whole-file re-scanning)
+        scenes_cache = job_dir / "scenes.json"
+        candidates_cache = job_dir / "candidates.json"
+
+        if scenes_cache.exists():
+            logger.info("[pipeline] Loading scene cuts from cache: %s", scenes_cache)
+            try:
+                scene_cuts = json.loads(scenes_cache.read_text(encoding="utf-8"))
+            except Exception:
+                scene_cuts = None
+        else:
+            scene_cuts = None
+
+        if scene_cuts is None:
+            # Only run expensive whole-file scene detection if not cached
+            write_progress(job_dir, "candidates", 42, "Analyzing scene cuts...", base_out_dir)
+            logger.info("[pipeline] Analyzing visual scene cuts...")
+            scene_cuts = detect_scene_cuts(video_path)
+            scenes_cache.write_text(json.dumps(scene_cuts, indent=2), encoding="utf-8")
+
+        # 5. Build and pre-filter candidates
+        write_progress(job_dir, "candidates", 48, "Generating sentence-aligned candidate windows...", base_out_dir)
+        if candidates_cache.exists():
+            logger.info("[pipeline] Loading pre-filtered candidates from cache...")
+            cands = json.loads(candidates_cache.read_text(encoding="utf-8"))
+        else:
+            logger.info("[pipeline] Generating sentence-snapped candidate windows...")
+            raw_cands = build_candidates(
+                segments,
+                min_len=float(s.min_clip_duration),
+                max_len=float(s.max_clip_duration),
+            )
+            cands = prefilter(
+                raw_cands,
+                top_k=max(s.shortlist * 3, 30),
+                scene_cuts=scene_cuts,
+            )
+            candidates_cache.write_text(json.dumps(cands, indent=2), encoding="utf-8")
+
+        if not cands:
+            raise RuntimeError("No suitable candidate windows found matching duration criteria.")
+
+        # 6. Two-Stage LLM Scoring
+        write_progress(job_dir, "score", 55, "Scoring viral candidates with LLM...", base_out_dir)
+        llm_service = llm or get_llm(s)
+        logger.info("[pipeline] Scoring candidates using %s tier LLM...", s.llm_provider)
+        from .scoring import rank
+
+        ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist)
+
+        tokens_used = getattr(llm_service, "tokens_used", 0)
+        if tokens_used:
+            logger.info("[pipeline] LLM tokens consumed: %d", tokens_used)
+
+        # 7. Render clips (Cut -> [Reframe + Captions in ONE encode] -> SEO)
+        exported_clips: List[Dict[str, Any]] = []
+        pad_offset = 0.15
+        source_info = load_source_info(job_dir) if is_url(source) else {}
+
+        for idx, clip in enumerate(ranked_clips, start=1):
+            clip_title = clip.get("title", f"Clip {idx}")
+            slug = slugify(clip_title)
+            current_pct = 60 + int((idx - 1) / max(1, len(ranked_clips)) * 35)
+            write_progress(
+                job_dir,
+                "reframe" if vertical else "cut",
+                current_pct,
+                f"Rendering clip {idx}/{len(ranked_clips)}: '{clip_title}'",
+                base_out_dir,
+            )
+            logger.info("[pipeline] Processing [%d/%d]: '%s' (Score: %d)", idx, len(ranked_clips), clip_title, clip.get("score", 0))
+
+            start_time = float(clip["start"])
+            end_time = float(clip["end"])
+
+            # Frame-accurate cut
+            raw_clip = job_dir / f"clip_{idx}_raw.mp4"
+            cut(video_path, start_time, end_time, raw_clip, pad=pad_offset)
+
+            final_clip_name = f"{idx:02d}_{slug}.mp4"
+            final_clip_path = base_out_dir / final_clip_name
+
+            # Words that fall inside this clip
+            clip_start = max(0.0, start_time - pad_offset)
+            clip_words: List[Dict[str, Any]] = []
+            for seg in segments:
+                for w in seg.get("words", []):
+                    w_s = float(w["start"])
+                    if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
+                        clip_words.append(w)
+            transcript_text = " ".join(str(w["w"]).strip() for w in clip_words) or clip.get("text", "")
+
+            ass_file: Optional[pathlib.Path] = None
+            if captions and clip_words:
+                logger.info("  -> Building '%s' animated captions...", style.key)
+                ass_file = job_dir / f"clip_{idx}.ass"
+                ass_file.write_text(
+                    build_ass(clip_words, clip_start=clip_start, style=style, play_w=s.out_width, play_h=s.out_height),
+                    encoding="utf-8",
+                )
+
+            if vertical:
+                logger.info("  -> Rendering %dx%d vertical (%s layout)...", s.out_width, s.out_height, layout)
+                rel_cuts = [c - clip_start for c in scene_cuts if start_time <= c <= end_time]
+                render_vertical(
+                    raw_clip,
+                    final_clip_path,
+                    out_w=s.out_width,
+                    out_h=s.out_height,
+                    scene_cuts=rel_cuts,
+                    ass_path=ass_file,
+                    fonts_dir=FONTS_DIR,
+                    layout=layout,
+                    crf=s.video_crf,
+                    preset=s.video_preset,
+                    encoder=encoder or s.video_encoder,
+                    fallback_to_cpu=s.enable_encoder_fallback,
+                    s=s,
+                )
+            elif ass_file is not None:
+                burn_captions(raw_clip, ass_file, final_clip_path)
+            else:
+                shutil.copy(raw_clip, final_clip_path)
+
+            clip_record: Dict[str, Any] = {
+                "rank": idx,
+                "title": clip_title,
+                "score": clip.get("score", 0),
+                "hook": clip.get("hook", ""),
+                "reason": clip.get("reason", ""),
+                "start": start_time,
+                "end": end_time,
+                "duration": round(end_time - start_time, 2),
+                "file": str(final_clip_path.resolve()),
+                "caption_style": style.key if captions else None,
+                "layout": layout if vertical else "original",
+                "encoder": encoder or s.video_encoder,
+                "publish": {},
+            }
+            if seo_on:
+                logger.info("  -> Generating title / description / hashtags...")
+                clip_record["seo"] = generate_metadata(
+                    clip,
+                    transcript_text,
+                    llm=llm_service,
+                    language=s.seo_language,
+                    source_url=source if is_url(source) else None,
+                    credit_source=s.seo_credit_source,
+                )
+            exported_clips.append(clip_record)
+
+        # 8. Export metadata manifest
+        write_progress(job_dir, "export", 98, "Writing metadata manifest...", base_out_dir)
+        metadata_path = base_out_dir / "metadata.json"
+        metadata_manifest = {
+            "job_id": job_id,
+            "source": str(source),
+            "clips_exported": len(exported_clips),
+            "tokens_used": tokens_used,
+            "source_quality": source_info,
+            "clips": exported_clips,
+        }
+        metadata_path.write_text(json.dumps(metadata_manifest, indent=2), encoding="utf-8")
+        logger.info("[pipeline] Exported %d clips to %s", len(exported_clips), base_out_dir)
+
+        write_progress(
             job_dir,
-            min_height=s.min_source_height,
-            max_height=s.max_source_height,
-            cookies_from_browser=s.ytdlp_cookies_from_browser or None,
-            cookies_file=s.ytdlp_cookies_file or None,
+            "done",
+            100,
+            f"Completed: {len(exported_clips)} vertical clips ready!",
+            base_out_dir,
         )
+        return metadata_manifest
+
+    except Exception as exc:
+        write_progress(job_dir, "error", 0, str(exc), base_out_dir)
+        raise
+
+
+def rerender_clip(
+    manifest_path: pathlib.Path,
+    rank: int,
+    start: float,
+    end: float,
+    s: Settings = default_settings,
+    layout: Optional[str] = None,
+    caption_style: Optional[str] = None,
+    encoder: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Re-render an edited clip with new start/end timestamps, reusing the cached transcript.
+    Updates the clip file and updates the metadata manifest.
+    """
+    manifest_path = pathlib.Path(manifest_path)
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Metadata manifest not found: {manifest_path}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    clip = next((c for c in manifest["clips"] if int(c["rank"]) == int(rank)), None)
+    if clip is None:
+        raise ValueError(f"Clip rank {rank} not found in {manifest_path}")
+
+    job_id = manifest["job_id"]
+    source = manifest["source"]
+    base_out_dir = manifest_path.parent
+    base_work_dir = (
+        base_out_dir.parent.parent / "workdir"
+        if (base_out_dir.parent.parent / "workdir").exists()
+        else pathlib.Path("workdir")
+    )
+    job_dir = base_work_dir / job_id
+    if not job_dir.exists():
+        job_dir = base_out_dir
+
+    # Source video file
+    if is_url(source):
+        video_path = job_dir / "source.mp4"
     else:
         video_path = pathlib.Path(source)
-        if not video_path.exists():
-            raise FileNotFoundError(f"Source video file not found: {video_path}")
-
-    # 2. Extract audio (16 kHz mono WAV)
-    wav_path = job_dir / "audio.wav"
-    if not wav_path.exists():
-        logger.info("[pipeline] Extracting 16 kHz mono audio...")
-        extract_audio(video_path, wav_path)
-
-    # 3. Transcribe or read cache
-    tr_data = get_transcript(wav_path, job_dir, transcriber=transcriber, s=s)
-    segments = tr_data.get("segments", [])
-    if not segments:
-        raise RuntimeError("Transcription produced zero segments.")
-
-    # 4. Detect visual scene cuts for snap reframing
-    logger.info("[pipeline] Analyzing visual scene cuts...")
-    scene_cuts = detect_scene_cuts(video_path)
-
-    # 5. Build and pre-filter candidates
-    candidates_cache = job_dir / "candidates.json"
-    if candidates_cache.exists():
-        logger.info("[pipeline] Loading pre-filtered candidates from cache...")
-        cands = json.loads(candidates_cache.read_text(encoding="utf-8"))
-    else:
-        logger.info("[pipeline] Generating sentence-snapped candidate windows...")
-        raw_cands = build_candidates(
-            segments,
-            min_len=float(s.min_clip_duration),
-            max_len=float(s.max_clip_duration),
-        )
-        cands = prefilter(
-            raw_cands,
-            top_k=max(s.shortlist * 3, 30),
-            scene_cuts=scene_cuts,
-        )
-        candidates_cache.write_text(json.dumps(cands, indent=2), encoding="utf-8")
-
-    if not cands:
-        raise RuntimeError("No suitable candidate windows found matching duration criteria.")
-
-    # 6. Two-Stage LLM Scoring
-    llm_service = llm or get_llm(s)
-    logger.info("[pipeline] Scoring candidates using %s tier LLM...", s.llm_provider)
-    from .scoring import rank
-
-    ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist)
-
-    tokens_used = getattr(llm_service, "tokens_used", 0)
-    if tokens_used:
-        logger.info("[pipeline] LLM tokens consumed: %d", tokens_used)
-
-    # 7. Render clips (Cut -> [Reframe + Captions in ONE encode] -> SEO)
-    exported_clips: List[Dict[str, Any]] = []
-    pad_offset = 0.15
-    source_info = load_source_info(job_dir) if is_url(source) else {}
-
-    for idx, clip in enumerate(ranked_clips, start=1):
-        clip_title = clip.get("title", f"Clip {idx}")
-        slug = slugify(clip_title)
-        logger.info("[pipeline] Processing [%d/%d]: '%s' (Score: %d)", idx, len(ranked_clips), clip_title, clip.get("score", 0))
-
-        start_time = float(clip["start"])
-        end_time = float(clip["end"])
-
-        # Frame-accurate cut
-        raw_clip = job_dir / f"clip_{idx}_raw.mp4"
-        cut(video_path, start_time, end_time, raw_clip, pad=pad_offset)
-
-        final_clip_name = f"{idx:02d}_{slug}.mp4"
-        final_clip_path = base_out_dir / final_clip_name
-
-        # Words that fall inside this clip (source time -> clip time handled by clip_start)
-        clip_start = max(0.0, start_time - pad_offset)
-        clip_words: List[Dict[str, Any]] = []
-        for seg in segments:
-            for w in seg.get("words", []):
-                w_s = float(w["start"])
-                if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
-                    clip_words.append(w)
-        transcript_text = " ".join(str(w["w"]).strip() for w in clip_words) or clip.get("text", "")
-
-        ass_file: Optional[pathlib.Path] = None
-        if captions and clip_words:
-            logger.info("  -> Building '%s' animated captions...", style.key)
-            ass_file = job_dir / f"clip_{idx}.ass"
-            ass_file.write_text(
-                build_ass(clip_words, clip_start=clip_start, style=style, play_w=s.out_width, play_h=s.out_height),
-                encoding="utf-8",
-            )
-
-        if vertical:
-            logger.info("  -> Rendering %dx%d vertical (%s layout)...", s.out_width, s.out_height, layout)
-            rel_cuts = [c - clip_start for c in scene_cuts if start_time <= c <= end_time]
-            render_vertical(
-                raw_clip,
-                final_clip_path,
-                out_w=s.out_width,
-                out_h=s.out_height,
-                scene_cuts=rel_cuts,
-                ass_path=ass_file,
-                fonts_dir=FONTS_DIR,
-                layout=layout,
-                crf=s.video_crf,
-                preset=s.video_preset,
-            )
-        elif ass_file is not None:
-            burn_captions(raw_clip, ass_file, final_clip_path)
+    if not video_path.exists():
+        found = list(job_dir.glob("source.*")) + list(job_dir.glob("*.mp4"))
+        if found:
+            video_path = found[0]
         else:
-            import shutil
+            raise FileNotFoundError(f"Source video not found for job {job_id}")
 
-            shutil.copy(raw_clip, final_clip_path)
+    # Load transcript segments
+    transcript_file = job_dir / "transcript.json"
+    segments: List[Dict[str, Any]] = []
+    if transcript_file.exists():
+        try:
+            tr_data = json.loads(transcript_file.read_text(encoding="utf-8"))
+            segments = tr_data.get("segments", [])
+        except Exception:
+            pass
 
-        clip_record: Dict[str, Any] = {
-            "rank": idx,
-            "title": clip_title,
-            "score": clip.get("score", 0),
-            "hook": clip.get("hook", ""),
-            "reason": clip.get("reason", ""),
-            "start": start_time,
-            "end": end_time,
-            "duration": round(end_time - start_time, 2),
-            "file": str(final_clip_path.resolve()),
-            "caption_style": style.key if captions else None,
-            "layout": layout if vertical else "original",
-            "publish": {},
-        }
-        if seo_on:
-            logger.info("  -> Generating title / description / hashtags...")
-            clip_record["seo"] = generate_metadata(
-                clip,
-                transcript_text,
-                llm=llm_service,
-                language=s.seo_language,
-                source_url=source if is_url(source) else None,
-                credit_source=s.seo_credit_source,
-            )
-        exported_clips.append(clip_record)
+    # Load cached scene cuts
+    scenes_cache = job_dir / "scenes.json"
+    scene_cuts: List[float] = []
+    if scenes_cache.exists():
+        try:
+            scene_cuts = json.loads(scenes_cache.read_text(encoding="utf-8"))
+        except Exception:
+            pass
 
-    # 8. Export metadata manifest
-    metadata_path = base_out_dir / "metadata.json"
-    metadata_manifest = {
-        "job_id": job_id,
-        "source": str(source),
-        "clips_exported": len(exported_clips),
-        "tokens_used": tokens_used,
-        "source_quality": source_info,
-        "clips": exported_clips,
-    }
-    metadata_path.write_text(json.dumps(metadata_manifest, indent=2), encoding="utf-8")
-    logger.info("[pipeline] Exported %d clips to %s", len(exported_clips), base_out_dir)
+    pad_offset = 0.15
+    start_time = float(start)
+    end_time = float(end)
+    if end_time <= start_time:
+        raise ValueError("End time must be greater than start time.")
 
-    return metadata_manifest
+    # 1. Re-cut raw clip
+    raw_clip = job_dir / f"clip_{rank}_raw.mp4"
+    cut(video_path, start_time, end_time, raw_clip, pad=pad_offset)
+
+    # 2. Extract words in new timeframe
+    clip_start = max(0.0, start_time - pad_offset)
+    clip_words: List[Dict[str, Any]] = []
+    for seg in segments:
+        for w in seg.get("words", []):
+            w_s = float(w["start"])
+            if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
+                clip_words.append(w)
+
+    final_clip_path = pathlib.Path(clip["file"])
+    style_key = caption_style or clip.get("caption_style") or s.caption_style
+    style = get_style(style_key, s.caption_position or None)
+    current_layout = layout or clip.get("layout") or s.layout
+
+    ass_file: Optional[pathlib.Path] = None
+    if clip_words and style_key is not None:
+        ass_file = job_dir / f"clip_{rank}.ass"
+        ass_file.write_text(
+            build_ass(clip_words, clip_start=clip_start, style=style, play_w=s.out_width, play_h=s.out_height),
+            encoding="utf-8",
+        )
+
+    chosen_enc = encoder or clip.get("encoder") or s.video_encoder
+
+    if current_layout != "original":
+        rel_cuts = [c - clip_start for c in scene_cuts if start_time <= c <= end_time]
+        render_vertical(
+            raw_clip,
+            final_clip_path,
+            out_w=s.out_width,
+            out_h=s.out_height,
+            scene_cuts=rel_cuts,
+            ass_path=ass_file,
+            fonts_dir=FONTS_DIR,
+            layout=current_layout,
+            crf=s.video_crf,
+            preset=s.video_preset,
+            encoder=chosen_enc,
+            fallback_to_cpu=s.enable_encoder_fallback,
+            s=s,
+        )
+    elif ass_file is not None:
+        burn_captions(raw_clip, ass_file, final_clip_path)
+    else:
+        shutil.copy(raw_clip, final_clip_path)
+
+    # 3. Update metadata
+    clip["start"] = start_time
+    clip["end"] = end_time
+    clip["duration"] = round(end_time - start_time, 2)
+    clip["caption_style"] = style.key
+    clip["layout"] = current_layout
+    clip["encoder"] = chosen_enc
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return clip

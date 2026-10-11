@@ -29,8 +29,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${figtree.variable} ${barlow.variable} h-full`}>
-      <body className="min-h-full bg-paper text-ink antialiased">
+    <html lang="en" className={`${figtree.variable} ${barlow.variable} h-full`} suppressHydrationWarning>
+      <body className="min-h-full bg-paper text-ink antialiased" suppressHydrationWarning>
         <SiteFrame>{children}</SiteFrame>
       </body>
     </html>

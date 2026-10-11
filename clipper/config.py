@@ -56,9 +56,6 @@ class Settings:
     max_clip_duration: int = int(_env("MAX_CLIP_DURATION", "60"))
 
     # ---- Source download quality (yt-dlp) ----
-    # Aim for at least `min_source_height` and never download more than `max_source_height`.
-    # A 9:16 crop only keeps ~31% of a 16:9 frame's width, so higher source resolution
-    # directly means a sharper vertical clip.
     min_source_height: int = int(_env("MIN_SOURCE_HEIGHT", "1080"))
     max_source_height: int = int(_env("MAX_SOURCE_HEIGHT", "2160"))
     ytdlp_cookies_from_browser: str = _env("YTDLP_COOKIES_FROM_BROWSER", "")
@@ -70,6 +67,19 @@ class Settings:
     video_crf: int = int(_env("VIDEO_CRF", "18"))
     video_preset: str = _env("VIDEO_PRESET", "fast")
     layout: str = _env("LAYOUT", "fill")  # fill (face-tracked crop) | fit_blur (blurred backdrop)
+
+    # ---- Hardware & Video Encoding (NVIDIA GPU NVENC / CPU) ----
+    video_encoder: str = _env("VIDEO_ENCODER", "auto")  # auto | h264_nvenc | libx264 | h264_qsv
+    nvenc_preset: str = _env("NVENC_PRESET", "p4")       # p1 to p7 (default p4)
+    nvenc_cq: int = int(_env("NVENC_CQ", "20"))          # constant quality (default 20)
+    cpu_preset: str = _env("CPU_PRESET", _env("VIDEO_PRESET", "fast"))
+    cpu_crf: int = int(_env("CPU_CRF", _env("VIDEO_CRF", "18")))
+    enable_encoder_fallback: bool = _env_bool("ENABLE_ENCODER_FALLBACK", True)
+
+    # ---- Storage directories (Local & Deployed) ----
+    outputs_dir: str = _env("OUTPUTS_DIR", "outputs")
+    workdir_dir: str = _env("WORKDIR_DIR", "workdir")
+    data_dir: str = _env("DATA_DIR", ".data")
 
     # ---- Captions ----
     caption_style: str = _env("CAPTION_STYLE", "bold_pop")
@@ -83,7 +93,7 @@ class Settings:
     # ---- Publishing ----
     youtube_client_secrets: str = _env("YOUTUBE_CLIENT_SECRETS", "credentials/youtube_client_secret.json")
     youtube_token_file: str = _env("YOUTUBE_TOKEN_FILE", "credentials/youtube_token.json")
-    youtube_privacy: str = _env("YOUTUBE_PRIVACY", "private")  # private | unlisted | public
+    youtube_privacy: str = _env("YOUTUBE_PRIVACY", "public")  # private | unlisted | public
     youtube_category_id: str = _env("YOUTUBE_CATEGORY_ID", "22")
     instagram_access_token: str = _env("INSTAGRAM_ACCESS_TOKEN", "")
     instagram_user_id: str = _env("INSTAGRAM_USER_ID", "")

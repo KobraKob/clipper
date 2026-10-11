@@ -8,7 +8,18 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+import sys
 from typing import Optional
+
+# Ensure UTF-8 streams on Windows to prevent UnicodeEncodeError with non-ASCII clip titles/quotes
+if sys.platform == "win32":
+    try:
+        if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 import typer
 from rich.console import Console
@@ -17,7 +28,7 @@ from rich.table import Table
 
 from .config import Settings, settings as default_settings
 from .cut import cut
-from .pipeline import get_transcript, run_pipeline
+from .pipeline import get_transcript, rerender_clip, run_pipeline
 from .scoring import rank
 from .candidates import build_candidates, prefilter
 
@@ -26,7 +37,7 @@ app = typer.Typer(
     help="AI Video Clipper: Extract vertical high-retention clips with animated subtitles.",
     add_completion=False,
 )
-console = Console()
+console = Console(highlight=False, legacy_windows=False)
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -69,6 +80,9 @@ def run(
     min_height: Optional[int] = typer.Option(
         None, "--min-height", help="Minimum source resolution to download (short side). Default 1080."
     ),
+    encoder: Optional[str] = typer.Option(
+        None, "--encoder", help="Video encoder: auto | h264_nvenc | libx264 | h264_qsv."
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug logging."),
 ) -> None:
     """Run full automated clipping pipeline."""
@@ -78,7 +92,8 @@ def run(
             f"[bold cyan]AI Video Clipper[/bold cyan]\n"
             f"[yellow]Source:[/yellow] {source}\n"
             f"[yellow]Clips requested:[/yellow] {clips} | [yellow]Provider:[/yellow] {provider or default_settings.provider}\n"
-            f"[yellow]Vertical 9:16:[/yellow] {vertical} | [yellow]Captions:[/yellow] {captions}",
+            f"[yellow]Vertical 9:16:[/yellow] {vertical} | [yellow]Captions:[/yellow] {captions}\n"
+            f"[yellow]Encoder:[/yellow] {encoder or default_settings.video_encoder}",
             title="Pipeline Initializing",
         )
     )
@@ -88,6 +103,7 @@ def run(
         shortlist=shortlist,
         caption_position=caption_position,
         min_source_height=min_height,
+        video_encoder=encoder,
     )
 
     try:
@@ -102,28 +118,33 @@ def run(
             caption_style=caption_style,
             layout=layout,
             seo=seo,
+            encoder=encoder,
         )
 
-        table = Table(title="Generated Clips Summary", show_header=True, header_style="bold green")
-        table.add_column("Rank", style="dim", width=6)
-        table.add_column("Score", justify="right", width=7)
-        table.add_column("Title", style="bold")
-        table.add_column("Duration", justify="right", width=10)
-        table.add_column("File", style="cyan")
+        try:
+            table = Table(title="Generated Clips Summary", show_header=True, header_style="bold green")
+            table.add_column("Rank", style="dim", width=6)
+            table.add_column("Score", justify="right", width=7)
+            table.add_column("Title", style="bold")
+            table.add_column("Duration", justify="right", width=10)
+            table.add_column("File", style="cyan")
 
-        for c in manifest.get("clips", []):
-            table.add_row(
-                str(c["rank"]),
-                f"{c['score']}/100",
-                c["title"],
-                f"{c['duration']}s",
-                pathlib.Path(c["file"]).name,
+            for c in manifest.get("clips", []):
+                table.add_row(
+                    str(c["rank"]),
+                    f"{c['score']}/100",
+                    str(c["title"]),
+                    f"{c['duration']}s",
+                    pathlib.Path(c["file"]).name,
+                )
+
+            console.print(table)
+            console.print(
+                f"\n[bold green]Success![/bold green] All clips exported to [cyan]{pathlib.Path(outdir).resolve()}[/cyan]"
             )
-
-        console.print(table)
-        console.print(
-            f"\n[bold green]Success![/bold green] All clips exported to [cyan]{pathlib.Path(outdir).resolve()}[/cyan]"
-        )
+        except Exception:
+            # Table printing formatting failure must never fail an already-completed pipeline
+            print(f"Success! {len(manifest.get('clips', []))} clips exported to {pathlib.Path(outdir).resolve()}")
 
     except Exception as exc:
         console.print(f"[bold red]Error running pipeline:[/bold red] {exc}")
@@ -178,6 +199,40 @@ def publish(
     typer.echo(_json.dumps(result, indent=2))
     if any(v.get("status") == "error" for v in result.values() if v.get("status")):
         raise typer.Exit(code=2)
+
+
+@app.command()
+def rerender(
+    manifest: str = typer.Argument(..., help="Path to outputs/<job_id>/metadata.json."),
+    rank: int = typer.Option(..., "--rank", "-r", help="Rank number of the clip to re-render."),
+    start: float = typer.Option(..., "--start", "-s", help="New start timestamp in seconds."),
+    end: float = typer.Option(..., "--end", "-e", help="New end timestamp in seconds."),
+    layout: Optional[str] = typer.Option(None, "--layout", help="Override layout: fill | fit_blur | original."),
+    caption_style: Optional[str] = typer.Option(None, "--caption-style", help="Override caption style."),
+    encoder: Optional[str] = typer.Option(None, "--encoder", help="Override video encoder: auto | h264_nvenc | libx264 | h264_qsv."),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Re-render an edited clip with new timestamps, reusing the cached transcript."""
+    _setup_logging(verbose)
+
+    try:
+        updated = rerender_clip(
+            manifest_path=pathlib.Path(manifest),
+            rank=rank,
+            start=start,
+            end=end,
+            layout=layout,
+            caption_style=caption_style,
+            encoder=encoder,
+        )
+        console.print(
+            f"[bold green]Re-render complete![/bold green] Clip {rank} duration: {updated['duration']}s -> {updated['file']}"
+        )
+    except Exception as exc:
+        console.print(f"[bold red]Re-render failed:[/bold red] {exc}")
+        if verbose:
+            console.print_exception()
+        raise typer.Exit(code=1)
 
 
 @app.command()

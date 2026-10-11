@@ -85,6 +85,10 @@ class TestPublish(unittest.TestCase):
         self.assertEqual(body["status"]["privacyStatus"], "unlisted")
         self.assertIn("#shorts", body["snippet"]["description"].lower())
 
+    def test_youtube_body_default_privacy_is_public(self):
+        body = build_youtube_body(self.meta, Settings())
+        self.assertEqual(body["status"]["privacyStatus"], "public")
+
     def test_instagram_flow(self):
         s = Settings.create_custom(instagram_access_token="t", instagram_user_id="42")
         http = FakeHttp()

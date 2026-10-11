@@ -54,11 +54,35 @@ def _youtube_credentials(s: Settings):
     else:
         if not secrets_path.exists():
             raise PublishError(
-                f"YouTube OAuth client file not found: {secrets_path}. Create an OAuth 'Desktop app' client in "
+                f"YouTube OAuth client file not found: {secrets_path}. Create an OAuth 'Desktop app' or 'Web app' client in "
                 "Google Cloud Console (enable YouTube Data API v3) and save the JSON there."
             )
+        import json as _json
+        import urllib.parse as _urlparse
+
         flow = InstalledAppFlow.from_client_secrets_file(str(secrets_path), YOUTUBE_SCOPES)
-        creds = flow.run_local_server(port=0, prompt="consent")
+        port = 0
+        try:
+            raw_secrets = _json.loads(secrets_path.read_text(encoding="utf-8"))
+            if "web" in raw_secrets:
+                for uri in raw_secrets["web"].get("redirect_uris", []):
+                    parsed = _urlparse.urlparse(uri)
+                    if parsed.port:
+                        port = parsed.port
+                        break
+        except Exception:
+            pass
+
+        import webbrowser as _webbrowser
+
+        auth_url, _ = flow.authorization_url(prompt="select_account consent")
+        print(f"\n[OAuth] If the browser did not open automatically, visit this URL:\n{auth_url}\n", flush=True)
+        try:
+            _webbrowser.open(auth_url, new=1, autoraise=True)
+        except Exception:
+            pass
+
+        creds = flow.run_local_server(port=port, prompt="select_account consent", open_browser=False)
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(creds.to_json(), encoding="utf-8")
     return creds
@@ -108,6 +132,17 @@ def upload_youtube(
             if status and on_progress:
                 on_progress(status.progress())
     except HttpError as exc:
+        if "youtubeSignupRequired" in str(exc):
+            try:
+                token_path = pathlib.Path(s.youtube_token_file)
+                if token_path.exists():
+                    token_path.unlink()
+            except OSError:
+                pass
+            raise PublishError(
+                "YouTube Channel Required: The Google account you signed into does not have a YouTube channel created. "
+                "The invalid token was reset. Click Publish again and select the Google account or Brand Channel that has your YouTube channel."
+            ) from exc
         raise PublishError(f"YouTube upload failed: {exc}") from exc
     vid = response["id"]
     return {"id": vid, "url": f"https://youtube.com/shorts/{vid}", "privacy": (privacy or s.youtube_privacy)}

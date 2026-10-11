@@ -1,9 +1,91 @@
 import { createReadStream, promises as fs } from "fs";
-import { Readable } from "stream";
 import { NextResponse } from "next/server";
 import { getClipVideoFile, patchClip } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+
+function createSafeVideoWebStream(
+  filePath: string,
+  start: number,
+  end: number,
+  signal?: AbortSignal,
+): ReadableStream<Uint8Array> {
+  const nodeStream = createReadStream(filePath, { start, end });
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      let isDone = false;
+
+      const cleanup = () => {
+        if (!isDone) {
+          isDone = true;
+          try {
+            nodeStream.destroy();
+          } catch {
+            // Ignore destruction errors
+          }
+        }
+      };
+
+      nodeStream.on("data", (chunk: Buffer | string) => {
+        if (isDone) return;
+        try {
+          if (controller.desiredSize === null) {
+            cleanup();
+            return;
+          }
+          const uint8 =
+            typeof chunk === "string"
+              ? Buffer.from(chunk)
+              : new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+          controller.enqueue(uint8);
+        } catch {
+          // Client disconnected or stream aborted
+          cleanup();
+        }
+      });
+
+      nodeStream.on("end", () => {
+        if (isDone) return;
+        isDone = true;
+        try {
+          controller.close();
+        } catch {
+          // Controller might already be closed by consumer
+        }
+      });
+
+      nodeStream.on("error", (err) => {
+        if (isDone) return;
+        isDone = true;
+        try {
+          controller.error(err);
+        } catch {
+          // Controller might already be closed
+        }
+      });
+
+      nodeStream.on("close", () => {
+        isDone = true;
+      });
+
+      if (signal) {
+        if (signal.aborted) {
+          cleanup();
+        } else {
+          signal.addEventListener("abort", cleanup, { once: true });
+        }
+      }
+    },
+    cancel() {
+      try {
+        nodeStream.destroy();
+      } catch {
+        // Ignore destruction errors on cancel
+      }
+    },
+  });
+}
 
 export async function GET(
   request: Request,
@@ -37,9 +119,9 @@ export async function GET(
       }
       status = 206;
     }
-    // Stream from disk (seekable in <video>, no whole-file buffering).
-    const nodeStream = createReadStream(filePath, { start, end });
-    const body = Readable.toWeb(nodeStream) as unknown as ReadableStream;
+
+    // Stream from disk with safe abort & client-disconnect handling
+    const body = createSafeVideoWebStream(filePath, start, end, request.signal);
     const headers: Record<string, string> = {
       "Content-Type": "video/mp4",
       "Content-Length": String(end - start + 1),

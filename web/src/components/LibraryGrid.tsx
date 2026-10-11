@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { fetchJobs } from "@/lib/api";
+import { deleteJob, fetchJobs } from "@/lib/api";
 import { formatTimecode } from "@/lib/pipeline";
 import type { JobView } from "@/lib/types";
 
@@ -17,6 +17,20 @@ export function LibraryGrid() {
         setError(err instanceof Error ? err.message : "Could not load the library.");
       });
   }, []);
+
+  async function handleDelete(e: React.MouseEvent, jobId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this cut and all its exported clips?")) {
+      return;
+    }
+    try {
+      await deleteJob(jobId);
+      setJobs((prev) => (prev ? prev.filter((j) => j.id !== jobId) : []));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete cut.");
+    }
+  }
 
   if (error) {
     return (
@@ -61,9 +75,19 @@ export function LibraryGrid() {
                     {isDone ? "Ready" : `Processing (${Math.round(job.progress * 100)}%)`}
                   </span>
                 </div>
-                <span className="text-xs uppercase font-mono bg-volt text-ink px-2 py-0.5 font-bold">
-                  {job.provider}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase font-mono bg-volt text-ink px-2 py-0.5 font-bold">
+                    {job.provider}
+                  </span>
+                  <button
+                    type="button"
+                    title="Delete cut"
+                    onClick={(e) => handleDelete(e, job.id)}
+                    className="border border-volt bg-court px-2 py-0.5 text-xs font-mono font-bold text-volt hover:bg-punch hover:text-white transition"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
               <div className="p-4">
                 <p className="break-all font-semibold text-court">{job.source}</p>

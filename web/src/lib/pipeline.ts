@@ -1,121 +1,55 @@
-import { PIPELINE_STAGES, type Clip, type Job, type JobView } from "./types";
+import { PIPELINE_STAGES, type Job, type JobView } from "./types";
 
-/** Target progression duration (ms) for each stage in UI preview. */
-const STAGE_MS = [1500, 3000, 2000, 3500, 2000, 3000, 2500, 1500];
-
-const TITLE_BANK = [
-  "Nobody says this out loud",
-  "The part that actually lands",
-  "Wait, replay that beat",
-  "This is the whole argument",
-  "The quiet confession",
-  "Three seconds of heat",
-  "The question that sticks",
-  "Hard cut, real payoff",
-];
-
-const HOOK_BANK = [
-  "Stop scrolling if you have ever sat through a two-hour episode for one minute of truth.",
-  "The first line is a question. The rest is the answer you came for.",
-  "They thought this was a throwaway. It is the clip.",
-  "Listen to the breath before they say it.",
-];
-
-const REASON_BANK = [
-  "Opens on a hook, holds one idea, and pays off before the energy drops.",
-  "Self-contained beat with a clear punchline and no leftover context.",
-  "High speech energy and a clean sentence boundary on both sides.",
-  "Surprise in the first seconds, then a concrete takeaway.",
-];
-
-function hashString(value: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    h ^= value.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return Math.abs(h);
-}
-
-export function buildPreviewClips(source: string, count: number): Clip[] {
-  const seed = hashString(source || "clipper");
-  const clips: Clip[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const start = 42 + i * 97 + (seed % 17);
-    const duration = 24 + ((seed + i * 13) % 28);
-    clips.push({
-      id: `clip-${i + 1}`,
-      title: TITLE_BANK[(seed + i) % TITLE_BANK.length],
-      hook: HOOK_BANK[(seed + i * 3) % HOOK_BANK.length],
-      reason: REASON_BANK[(seed + i * 5) % REASON_BANK.length],
-      score: 92 - i * 7 - ((seed + i) % 5),
-      start,
-      end: start + duration,
-      text: "Candidate segment identified based on speech rate, energy peaks, and hook patterns.",
-      kept: true,
-    });
-  }
-  return clips;
-}
-
-export function hydrateJob(job: Job, now = Date.now()): JobView {
+/**
+ * Hydrates a job with real pipeline stage tracking.
+ * Strictly relies on actual pipeline output and progress.json — zero simulated timers or fake preview clips.
+ */
+export function hydrateJob(job: Job): JobView {
   if (job.status === "error") {
     return {
       ...job,
       stageIndex: 0,
       stageId: PIPELINE_STAGES[0].id,
       progress: 0,
+      progressMessage: job.error || "An error occurred during processing.",
     };
   }
 
-  // If clips are already populated, the job is definitively complete
-  if (job.status === "done" || job.clips.length > 0) {
+  if (job.status === "done") {
     return {
       ...job,
-      status: "done",
-      clips: job.clips.length ? job.clips : buildPreviewClips(job.source, job.clipCount),
       stageIndex: PIPELINE_STAGES.length,
       stageId: "done",
-      progress: 1,
+      progress: 1.0,
+      progressMessage: job.progressInfo?.message || `${job.clips.length} vertical clips generated.`,
     };
   }
 
-  const elapsed = Math.max(0, now - job.startedAt);
-  let acc = 0;
-  let stageIndex = PIPELINE_STAGES.length - 1;
-
-  for (let i = 0; i < STAGE_MS.length; i += 1) {
-    acc += STAGE_MS[i];
-    if (elapsed < acc) {
-      stageIndex = i;
-      break;
+  // Active / running job
+  if (job.progressInfo) {
+    const stageId = job.progressInfo.stage;
+    let stageIndex = PIPELINE_STAGES.findIndex((s) => s.id === stageId);
+    if (stageIndex === -1) {
+      stageIndex = stageId === "done" ? PIPELINE_STAGES.length : 0;
     }
-  }
+    const progress = Math.min(0.99, Math.max(0.02, job.progressInfo.percent / 100));
 
-  const total = STAGE_MS.reduce((a, b) => a + b, 0);
-  const done = elapsed >= total;
-
-  if (done) {
-    // If backend took longer than preview total, hold at final export stage (96%) instead of premature completion
     return {
       ...job,
-      status: "running",
-      stageIndex: PIPELINE_STAGES.length - 1,
-      stageId: PIPELINE_STAGES[PIPELINE_STAGES.length - 1].id,
-      progress: 0.96,
+      stageIndex,
+      stageId: stageId === "done" ? "done" : PIPELINE_STAGES[stageIndex]?.id || PIPELINE_STAGES[0].id,
+      progress,
+      progressMessage: job.progressInfo.message,
     };
   }
 
-  const prior = STAGE_MS.slice(0, stageIndex).reduce((a, b) => a + b, 0);
-  const local = (elapsed - prior) / STAGE_MS[stageIndex];
-  const progress = Math.min(0.95, (stageIndex + local) / PIPELINE_STAGES.length);
-
+  // Queued or just started before progress.json is written
   return {
     ...job,
-    status: "running",
-    stageIndex,
-    stageId: PIPELINE_STAGES[stageIndex].id,
-    progress,
+    stageIndex: 0,
+    stageId: PIPELINE_STAGES[0].id,
+    progress: 0.04,
+    progressMessage: "Starting clipper pipeline...",
   };
 }
 

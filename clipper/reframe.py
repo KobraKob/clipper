@@ -1,14 +1,17 @@
 """
-Vertical 9:16 reframing with face detection and smoothed tracking.
+Vertical 9:16 reframing with face detection, smoothed tracking, and NVIDIA GPU NVENC acceleration.
 
 Pipeline
 --------
 1. ``track_face_x``   - sample frames with OpenCV (YuNet face detector) to get the speaker's x position.
+   Supports multi-face scenes (podcasts/interviews) with hysteresis and two-person wide framing.
 2. ``smooth_trajectory`` - exponential smoothing + dead-zone so the virtual camera never jitters,
    snapping instantly at scene cuts.
-3. ``render_vertical`` - FFmpeg does everything else in ONE pass: a per-frame ``crop`` driven by the
-   trajectory, a Lanczos ``scale`` to exactly 1080x1920, optional burned-in ASS captions, and an
-   H.264 ``yuv420p`` encode with ``+faststart`` (the format every phone, Instagram and YouTube accept).
+3. ``render_vertical`` - FFmpeg reframes and encodes:
+   - GPU Mode (NVENC): NVIDIA NVENC hardware-accelerated H.264 encoding (`h264_nvenc -preset p4 -cq 20`).
+     When subtitles are omitted, uses CUDA scaling (`scale_cuda`) directly on GPU hardware surfaces.
+   - CPU Mode: Software fallback using `libx264 -preset fast -crf 18`.
+   - Automatic Fallback: If GPU encoding fails, automatically falls back to CPU encoding without crashing.
 
 Geometry guarantees
 -------------------
@@ -25,11 +28,12 @@ import pathlib
 import shutil
 import subprocess
 import urllib.request
-from typing import Any, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
 
+from .config import Settings, settings as default_settings
 from .ingest import probe_video
 
 # Suppress noisy OpenCV internal graph engine warnings
@@ -46,6 +50,173 @@ YUNET_MODEL_URL = (
 )
 
 DETECT_MAX_WIDTH = 960  # faces are found on a downscaled copy; plenty for speaker tracking
+
+# Cache for hardware encoder availability probes
+_ENCODER_AVAILABILITY_CACHE: Dict[str, bool] = {}
+
+
+# --------------------------------------------------------------------------------------
+# Hardware Encoder Probing & Resolution
+# --------------------------------------------------------------------------------------
+
+
+def is_encoder_available(encoder: str) -> bool:
+    """Test if a video encoder is installed, supported by hardware, and successfully initializable."""
+    if encoder in _ENCODER_AVAILABILITY_CACHE:
+        return _ENCODER_AVAILABILITY_CACHE[encoder]
+
+    if encoder == "libx264":
+        _ENCODER_AVAILABILITY_CACHE[encoder] = True
+        return True
+
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1:size=64x64:rate=1",
+                "-c:v",
+                encoder,
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            timeout=5,
+        )
+        available = proc.returncode == 0
+    except Exception as exc:
+        logger.debug("[reframe] Encoder probe for %s failed: %s", encoder, exc)
+        available = False
+
+    _ENCODER_AVAILABILITY_CACHE[encoder] = available
+    return available
+
+
+def clear_encoder_cache() -> None:
+    """Clear internal cached encoder availability test results."""
+    _ENCODER_AVAILABILITY_CACHE.clear()
+
+
+def is_nvenc_available() -> bool:
+    """Check if NVIDIA NVENC H.264 hardware acceleration is usable."""
+    return is_encoder_available("h264_nvenc")
+
+
+def is_qsv_available() -> bool:
+    """Check if Intel QuickSync H.264 hardware acceleration is usable."""
+    return is_encoder_available("h264_qsv")
+
+
+def detect_available_encoders() -> Dict[str, bool]:
+    """Return dictionary of supported video encoders on this machine."""
+    return {
+        "h264_nvenc": is_nvenc_available(),
+        "h264_qsv": is_qsv_available(),
+        "libx264": True,
+    }
+
+
+def resolve_encoder(requested: str = "auto", fallback: bool = True) -> str:
+    """
+    Resolve requested encoder string to an available encoder.
+    If 'auto' or unavailable and fallback=True, falls back gracefully.
+    """
+    req = (requested or "auto").lower()
+
+    if req == "auto":
+        if is_nvenc_available():
+            logger.info("[reframe] Auto-detected NVIDIA GPU NVENC; using h264_nvenc.")
+            return "h264_nvenc"
+        if is_qsv_available():
+            logger.info("[reframe] Auto-detected Intel QSV; using h264_qsv.")
+            return "h264_qsv"
+        logger.info("[reframe] No hardware GPU encoder available; using CPU libx264.")
+        return "libx264"
+
+    if req == "h264_nvenc":
+        if is_nvenc_available():
+            return "h264_nvenc"
+        if fallback:
+            logger.warning("[reframe] h264_nvenc requested but not available. Falling back to CPU libx264.")
+            return "libx264"
+        raise ValueError("Requested encoder 'h264_nvenc' is not available and fallback is disabled.")
+
+    if req == "h264_qsv":
+        if is_qsv_available():
+            return "h264_qsv"
+        if fallback:
+            logger.warning("[reframe] h264_qsv requested but not available. Falling back to CPU libx264.")
+            return "libx264"
+        raise ValueError("Requested encoder 'h264_qsv' is not available and fallback is disabled.")
+
+    return "libx264"
+
+
+def build_encoder_args(
+    encoder: str,
+    s: Settings = default_settings,
+    preset: Optional[str] = None,
+    quality: Optional[int] = None,
+) -> List[str]:
+    """Build FFmpeg command line options for the given encoder and quality profile."""
+    enc = encoder.lower()
+
+    if enc == "h264_nvenc":
+        enc_preset = preset or s.nvenc_preset
+        enc_cq = quality if quality is not None else s.nvenc_cq
+        return [
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            enc_preset,
+            "-cq",
+            str(enc_cq),
+            "-profile:v",
+            "high",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+
+    if enc == "h264_qsv":
+        return [
+            "-c:v",
+            "h264_qsv",
+            "-preset",
+            preset or "medium",
+            "-global_quality",
+            str(quality if quality is not None else 20),
+            "-profile:v",
+            "high",
+            "-pix_fmt",
+            "nv12",
+        ]
+
+    # CPU libx264
+    enc_preset = preset or s.cpu_preset
+    enc_crf = quality if quality is not None else s.cpu_crf
+    return [
+        "-c:v",
+        "libx264",
+        "-preset",
+        enc_preset,
+        "-crf",
+        str(enc_crf),
+        "-profile:v",
+        "high",
+        "-pix_fmt",
+        "yuv420p",
+    ]
+
+
+# --------------------------------------------------------------------------------------
+# Face Detection Model Helpers
+# --------------------------------------------------------------------------------------
 
 
 def _ensure_yunet_model() -> Optional[pathlib.Path]:
@@ -113,6 +284,33 @@ def _init_detector(w: int, h: int) -> Optional[Tuple[str, Any]]:
     return None
 
 
+# --------------------------------------------------------------------------------------
+# Geometry
+# --------------------------------------------------------------------------------------
+
+
+def _even(v: float) -> int:
+    n = int(round(v))
+    return max(2, n - (n % 2))
+
+
+def compute_crop_geometry(src_w: int, src_h: int, out_w: int = 1080, out_h: int = 1920) -> Tuple[int, int]:
+    """
+    Largest crop window with the OUTPUT aspect ratio that fits inside the source frame.
+
+    Returns (crop_w, crop_h), both even. Never stretches: wider-than-target sources are cropped
+    horizontally at full height, narrower ones vertically at full width.
+    """
+    target = out_w / float(out_h)
+    if src_w / float(src_h) >= target:
+        crop_h = src_h
+        crop_w = _even(src_h * target)
+    else:
+        crop_w = src_w
+        crop_h = _even(src_w / target)
+    return min(_even(crop_w), src_w - (src_w % 2)), min(_even(crop_h), src_h - (src_h % 2))
+
+
 def track_face_x(
     video_path: pathlib.Path,
     sample_every: Optional[int] = None,
@@ -123,6 +321,11 @@ def track_face_x(
     Only every ``sample_every``-th frame is analysed (default: about 6 samples per second); the
     others are skipped with ``grab()`` which avoids the colour conversion. Detection runs on a
     copy downscaled to ``DETECT_MAX_WIDTH`` and is mapped back to source coordinates.
+
+    Multi-person support:
+    - If two speakers fit within the 9:16 crop width, centers between both speakers for a two-shot.
+    - If speakers are spaced wider than the 9:16 crop, uses hysteresis (dwell threshold) to lock onto
+      the current speaker and prevent rapid whip/jitter between hosts.
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -134,6 +337,8 @@ def track_face_x(
     if sample_every is None:
         sample_every = max(2, int(round(fps / 6.0)))
 
+    crop_w, _ = compute_crop_geometry(W, H)
+
     scale = min(1.0, DETECT_MAX_WIDTH / float(W)) if W else 1.0
     dw, dh = max(2, int(round(W * scale))), max(2, int(round(H * scale)))
 
@@ -144,6 +349,11 @@ def track_face_x(
     last_x = W / 2.0
     frame_idx = 0
 
+    # Multi-face hysteresis state
+    switch_candidate_x: Optional[float] = None
+    switch_count = 0
+    SWITCH_CONFIRM_SAMPLES = 5  # ~0.8s of consistent focus needed to switch across frame
+
     while True:
         if not cap.grab():
             break
@@ -152,8 +362,7 @@ def track_face_x(
             ok, frame = cap.retrieve()
             if ok and frame is not None:
                 small = cv2.resize(frame, (dw, dh), interpolation=cv2.INTER_AREA) if scale < 1.0 else frame
-                best_center_x: Optional[float] = None
-                max_area = 0.0
+                detected_faces: List[Dict[str, float]] = []
 
                 if detector_type == "yunet":
                     detector.setInputSize((dw, dh))
@@ -162,9 +371,15 @@ def track_face_x(
                         for face in faces:
                             fx, fy, fw, fh = face[0:4]
                             area = float(fw * fh)
-                            if area > max_area:
-                                max_area = area
-                                best_center_x = float(fx + fw / 2.0) / scale
+                            left = float(fx) / scale
+                            right = float(fx + fw) / scale
+                            center_x = float(fx + fw / 2.0) / scale
+                            detected_faces.append({
+                                "left": left,
+                                "right": right,
+                                "center_x": center_x,
+                                "area": area,
+                            })
 
                 elif detector_type == "mediapipe":
                     rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
@@ -173,12 +388,64 @@ def track_face_x(
                         for det in res.detections:
                             bb = det.location_data.relative_bounding_box
                             area = float(bb.width * bb.height)
-                            if area > max_area:
-                                max_area = area
-                                best_center_x = float((bb.xmin + bb.width / 2.0) * W)
+                            left = float(bb.xmin * W)
+                            right = float((bb.xmin + bb.width) * W)
+                            center_x = float((bb.xmin + bb.width / 2.0) * W)
+                            detected_faces.append({
+                                "left": left,
+                                "right": right,
+                                "center_x": center_x,
+                                "area": area,
+                            })
 
-                if best_center_x is not None:
-                    last_x = best_center_x
+                if detected_faces:
+                    detected_faces.sort(key=lambda f: f["area"], reverse=True)
+                    max_area = detected_faces[0]["area"]
+                    prominent = [f for f in detected_faces if f["area"] >= 0.25 * max_area]
+
+                    if len(prominent) >= 2:
+                        face_a, face_b = prominent[0], prominent[1]
+                        leftmost = min(face_a["left"], face_b["left"])
+                        rightmost = max(face_a["right"], face_b["right"])
+                        span = rightmost - leftmost
+
+                        if span <= float(crop_w) * 0.88:
+                            last_x = float(leftmost + rightmost) / 2.0
+                            switch_candidate_x = None
+                            switch_count = 0
+                        else:
+                            closest = min(prominent, key=lambda f: abs(f["center_x"] - last_x))
+                            if abs(closest["center_x"] - last_x) < 0.20 * W:
+                                last_x = closest["center_x"]
+                                switch_candidate_x = None
+                                switch_count = 0
+                            else:
+                                cand = prominent[0]["center_x"]
+                                if switch_candidate_x is not None and abs(cand - switch_candidate_x) < 0.15 * W:
+                                    switch_count += 1
+                                    if switch_count >= SWITCH_CONFIRM_SAMPLES:
+                                        last_x = cand
+                                        switch_candidate_x = None
+                                        switch_count = 0
+                                else:
+                                    switch_candidate_x = cand
+                                    switch_count = 1
+                    else:
+                        cand = prominent[0]["center_x"]
+                        if abs(cand - last_x) < 0.25 * W:
+                            last_x = cand
+                            switch_candidate_x = None
+                            switch_count = 0
+                        else:
+                            if switch_candidate_x is not None and abs(cand - switch_candidate_x) < 0.15 * W:
+                                switch_count += 1
+                                if switch_count >= SWITCH_CONFIRM_SAMPLES:
+                                    last_x = cand
+                                    switch_candidate_x = None
+                                    switch_count = 0
+                            else:
+                                switch_candidate_x = cand
+                                switch_count = 1
 
         xs.append(last_x)
         frame_idx += 1
@@ -222,33 +489,6 @@ def smooth_trajectory(
         smoothed.append(cur)
 
     return np.array(smoothed, dtype=np.float32)
-
-
-# --------------------------------------------------------------------------------------
-# Geometry
-# --------------------------------------------------------------------------------------
-
-
-def _even(v: float) -> int:
-    n = int(round(v))
-    return max(2, n - (n % 2))
-
-
-def compute_crop_geometry(src_w: int, src_h: int, out_w: int = 1080, out_h: int = 1920) -> Tuple[int, int]:
-    """
-    Largest crop window with the OUTPUT aspect ratio that fits inside the source frame.
-
-    Returns (crop_w, crop_h), both even. Never stretches: wider-than-target sources are cropped
-    horizontally at full height, narrower ones vertically at full width.
-    """
-    target = out_w / float(out_h)
-    if src_w / float(src_h) >= target:
-        crop_h = src_h
-        crop_w = _even(src_h * target)
-    else:
-        crop_w = src_w
-        crop_h = _even(src_w / target)
-    return min(_even(crop_w), src_w - (src_w % 2)), min(_even(crop_h), src_h - (src_h % 2))
 
 
 def crop_left_positions(centers_x: np.ndarray, src_w: int, crop_w: int) -> np.ndarray:
@@ -341,7 +581,19 @@ def build_fill_filter(
     out_w: int,
     out_h: int,
     ass_filter: Optional[str] = None,
+    use_cuda_scale: bool = False,
 ) -> str:
+    """
+    Build vertical fill filter graph.
+    If use_cuda_scale is True and no subtitle filter is present, performs GPU-accelerated scaling
+    directly on CUDA hardware surfaces, avoiding redundant GPU-CPU-GPU PCIe roundtrips.
+    """
+    if use_cuda_scale and ass_filter is None:
+        return (
+            f"crop=w={crop_w}:h={crop_h}:x='{x_expr}':y={crop_y},"
+            f"setsar=1,format=nv12,hwupload,scale_cuda={out_w}:{out_h}:interp_algo=lanczos"
+        )
+
     chain = [
         f"crop=w={crop_w}:h={crop_h}:x='{x_expr}':y={crop_y}",
         f"scale={out_w}:{out_h}:flags=lanczos",
@@ -379,9 +631,12 @@ def render_vertical(
     ass_path: Optional[pathlib.Path] = None,
     fonts_dir: Optional[pathlib.Path] = None,
     layout: str = "fill",
-    crf: int = 18,
-    preset: str = "fast",
+    crf: Optional[int] = None,
+    preset: Optional[str] = None,
     centers_x: Optional[np.ndarray] = None,
+    encoder: Optional[str] = None,
+    fallback_to_cpu: bool = True,
+    s: Optional[Settings] = None,
 ) -> pathlib.Path:
     """
     Reframe a clip into ``out_w`` x ``out_h`` (default 1080x1920) in a single FFmpeg pass.
@@ -390,6 +645,8 @@ def render_vertical(
     ``layout="fit_blur"``  whole frame centred on a blurred backdrop (no cropping at all)
     ``ass_path``           burn these captions in the same encode (avoids a second lossy generation)
     ``centers_x``          optional precomputed per-frame subject x (skips face detection)
+    ``encoder``            video encoder ('auto', 'h264_nvenc', 'libx264', 'h264_qsv')
+    ``fallback_to_cpu``    automatically retry on CPU if hardware GPU encoding encounters an error
     """
     video_path = pathlib.Path(video_path)
     out_path = pathlib.Path(out_path)
@@ -399,6 +656,9 @@ def render_vertical(
         raise ValueError(f"Unknown layout {layout!r}; use 'fill' or 'fit_blur'.")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    app_settings = s or default_settings
+    chosen_encoder = resolve_encoder(encoder or app_settings.video_encoder, fallback=fallback_to_cpu)
+
     info = probe_video(video_path)
     W, H, fps = info.width, info.height, info.fps
 
@@ -407,17 +667,15 @@ def render_vertical(
     if ass_path is not None:
         ass_filter, run_cwd = _ass_filter(pathlib.Path(ass_path), pathlib.Path(fonts_dir) if fonts_dir else None)
 
-    cmd: List[str] = ["ffmpeg", "-loglevel", "error", "-y", "-i", str(video_path.resolve())]
-    script_path = out_path.with_suffix(".filter.txt")
+    # Precalculate face tracking geometry if layout is fill
+    crop_w, crop_h = compute_crop_geometry(W, H, out_w, out_h)
+    x_expr = "0"
+    crop_y = 0
 
-    if layout == "fit_blur":
-        script_path.write_text(build_fit_blur_graph(out_w, out_h, ass_filter), encoding="utf-8")
-        cmd += ["-filter_complex_script", str(script_path.resolve()), "-map", "[v]", "-map", "0:a?"]
-    else:
-        crop_w, crop_h = compute_crop_geometry(W, H, out_w, out_h)
+    if layout == "fill":
         if centers_x is None:
             raw_xs, tw, th, tfps = track_face_x(video_path, sample_every=sample_every)
-            if (tw, th) != (W, H):  # trust the decoder's view of the frame
+            if (tw, th) != (W, H):
                 W, H = tw, th
                 crop_w, crop_h = compute_crop_geometry(W, H, out_w, out_h)
             fps = tfps or fps
@@ -439,34 +697,42 @@ def render_vertical(
         points = simplify_polyline(lefts)
         x_expr = build_x_expression(points)
         crop_y = max(0, (H - crop_h) // 2)
-        script_path.write_text(
-            build_fill_filter(crop_w, crop_h, crop_y, x_expr, out_w, out_h, ass_filter),
-            encoding="utf-8",
-        )
-        cmd += ["-filter_script:v", str(script_path.resolve()), "-map", "0:v:0", "-map", "0:a?"]
 
-    cmd += [
-        "-c:v",
-        "libx264",
-        "-preset",
-        preset,
-        "-crf",
-        str(crf),
-        "-profile:v",
-        "high",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        str(out_path.resolve()),
-    ]
+    script_path = out_path.with_suffix(".filter.txt")
 
-    try:
-        proc = subprocess.run(
+    def _execute_render(current_enc: str) -> subprocess.CompletedProcess:
+        use_cuda_scale = (current_enc == "h264_nvenc" and ass_filter is None and layout == "fill")
+        cmd: List[str] = ["ffmpeg", "-loglevel", "error", "-y"]
+
+        if use_cuda_scale:
+            cmd += ["-init_hw_device", "cuda=gpu:0", "-filter_hw_device", "gpu"]
+
+        cmd += ["-i", str(video_path.resolve())]
+
+        if layout == "fit_blur":
+            script_path.write_text(build_fit_blur_graph(out_w, out_h, ass_filter), encoding="utf-8")
+            cmd += ["-filter_complex_script", str(script_path.resolve()), "-map", "[v]", "-map", "0:a?"]
+        else:
+            filter_str = build_fill_filter(
+                crop_w, crop_h, crop_y, x_expr, out_w, out_h, ass_filter, use_cuda_scale=use_cuda_scale
+            )
+            script_path.write_text(filter_str, encoding="utf-8")
+            cmd += ["-filter_script:v", str(script_path.resolve()), "-map", "0:v:0", "-map", "0:a?"]
+
+        enc_args = build_encoder_args(current_enc, app_settings, preset=preset, quality=crf)
+        cmd += enc_args
+        cmd += [
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            str(out_path.resolve()),
+        ]
+
+        logger.info("[reframe] Encoding vertical clip using %s...", current_enc)
+        return subprocess.run(
             cmd,
             capture_output=True,
             text=True,
@@ -474,16 +740,26 @@ def render_vertical(
             errors="replace",
             cwd=str(run_cwd) if run_cwd else None,
         )
-    finally:
-        pass
 
-    if proc.returncode != 0:
-        raise RuntimeError(f"FFmpeg vertical render failed: {proc.stderr[-1500:]}")
+    # 1. Attempt render with chosen encoder
+    proc = _execute_render(chosen_encoder)
+
+    # 2. If GPU encoding failed and fallback is enabled, retry with CPU libx264
+    if proc.returncode != 0 and chosen_encoder != "libx264" and fallback_to_cpu:
+        logger.warning(
+            "[reframe] %s hardware render failed: %s. Retrying with CPU libx264...",
+            chosen_encoder,
+            proc.stderr[-400:],
+        )
+        proc = _execute_render("libx264")
 
     try:
         script_path.unlink()
     except OSError:
         pass
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"FFmpeg vertical render failed: {proc.stderr[-1500:]}")
 
     if not out_path.exists() or out_path.stat().st_size == 0:
         raise RuntimeError(f"Vertical output file missing or empty: {out_path}")
