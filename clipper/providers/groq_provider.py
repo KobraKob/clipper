@@ -32,27 +32,53 @@ class GroqTranscriber:
             from groq import Groq
             import groq
 
-            self.client = Groq(api_key=api_key)
+            # Generous 180s timeout so large network uploads don't abort prematurely
+            self.client = Groq(api_key=api_key, timeout=180.0)
             self._retryable_errors = (
                 groq.RateLimitError,
                 groq.APIConnectionError,
                 groq.InternalServerError,
+                groq.APITimeoutError,
             )
         except ImportError as exc:
             raise ImportError(
                 "groq package is not installed. Install via `pip install groq`."
             ) from exc
 
-    def _split(self, wav: pathlib.Path, out_dir: pathlib.Path) -> List[pathlib.Path]:
-        """Split WAV file into chunks smaller than STT_CHUNK_SECONDS using ffmpeg."""
+    @staticmethod
+    def _get_duration(path: pathlib.Path) -> float:
+        """Query accurate media duration using ffprobe."""
+        try:
+            cmd = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return float(res.stdout.strip())
+        except Exception:
+            return 0.0
+
+    def _split(self, wav: pathlib.Path, out_dir: pathlib.Path) -> List[Tuple[pathlib.Path, float]]:
+        """
+        Split audio file into lightweight chunks (default <= 180s) using ffmpeg.
+        Encodes to 96kbps MP3 so chunks are ~2 MB each (vs 19 MB uncompressed WAV),
+        preventing HTTP request timeouts and fitting safely under Groq's 25 MB limit.
+        """
         out_dir.mkdir(parents=True, exist_ok=True)
-        for old in out_dir.glob("chunk_*.wav"):
+        for old in out_dir.glob("chunk_*.*"):
             try:
                 old.unlink()
             except OSError:
                 pass
 
-        cmd = [
+        chunk_len = min(int(self.s.chunk_seconds or 180), 180)
+        mp3_cmd = [
             "ffmpeg",
             "-y",
             "-i",
@@ -60,19 +86,43 @@ class GroqTranscriber:
             "-f",
             "segment",
             "-segment_time",
-            str(self.s.chunk_seconds),
-            "-c",
-            "copy",
-            str(out_dir / "chunk_%03d.wav"),
+            str(chunk_len),
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "96k",
+            str(out_dir / "chunk_%03d.mp3"),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"FFmpeg audio splitting failed: {result.stderr}")
+        result = subprocess.run(mp3_cmd, capture_output=True, text=True)
+        chunks = sorted(out_dir.glob("chunk_*.mp3"))
 
-        chunks = sorted(out_dir.glob("chunk_*.wav"))
+        # Fallback to stream-copied WAV if MP3 encoder is unavailable
+        if result.returncode != 0 or not chunks:
+            logger.warning("[groq_stt] MP3 segmenting failed; falling back to WAV chunks.")
+            wav_cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(wav),
+                "-f",
+                "segment",
+                "-segment_time",
+                str(chunk_len),
+                "-c",
+                "copy",
+                str(out_dir / "chunk_%03d.wav"),
+            ]
+            subprocess.run(wav_cmd, capture_output=True, text=True)
+            chunks = sorted(out_dir.glob("chunk_*.wav"))
+
         if not chunks:
             chunks = [wav]
-        return chunks
+
+        chunk_items: List[Tuple[pathlib.Path, float]] = []
+        for c in chunks:
+            dur = self._get_duration(c) or float(chunk_len)
+            chunk_items.append((c, dur))
+        return chunk_items
 
     def _transcribe_chunk(self, path: pathlib.Path) -> Dict[str, Any]:
         """Transcribe an individual audio chunk file via Groq."""
@@ -93,14 +143,31 @@ class GroqTranscriber:
             return res
         return dict(res)
 
-    def transcribe(self, wav: pathlib.Path, work_dir: pathlib.Path) -> Dict[str, Any]:
-        """Transcribe full audio file with chunk-offset correction."""
-        chunks = self._split(wav, pathlib.Path(work_dir) / "chunks")
+    def transcribe(
+        self,
+        wav: pathlib.Path,
+        work_dir: pathlib.Path,
+        progress_cb: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Transcribe full audio file with chunk-offset correction and real progress reporting."""
+        chunk_items = self._split(wav, pathlib.Path(work_dir) / "chunks")
         all_segments: List[Dict[str, Any]] = []
         detected_language: Optional[str] = None
+        current_offset = 0.0
 
-        for idx, chunk in enumerate(chunks):
-            offset = idx * self.s.chunk_seconds
+        for idx, (chunk, duration) in enumerate(chunk_items):
+            if progress_cb:
+                try:
+                    progress_cb(idx + 1, len(chunk_items))
+                except Exception:
+                    pass
+            logger.info(
+                "[groq_stt] Transcribing chunk %d/%d (%s, %.1fs)...",
+                idx + 1,
+                len(chunk_items),
+                chunk.name,
+                duration,
+            )
             data = self._transcribe_chunk(chunk)
             if not detected_language and data.get("language"):
                 detected_language = data.get("language")
@@ -110,14 +177,14 @@ class GroqTranscriber:
                 chunk_words.append(
                     {
                         "w": w.get("word", "").strip(),
-                        "start": float(w.get("start", 0.0)) + offset,
-                        "end": float(w.get("end", 0.0)) + offset,
+                        "start": float(w.get("start", 0.0)) + current_offset,
+                        "end": float(w.get("end", 0.0)) + current_offset,
                     }
                 )
 
             for seg in data.get("segments") or []:
-                s0 = float(seg.get("start", 0.0)) + offset
-                s1 = float(seg.get("end", 0.0)) + offset
+                s0 = float(seg.get("start", 0.0)) + current_offset
+                s1 = float(seg.get("end", 0.0)) + current_offset
                 seg_words = [
                     w
                     for w in chunk_words
@@ -131,6 +198,7 @@ class GroqTranscriber:
                         "words": seg_words,
                     }
                 )
+            current_offset += duration
 
         return {
             "language": detected_language or "en",

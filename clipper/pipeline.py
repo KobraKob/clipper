@@ -16,11 +16,18 @@ from typing import Any, Dict, List, Optional
 from .candidates import build_candidates, detect_scene_cuts, prefilter
 from .captions import FONTS_DIR, build_ass, burn_captions, get_style
 from .config import Settings, settings as default_settings
+from .cover import pick_cover_frame
 from .cut import cut
+from .distribution import format_top_hooks_prompt_context
 from .ingest import download, extract_audio, is_url, load_source_info
 from .providers import get_llm, get_transcriber
 from .providers.base import LLM, Transcriber
 from .reframe import render_vertical
+from .retention import (
+    apply_silence_trimming,
+    detect_keep_intervals,
+    remap_words_after_trim,
+)
 from .seo import generate_metadata
 
 logger = logging.getLogger(__name__)
@@ -74,6 +81,7 @@ def get_transcript(
     job_dir: pathlib.Path,
     transcriber: Optional[Transcriber] = None,
     s: Settings = default_settings,
+    progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Retrieve cached transcript if available, otherwise transcribe and cache.
@@ -89,7 +97,10 @@ def get_transcript(
 
     tr_service = transcriber or get_transcriber(s)
     logger.info("[pipeline] Starting transcription on %s...", wav.name)
-    transcript_data = tr_service.transcribe(wav, job_dir)
+    try:
+        transcript_data = tr_service.transcribe(wav, job_dir, progress_cb=progress_callback)
+    except TypeError:
+        transcript_data = tr_service.transcribe(wav, job_dir)
 
     transcript_file.write_text(json.dumps(transcript_data, indent=2), encoding="utf-8")
     logger.info("[pipeline] Saved transcript to %s", transcript_file)
@@ -110,9 +121,16 @@ def run_pipeline(
     layout: Optional[str] = None,
     seo: Optional[bool] = None,
     encoder: Optional[str] = None,
+    trim_silence: bool = False,
+    hook_overlay: bool = True,
+    progress_bar: bool = False,
+    loudnorm: bool = True,
+    cover_frame: bool = True,
 ) -> Dict[str, Any]:
     """
-    Execute full automated video clipping pipeline with real stage progress tracking.
+    Execute full automated video clipping pipeline with real stage progress tracking,
+    retention optimisations (hook overlay, silence trim, loudnorm, progress bar),
+    and distribution assets (cover picker, title A/B variants, analytics feedback loop).
     """
     s = app_settings or default_settings
     style = get_style(caption_style or s.caption_style, s.caption_position or None)
@@ -125,6 +143,7 @@ def run_pipeline(
     job_dir = base_work_dir / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
     base_out_dir.mkdir(parents=True, exist_ok=True)
+
 
     try:
         # 1. Ingestion
@@ -154,7 +173,24 @@ def run_pipeline(
 
         # 3. Transcribe or read cache
         write_progress(job_dir, "transcribe", 25, "Transcribing speech to text...", base_out_dir)
-        tr_data = get_transcript(wav_path, job_dir, transcriber=transcriber, s=s)
+
+        def on_transcribe_progress(current_chunk: int, total_chunks: int) -> None:
+            pct = 25 + int((current_chunk / max(1, total_chunks)) * 13)
+            write_progress(
+                job_dir,
+                "transcribe",
+                pct,
+                f"Transcribing audio chunk {current_chunk}/{total_chunks}...",
+                base_out_dir,
+            )
+
+        tr_data = get_transcript(
+            wav_path,
+            job_dir,
+            transcriber=transcriber,
+            s=s,
+            progress_callback=on_transcribe_progress,
+        )
         segments = tr_data.get("segments", [])
         if not segments:
             raise RuntimeError("Transcription produced zero segments.")
@@ -203,19 +239,20 @@ def run_pipeline(
         if not cands:
             raise RuntimeError("No suitable candidate windows found matching duration criteria.")
 
-        # 6. Two-Stage LLM Scoring
+        # 6. Two-Stage LLM Scoring with Channel Analytics Feedback Loop
         write_progress(job_dir, "score", 55, "Scoring viral candidates with LLM...", base_out_dir)
         llm_service = llm or get_llm(s)
         logger.info("[pipeline] Scoring candidates using %s tier LLM...", s.llm_provider)
         from .scoring import rank
 
-        ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist)
+        analytics_ctx = format_top_hooks_prompt_context(base_out_dir)
+        ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist, analytics_context=analytics_ctx)
 
         tokens_used = getattr(llm_service, "tokens_used", 0)
         if tokens_used:
             logger.info("[pipeline] LLM tokens consumed: %d", tokens_used)
 
-        # 7. Render clips (Cut -> [Reframe + Captions in ONE encode] -> SEO)
+        # 7. Render clips (Cut -> [Silence Trim] -> [Reframe + Captions + Hook Overlay] -> Cover -> SEO)
         exported_clips: List[Dict[str, Any]] = []
         pad_offset = 0.15
         source_info = load_source_info(job_dir) if is_url(source) else {}
@@ -251,19 +288,43 @@ def run_pipeline(
                     w_s = float(w["start"])
                     if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
                         clip_words.append(w)
+
+            # Optional silence and filler trimming
+            if trim_silence and clip_words:
+                keep_intervals = detect_keep_intervals(clip_words, clip_start=start_time, clip_end=end_time)
+                if len(keep_intervals) > 1 or (keep_intervals and keep_intervals[0][1] < (end_time - start_time) - 0.3):
+                    trimmed_raw = job_dir / f"clip_{idx}_trimmed.mp4"
+                    try:
+                        apply_silence_trimming(raw_clip, keep_intervals, trimmed_raw)
+                        clip_words = remap_words_after_trim(clip_words, keep_intervals, clip_start=start_time)
+                        raw_clip = trimmed_raw
+                        logger.info("  -> Trimmed pauses and filler words (intervals: %d)", len(keep_intervals))
+                    except Exception as exc:
+                        logger.warning("[pipeline] Silence trimming failed for clip %d: %s; using untrimmed cut.", idx, exc)
+
             transcript_text = " ".join(str(w["w"]).strip() for w in clip_words) or clip.get("text", "")
 
             ass_file: Optional[pathlib.Path] = None
             if captions and clip_words:
-                logger.info("  -> Building '%s' animated captions...", style.key)
+                logger.info("  -> Building '%s' animated captions (Hook overlay: %s)...", style.key, hook_overlay)
                 ass_file = job_dir / f"clip_{idx}.ass"
                 ass_file.write_text(
-                    build_ass(clip_words, clip_start=clip_start, style=style, play_w=s.out_width, play_h=s.out_height),
+                    build_ass(
+                        clip_words,
+                        clip_start=clip_start,
+                        style=style,
+                        play_w=s.out_width,
+                        play_h=s.out_height,
+                        hook=clip.get("hook") if hook_overlay else None,
+                        hook_duration=2.5,
+                        enable_keywords=True,
+                        enable_emojis=True,
+                    ),
                     encoding="utf-8",
                 )
 
             if vertical:
-                logger.info("  -> Rendering %dx%d vertical (%s layout)...", s.out_width, s.out_height, layout)
+                logger.info("  -> Rendering %dx%d vertical (%s layout, loudnorm: %s, progress: %s)...", s.out_width, s.out_height, layout, loudnorm, progress_bar)
                 rel_cuts = [c - clip_start for c in scene_cuts if start_time <= c <= end_time]
                 render_vertical(
                     raw_clip,
@@ -279,6 +340,9 @@ def run_pipeline(
                     encoder=encoder or s.video_encoder,
                     fallback_to_cpu=s.enable_encoder_fallback,
                     s=s,
+                    loudnorm=loudnorm,
+                    progress_bar=progress_bar,
+                    duration=round(end_time - start_time, 2),
                 )
             elif ass_file is not None:
                 burn_captions(raw_clip, ass_file, final_clip_path)
@@ -298,10 +362,23 @@ def run_pipeline(
                 "caption_style": style.key if captions else None,
                 "layout": layout if vertical else "original",
                 "encoder": encoder or s.video_encoder,
+                "hook_overlay": hook_overlay,
+                "progress_bar": progress_bar,
+                "loudnorm": loudnorm,
                 "publish": {},
             }
+
+            # Extract Cover / Thumbnail frame
+            if cover_frame:
+                cover_path = base_out_dir / f"{idx:02d}_{slug}_cover.jpg"
+                try:
+                    pick_cover_frame(final_clip_path, cover_path)
+                    clip_record["cover_image"] = str(cover_path.resolve())
+                except Exception as exc:
+                    logger.debug("[pipeline] Could not extract cover frame for clip %d: %s", idx, exc)
+
             if seo_on:
-                logger.info("  -> Generating title / description / hashtags...")
+                logger.info("  -> Generating Title A/B variants & descriptions...")
                 clip_record["seo"] = generate_metadata(
                     clip,
                     transcript_text,
@@ -310,7 +387,10 @@ def run_pipeline(
                     source_url=source if is_url(source) else None,
                     credit_source=s.seo_credit_source,
                 )
+                clip_record["title_variants"] = clip_record["seo"].get("title_variants", [])
+                clip_record["selected_title_variant"] = clip_record["seo"].get("selected_title_variant", "direct")
             exported_clips.append(clip_record)
+
 
         # 8. Export metadata manifest
         write_progress(job_dir, "export", 98, "Writing metadata manifest...", base_out_dir)
@@ -430,11 +510,25 @@ def rerender_clip(
     style = get_style(style_key, s.caption_position or None)
     current_layout = layout or clip.get("layout") or s.layout
 
+    hook_overlay = clip.get("hook_overlay", True)
+    progress_bar = clip.get("progress_bar", False)
+    loudnorm = clip.get("loudnorm", True)
+
     ass_file: Optional[pathlib.Path] = None
     if clip_words and style_key is not None:
         ass_file = job_dir / f"clip_{rank}.ass"
         ass_file.write_text(
-            build_ass(clip_words, clip_start=clip_start, style=style, play_w=s.out_width, play_h=s.out_height),
+            build_ass(
+                clip_words,
+                clip_start=clip_start,
+                style=style,
+                play_w=s.out_width,
+                play_h=s.out_height,
+                hook=clip.get("hook") if hook_overlay else None,
+                hook_duration=2.5,
+                enable_keywords=True,
+                enable_emojis=True,
+            ),
             encoding="utf-8",
         )
 
@@ -456,18 +550,29 @@ def rerender_clip(
             encoder=chosen_enc,
             fallback_to_cpu=s.enable_encoder_fallback,
             s=s,
+            loudnorm=loudnorm,
+            progress_bar=progress_bar,
+            duration=round(end_time - start_time, 2),
         )
     elif ass_file is not None:
         burn_captions(raw_clip, ass_file, final_clip_path)
     else:
         shutil.copy(raw_clip, final_clip_path)
 
-    # 3. Update metadata
+    # 3. Update metadata and refresh cover frame
     clip["start"] = start_time
     clip["end"] = end_time
     clip["duration"] = round(end_time - start_time, 2)
     clip["caption_style"] = style.key
     clip["layout"] = current_layout
     clip["encoder"] = chosen_enc
+
+    cover_file = base_out_dir / f"{int(rank):02d}_{slugify(clip.get('title', 'clip'))}_cover.jpg"
+    try:
+        pick_cover_frame(final_clip_path, cover_file)
+        clip["cover_image"] = str(cover_file.resolve())
+    except Exception:
+        pass
+
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return clip

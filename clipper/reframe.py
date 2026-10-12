@@ -582,13 +582,14 @@ def build_fill_filter(
     out_h: int,
     ass_filter: Optional[str] = None,
     use_cuda_scale: bool = False,
+    progress_filter: Optional[str] = None,
 ) -> str:
     """
     Build vertical fill filter graph.
     If use_cuda_scale is True and no subtitle filter is present, performs GPU-accelerated scaling
     directly on CUDA hardware surfaces, avoiding redundant GPU-CPU-GPU PCIe roundtrips.
     """
-    if use_cuda_scale and ass_filter is None:
+    if use_cuda_scale and ass_filter is None and progress_filter is None:
         return (
             f"crop=w={crop_w}:h={crop_h}:x='{x_expr}':y={crop_y},"
             f"setsar=1,format=nv12,hwupload,scale_cuda={out_w}:{out_h}:interp_algo=lanczos"
@@ -601,11 +602,18 @@ def build_fill_filter(
     ]
     if ass_filter:
         chain.append(ass_filter)
+    if progress_filter:
+        chain.append(progress_filter)
     chain.append("format=yuv420p")
     return ",".join(chain)
 
 
-def build_fit_blur_graph(out_w: int, out_h: int, ass_filter: Optional[str] = None) -> str:
+def build_fit_blur_graph(
+    out_w: int,
+    out_h: int,
+    ass_filter: Optional[str] = None,
+    progress_filter: Optional[str] = None,
+) -> str:
     """Whole 16:9 frame centred over a blurred, zoomed copy of itself (for slides, gameplay, screen-shares)."""
     bw, bh = max(2, out_w // 4), max(2, out_h // 4)
     graph = (
@@ -615,9 +623,102 @@ def build_fit_blur_graph(out_w: int, out_h: int, ass_filter: Optional[str] = Non
         f"[fgsrc]scale={out_w}:-2:flags=lanczos[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
     )
+    tail = ""
     if ass_filter:
         graph += "," + ass_filter
+    if progress_filter:
+        graph += "," + progress_filter
     graph += ",format=yuv420p[v]"
+    return graph
+
+
+def detect_two_speaker_positions(video_path: pathlib.Path, src_w: int, src_h: int) -> Tuple[float, float]:
+    """Detect horizontal centers of the two primary speakers for two-shot split-screen layout."""
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return src_w * 0.30, src_w * 0.70
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    sample_indices = np.linspace(0, max(1, total_frames - 1), 12, dtype=int)
+
+    scale = min(1.0, DETECT_MAX_WIDTH / float(src_w)) if src_w else 1.0
+    dw, dh = max(2, int(round(src_w * scale))), max(2, int(round(src_h * scale)))
+    detector_info = _init_detector(dw, dh)
+
+    left_faces: List[float] = []
+    right_faces: List[float] = []
+    mid = src_w / 2.0
+
+    for idx in sample_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ok, frame = cap.read()
+        if not ok or frame is None or detector_info is None:
+            continue
+        small = cv2.resize(frame, (dw, dh), interpolation=cv2.INTER_AREA) if scale < 1.0 else frame
+        dtype, detector = detector_info
+        if dtype == "yunet":
+            detector.setInputSize((dw, dh))
+            _, faces = detector.detect(small)
+            if faces is not None and len(faces) > 0:
+                for f in faces:
+                    fx, fw = f[0], f[2]
+                    cx = (float(fx) + float(fw) / 2.0) / scale
+                    if cx < mid:
+                        left_faces.append(cx)
+                    else:
+                        right_faces.append(cx)
+
+    cap.release()
+    x1 = float(np.median(left_faces)) if left_faces else src_w * 0.30
+    x2 = float(np.median(right_faces)) if right_faces else src_w * 0.70
+    return x1, x2
+
+
+def build_split_screen_graph(
+    src_w: int,
+    src_h: int,
+    out_w: int,
+    out_h: int,
+    speaker1_x: float,
+    speaker2_x: float,
+    ass_filter: Optional[str] = None,
+    progress_filter: Optional[str] = None,
+) -> str:
+    """
+    Two-speaker vertical split-screen graph:
+    Top half (out_w x half_h) frames Speaker 1, Bottom half (out_w x half_h) frames Speaker 2, stacked vertically.
+    """
+    half_h = out_h // 2
+    tile_aspect = out_w / float(half_h)
+
+    if src_w / float(src_h) >= tile_aspect:
+        crop_h = src_h
+        crop_w = _even(src_h * tile_aspect)
+    else:
+        crop_w = src_w
+        crop_h = _even(src_w / tile_aspect)
+
+    crop_w = min(_even(crop_w), src_w - (src_w % 2))
+    crop_h = min(_even(crop_h), src_h - (src_h % 2))
+
+    x1 = max(0, min(src_w - crop_w, int(round(speaker1_x - crop_w / 2.0))))
+    x2 = max(0, min(src_w - crop_w, int(round(speaker2_x - crop_w / 2.0))))
+    y = max(0, (src_h - crop_h) // 2)
+
+    graph = (
+        f"[0:v]split=2[topsrc][botsrc];"
+        f"[topsrc]crop=w={crop_w}:h={crop_h}:x={x1}:y={y},scale={out_w}:{half_h}:flags=lanczos[top];"
+        f"[botsrc]crop=w={crop_w}:h={crop_h}:x={x2}:y={y},scale={out_w}:{half_h}:flags=lanczos[bot];"
+        f"[top][bot]vstack=inputs=2[v_stacked]"
+    )
+    tail = "[v_stacked]"
+    if ass_filter:
+        graph += f";{tail}{ass_filter}[v_sub]"
+        tail = "[v_sub]"
+    if progress_filter:
+        graph += f";{tail}{progress_filter}[v_prog]"
+        tail = "[v_prog]"
+    graph += f";{tail}format=yuv420p[v]"
     return graph
 
 
@@ -637,23 +738,26 @@ def render_vertical(
     encoder: Optional[str] = None,
     fallback_to_cpu: bool = True,
     s: Optional[Settings] = None,
+    loudnorm: bool = True,
+    progress_bar: bool = False,
+    duration: Optional[float] = None,
 ) -> pathlib.Path:
     """
     Reframe a clip into ``out_w`` x ``out_h`` (default 1080x1920) in a single FFmpeg pass.
 
-    ``layout="fill"``      face-tracked crop that fills the whole screen (default)
-    ``layout="fit_blur"``  whole frame centred on a blurred backdrop (no cropping at all)
-    ``ass_path``           burn these captions in the same encode (avoids a second lossy generation)
-    ``centers_x``          optional precomputed per-frame subject x (skips face detection)
-    ``encoder``            video encoder ('auto', 'h264_nvenc', 'libx264', 'h264_qsv')
-    ``fallback_to_cpu``    automatically retry on CPU if hardware GPU encoding encounters an error
+    ``layout="fill"``         face-tracked crop that fills the whole screen (default)
+    ``layout="fit_blur"``     whole frame centred on a blurred backdrop (no cropping at all)
+    ``layout="split_screen"`` two-speaker top/bottom split-screen framing for podcasts/interviews
+    ``ass_path``              burn these captions in the same encode (avoids a second lossy generation)
+    ``loudnorm``              apply -14 LUFS loudness normalisation for consistent volume
+    ``progress_bar``          render animated bottom progress bar
     """
     video_path = pathlib.Path(video_path)
     out_path = pathlib.Path(out_path)
     if not video_path.exists():
         raise FileNotFoundError(f"Video file not found: {video_path}")
-    if layout not in ("fill", "fit_blur"):
-        raise ValueError(f"Unknown layout {layout!r}; use 'fill' or 'fit_blur'.")
+    if layout not in ("fill", "fit_blur", "split_screen"):
+        raise ValueError(f"Unknown layout {layout!r}; use 'fill', 'fit_blur', or 'split_screen'.")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     app_settings = s or default_settings
@@ -698,10 +802,20 @@ def render_vertical(
         x_expr = build_x_expression(points)
         crop_y = max(0, (H - crop_h) // 2)
 
+    spk1_x, spk2_x = (W * 0.30, W * 0.70)
+    if layout == "split_screen":
+        spk1_x, spk2_x = detect_two_speaker_positions(video_path, W, H)
+
+    clip_dur = duration if duration is not None else (float(info.duration) if getattr(info, "duration", None) else 30.0)
+    prog_filter: Optional[str] = None
+    if progress_bar and clip_dur > 0:
+        from .retention import build_progress_bar_filter
+        prog_filter = build_progress_bar_filter(clip_dur, out_w=out_w, out_h=out_h)
+
     script_path = out_path.with_suffix(".filter.txt")
 
     def _execute_render(current_enc: str) -> subprocess.CompletedProcess:
-        use_cuda_scale = (current_enc == "h264_nvenc" and ass_filter is None and layout == "fill")
+        use_cuda_scale = (current_enc == "h264_nvenc" and ass_filter is None and prog_filter is None and layout == "fill")
         cmd: List[str] = ["ffmpeg", "-loglevel", "error", "-y"]
 
         if use_cuda_scale:
@@ -710,14 +824,21 @@ def render_vertical(
         cmd += ["-i", str(video_path.resolve())]
 
         if layout == "fit_blur":
-            script_path.write_text(build_fit_blur_graph(out_w, out_h, ass_filter), encoding="utf-8")
+            script_path.write_text(build_fit_blur_graph(out_w, out_h, ass_filter, prog_filter), encoding="utf-8")
+            cmd += ["-filter_complex_script", str(script_path.resolve()), "-map", "[v]", "-map", "0:a?"]
+        elif layout == "split_screen":
+            script_path.write_text(build_split_screen_graph(W, H, out_w, out_h, spk1_x, spk2_x, ass_filter, prog_filter), encoding="utf-8")
             cmd += ["-filter_complex_script", str(script_path.resolve()), "-map", "[v]", "-map", "0:a?"]
         else:
             filter_str = build_fill_filter(
-                crop_w, crop_h, crop_y, x_expr, out_w, out_h, ass_filter, use_cuda_scale=use_cuda_scale
+                crop_w, crop_h, crop_y, x_expr, out_w, out_h, ass_filter, use_cuda_scale=use_cuda_scale, progress_filter=prog_filter
             )
             script_path.write_text(filter_str, encoding="utf-8")
             cmd += ["-filter_script:v", str(script_path.resolve()), "-map", "0:v:0", "-map", "0:a?"]
+
+        if loudnorm:
+            from .retention import get_loudnorm_filter
+            cmd += ["-af", get_loudnorm_filter()]
 
         enc_args = build_encoder_args(current_enc, app_settings, preset=preset, quality=crf)
         cmd += enc_args

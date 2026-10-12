@@ -26,6 +26,12 @@ Given the clip transcript, produce metadata optimised for search and for click-t
 Rules:
 - youtube_title: max 70 characters, curiosity-driven, front-load the main keyword, no clickbait lies,
   no hashtags, no ALL CAPS shouting, no emoji spam (at most one emoji).
+- title_variants: array of 3 distinct title options for A/B testing:
+  [
+    {{"id": "curiosity", "title": "...", "angle": "Curiosity Gap"}},
+    {{"id": "direct", "title": "...", "angle": "Direct Impact"}},
+    {{"id": "question", "title": "...", "angle": "Bold Question"}}
+  ]
 - youtube_description: 2-3 short sentences. Line 1 must restate the hook with the main keyword.
   Then one line inviting a comment/follow. Do NOT include hashtags here.
 - keywords: 8-12 search keywords/phrases people would actually type (lowercase, no #).
@@ -35,7 +41,7 @@ Rules:
 - language: {language}
 
 Return ONLY valid JSON:
-{{"youtube_title": "...", "youtube_description": "...", "keywords": ["..."], "hashtags": ["..."], "instagram_caption": "..."}}
+{{"youtube_title": "...", "title_variants": [{{"id": "curiosity", "title": "...", "angle": "Curiosity Gap"}}, {{"id": "direct", "title": "...", "angle": "Direct Impact"}}, {{"id": "question", "title": "...", "angle": "Bold Question"}}], "youtube_description": "...", "keywords": ["..."], "hashtags": ["..."], "instagram_caption": "..."}}
 
 Clip title (internal): {title}
 Clip hook: {hook}
@@ -84,8 +90,16 @@ def fallback_metadata(clip: Dict[str, Any], text: str) -> Dict[str, Any]:
     title = clip.get("title") or "Must-watch moment"
     hook = clip.get("hook") or title
     kws = _top_keywords(text)
+    kw_str = kws[0].title() if kws else "This"
+    variants = [
+        {"id": "curiosity", "title": _truncate(f"The Secret To {kw_str} Nobody Tells You", 70), "angle": "Curiosity Gap"},
+        {"id": "direct", "title": _truncate(title, 70), "angle": "Direct Impact"},
+        {"id": "question", "title": _truncate(f"Are You Doing {kw_str} Completely Wrong?", 70), "angle": "Bold Question"},
+    ]
     return {
         "youtube_title": _truncate(title, 70),
+        "title_variants": variants,
+        "selected_title_variant": "direct",
         "youtube_description": f"{_truncate(hook, 200)}\n\nWhat do you think? Tell me in the comments and follow for more.",
         "keywords": kws,
         "hashtags": ["shorts", "fyp", "viral"] + [_slug_tag(k) for k in kws[:4]],
@@ -101,7 +115,7 @@ def generate_metadata(
     source_url: Optional[str] = None,
     credit_source: bool = True,
 ) -> Dict[str, Any]:
-    """Return platform-ready metadata for one clip. Never raises."""
+    """Return platform-ready metadata for one clip with Title A/B variants. Never raises."""
     text = " ".join(transcript_text.split())[:3500]
     raw: Dict[str, Any] = {}
     if llm is not None and text:
@@ -120,6 +134,20 @@ def generate_metadata(
         return v if v else fb[key]
 
     title = _truncate(pick("youtube_title"), YT_TITLE_MAX)
+    raw_variants = raw.get("title_variants")
+    if isinstance(raw_variants, list) and len(raw_variants) >= 2:
+        title_variants = [
+            {
+                "id": str(v.get("id", f"var_{i}")),
+                "title": _truncate(str(v.get("title", "")), YT_TITLE_MAX),
+                "angle": str(v.get("angle", "Variant")),
+            }
+            for i, v in enumerate(raw_variants)
+            if v.get("title")
+        ]
+    else:
+        title_variants = fb["title_variants"]
+
     kws = [str(k).strip().lower().lstrip("#") for k in (pick("keywords") or []) if str(k).strip()]
     tags_all = _clean_hashtags(raw.get("hashtags"), fb["hashtags"])
     # Make sure the Shorts discovery tag is present exactly once.
@@ -148,9 +176,18 @@ def generate_metadata(
     ig_caption += "\n\n" + " ".join("#" + t for t in ig_tags)
 
     return {
-        "youtube": {"title": title, "description": desc, "tags": yt_tags},
+        "youtube": {
+            "title": title,
+            "title_variants": title_variants,
+            "selected_variant": title_variants[0]["id"] if title_variants else "direct",
+            "description": desc,
+            "tags": yt_tags,
+        },
         "instagram": {"caption": ig_caption[:IG_CAPTION_MAX]},
+        "title_variants": title_variants,
+        "selected_title_variant": title_variants[0]["id"] if title_variants else "direct",
         "hashtags": tags_all,
         "keywords": kws,
         "generated_by": "llm" if raw else "heuristic",
     }
+

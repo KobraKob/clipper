@@ -82,11 +82,19 @@ def stage1(
     return cands
 
 
-def stage2(cand: Dict[str, Any], llm: LLM) -> Dict[str, Any]:
+def stage2(
+    cand: Dict[str, Any],
+    llm: LLM,
+    analytics_context: Optional[str] = None,
+) -> Dict[str, Any]:
     """
-    Stage 2: Strong model scores a shortlisted candidate in depth, generating titles and hooks.
+    Stage 2: Strong model scores a shortlisted candidate in depth, generating titles and hooks,
+    optionally guided by channel analytics feedback.
     """
     prompt = DETAIL_PROMPT.replace("{text}", cand["text"])
+    if analytics_context:
+        prompt = f"{analytics_context}\n\n{prompt}"
+
     try:
         out = llm.complete_json(prompt, tier="strong")
         cand["score"] = int(out.get("score", cand.get("fast_score", 50)))
@@ -130,12 +138,13 @@ def rank(
     llm: LLM,
     n: int = 5,
     shortlist_size: Optional[int] = None,
+    analytics_context: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Two-stage ranking pipeline:
     1. Fast model scores all candidates in batches.
     2. Deduplicate and keep top `shortlist_size` items.
-    3. Strong model scores the shortlist in detail.
+    3. Strong model scores the shortlist in detail (optionally guided by analytics feedback).
     4. Deduplicate and return final top N clips.
     """
     if not candidates:
@@ -151,8 +160,9 @@ def rank(
 
     # Stage 2: Deep evaluation on the shortlist
     for cand in shortlist:
-        stage2(cand, llm)
+        stage2(cand, llm, analytics_context=analytics_context)
 
     # Final selection: Top N by Stage 2 score
     final_clips = select_top(shortlist, n, key="score", max_overlap=0.3)
     return final_clips
+

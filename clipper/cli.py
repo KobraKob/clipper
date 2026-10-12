@@ -83,6 +83,21 @@ def run(
     encoder: Optional[str] = typer.Option(
         None, "--encoder", help="Video encoder: auto | h264_nvenc | libx264 | h264_qsv."
     ),
+    trim_silence: bool = typer.Option(
+        False, "--trim-silence/--no-trim-silence", help="Trim pauses >0.4s and filler words (um/uh)."
+    ),
+    hook_overlay: bool = typer.Option(
+        True, "--hook-overlay/--no-hook-overlay", help="Big opening hook headline for first 2.5s."
+    ),
+    progress_bar: bool = typer.Option(
+        False, "--progress-bar/--no-progress-bar", help="Animated bottom progress bar."
+    ),
+    loudnorm: bool = typer.Option(
+        True, "--loudnorm/--no-loudnorm", help="Normalize audio loudness to -14 LUFS."
+    ),
+    cover: bool = typer.Option(
+        True, "--cover/--no-cover", help="Extract sharpest thumbnail cover frame."
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug logging."),
 ) -> None:
     """Run full automated clipping pipeline."""
@@ -93,7 +108,8 @@ def run(
             f"[yellow]Source:[/yellow] {source}\n"
             f"[yellow]Clips requested:[/yellow] {clips} | [yellow]Provider:[/yellow] {provider or default_settings.provider}\n"
             f"[yellow]Vertical 9:16:[/yellow] {vertical} | [yellow]Captions:[/yellow] {captions}\n"
-            f"[yellow]Encoder:[/yellow] {encoder or default_settings.video_encoder}",
+            f"[yellow]Encoder:[/yellow] {encoder or default_settings.video_encoder}\n"
+            f"[yellow]Retention:[/yellow] Hook: {hook_overlay} | Loudnorm: {loudnorm} | Trim: {trim_silence} | Progress: {progress_bar}",
             title="Pipeline Initializing",
         )
     )
@@ -119,10 +135,16 @@ def run(
             layout=layout,
             seo=seo,
             encoder=encoder,
+            trim_silence=trim_silence,
+            hook_overlay=hook_overlay,
+            progress_bar=progress_bar,
+            loudnorm=loudnorm,
+            cover_frame=cover,
         )
 
         try:
             table = Table(title="Generated Clips Summary", show_header=True, header_style="bold green")
+
             table.add_column("Rank", style="dim", width=6)
             table.add_column("Score", justify="right", width=7)
             table.add_column("Title", style="bold")
@@ -232,6 +254,49 @@ def rerender(
         console.print(f"[bold red]Re-render failed:[/bold red] {exc}")
         if verbose:
             console.print_exception()
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def schedule(
+    manifest: str = typer.Argument(..., help="Path to outputs/<job_id>/metadata.json."),
+    rank: int = typer.Option(..., "--rank", "-r", help="Clip rank to schedule."),
+    time: str = typer.Option(..., "--time", "-t", help="Target UTC ISO time (e.g. 2026-10-15T18:00:00Z)."),
+    platform: str = typer.Option("youtube", "--platform", "-p", help="youtube | instagram | both"),
+) -> None:
+    """Schedule a finished clip for automated distribution at a specific time."""
+    from .distribution import schedule_clip_post
+    try:
+        schedule_clip_post(pathlib.Path(manifest), rank, platform, time)
+        console.print(f"[bold green]Clip #{rank} scheduled for {time} on {platform}![/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Scheduling failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+
+@app.command(name="process-queue")
+def process_queue(
+    outdir: str = typer.Option("outputs", "--outdir", "-o", help="Outputs directory to scan."),
+) -> None:
+    """Check posting queue and upload clips whose scheduled time has arrived."""
+    from .config import settings as _s
+    from .distribution import process_posting_queue
+    results = process_posting_queue(pathlib.Path(outdir), _s)
+    console.print(f"[bold cyan]Queue check complete: {len(results)} items processed.[/bold cyan]")
+
+
+@app.command()
+def analytics(
+    manifest: str = typer.Argument(..., help="Path to outputs/<job_id>/metadata.json."),
+) -> None:
+    """Fetch live YouTube performance analytics for published clips in a job."""
+    from .config import settings as _s
+    from .distribution import refresh_manifest_analytics
+    try:
+        data = refresh_manifest_analytics(pathlib.Path(manifest), _s)
+        console.print(f"[bold green]Analytics updated for {len(data.get('clips', []))} clips![/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Analytics refresh failed:[/bold red] {exc}")
         raise typer.Exit(code=1)
 
 

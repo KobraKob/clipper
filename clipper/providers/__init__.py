@@ -36,12 +36,38 @@ class FallbackLLM:
         return getattr(self.primary, "tokens_used", 0)
 
 
+class FallbackTranscriber:
+    """Wrapper that fails over to a secondary transcriber if primary fails."""
+
+    def __init__(self, primary: Transcriber, backup: Transcriber) -> None:
+        self.primary = primary
+        self.backup = backup
+
+    def transcribe(self, wav: Any, work_dir: Any, **kwargs: Any) -> Dict[str, Any]:
+        try:
+            return self.primary.transcribe(wav, work_dir, **kwargs)
+        except Exception as exc:
+            logger.warning(
+                "[transcriber] Primary STT failed with %s: %s; falling back to local Whisper.",
+                type(exc).__name__,
+                exc,
+            )
+            return self.backup.transcribe(wav, work_dir)
+
+
 def get_transcriber(s: Settings = settings) -> Transcriber:
-    """Instantiate configured transcriber."""
+    """Instantiate configured transcriber with automatic local fallback."""
     provider = s.stt_provider.lower().strip()
     if provider == "groq":
         from .groq_provider import GroqTranscriber
-        return GroqTranscriber(s)
+        primary = GroqTranscriber(s)
+        if s.fallback_to_local:
+            try:
+                from .local import LocalTranscriber
+                return FallbackTranscriber(primary=primary, backup=LocalTranscriber(s))
+            except Exception as exc:
+                logger.debug("[providers] Local backup transcriber unavailable: %s", exc)
+        return primary
     if provider == "local":
         from .local import LocalTranscriber
         return LocalTranscriber(s)
@@ -68,6 +94,7 @@ __all__ = [
     "Transcriber",
     "LLM",
     "FallbackLLM",
+    "FallbackTranscriber",
     "get_transcriber",
     "get_llm",
     "parse_json",

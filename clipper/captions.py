@@ -244,7 +244,10 @@ def _ass_header(style: CaptionStyle, play_w: int, play_h: int) -> str:
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{style.font},{fs},{ass_color(style.text_color)},{ass_color(style.active_color)},"
         f"{ass_color(style.outline_color)},&H80000000,{-1 if style.bold else 0},0,0,0,100,100,{style.spacing},0,1,"
-        f"{outline},{shadow},{align},{margin_lr},{margin_lr},{margin_v},1\n\n"
+        f"{outline},{shadow},{align},{margin_lr},{margin_lr},{margin_v},1\n"
+        f"Style: Hook,Poppins ExtraBold,{max(12, int(round(90 * scale * FONT_SCALE)))},&H00FFFFFF,&H00FFE600,"
+        f"&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,"
+        f"{round(7.0 * scale, 2)},{round(3.5 * scale, 2)},8,{margin_lr},{margin_lr},{int(play_h * 0.14)},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
@@ -283,8 +286,55 @@ def _group_words(words: List[Dict[str, Any]], style: CaptionStyle) -> List[List[
     return groups
 
 
-def _active_tags(style: CaptionStyle) -> str:
-    tags = f"\\c{_tag_color(style.active_color)}"
+KEYWORD_CATEGORIES: Dict[str, Dict[str, Any]] = {
+    "money": {
+        "words": {
+            "money", "cash", "rich", "wealth", "revenue", "profit", "dollar", "dollars",
+            "cost", "invest", "investment", "paid", "crypto", "bitcoin", "million", "millions",
+            "billion", "billions", "save", "savings", "bank", "price", "expensive", "free", "financial",
+        },
+        "color": "39FF14",  # Neon Green
+        "emoji": "💰",
+    },
+    "energy": {
+        "words": {
+            "crazy", "insane", "destroy", "destroyed", "danger", "dangerous", "warning",
+            "huge", "exploding", "viral", "secret", "mistake", "never", "stop", "worst", "shocking",
+        },
+        "color": "3333FF",  # Punch Red
+        "emoji": "🔥",
+    },
+    "growth": {
+        "words": {
+            "percent", "growth", "double", "doubled", "triple", "fast", "scale", "result",
+            "results", "success", "win", "winner", "record", "10x", "100%",
+        },
+        "color": "00E5FF",  # Electric Cyan
+        "emoji": "📈",
+    },
+    "mindset": {
+        "words": {
+            "think", "idea", "mindset", "brain", "lesson", "learn", "strategy", "smart",
+            "genius", "truth",
+        },
+        "color": "FF2BD6",  # Neon Magenta
+        "emoji": "💡",
+    },
+}
+
+
+def get_keyword_emphasis(word: str) -> Optional[Tuple[str, str]]:
+    """Return (color_hex, emoji) if word matches an emphasis category, or None."""
+    cleaned = re.sub(r"[^\w%]", "", word).strip().lower()
+    for cat in KEYWORD_CATEGORIES.values():
+        if cleaned in cat["words"]:
+            return str(cat["color"]), str(cat["emoji"])
+    return None
+
+
+def _active_tags(style: CaptionStyle, custom_color: Optional[str] = None) -> str:
+    color = custom_color or style.active_color
+    tags = f"\\c{_tag_color(color)}"
     if style.active_box:
         tags += f"\\3c{_tag_color(style.active_box)}\\bord{int(style.outline * 3 + 8)}\\shad0"
     if style.glow:
@@ -311,14 +361,14 @@ def build_ass(
     play_w: int = 1080,
     play_h: int = 1920,
     group_size: Optional[int] = None,
+    hook: Optional[str] = None,
+    hook_duration: float = 2.5,
+    enable_keywords: bool = True,
+    enable_emojis: bool = True,
 ) -> str:
     """
-    Generate an ASS document with per-word animated captions.
-
-    ``words``       dicts ``{"w": str, "start": float, "end": float}`` in *source* time.
-    ``clip_start``  source time that maps to 0:00 in the clip (cut start minus padding).
-    ``style``       preset key (see ``CAPTION_STYLES``) or a ``CaptionStyle``.
-    ``group_size``  override words-per-line.
+    Generate an ASS document with per-word animated captions, optional hook headline overlay,
+    and contextual keyword coloring with emojis.
     """
     st = style if isinstance(style, CaptionStyle) else get_style(style, position)
     if isinstance(style, CaptionStyle) and position:
@@ -326,8 +376,28 @@ def build_ass(
     if group_size:
         st = replace(st, words_per_line=int(group_size))
     header = _ass_header(st, play_w, play_h)
+
+    events: List[str] = []
+
+    # 1. Opening hook headline overlay (Layer 1, top center with fade-in and fade-out)
+    if hook:
+        hook_clean = str(hook).strip().replace("{", "(").replace("}", ")").replace("\\", "")
+        if st.uppercase:
+            hook_clean = hook_clean.upper()
+        h_words = hook_clean.split()
+        if len(h_words) > 5:
+            mid = len(h_words) // 2
+            hook_text = " ".join(h_words[:mid]) + r"\N" + " ".join(h_words[mid:])
+        else:
+            hook_text = hook_clean
+
+        events.append(
+            f"Dialogue: 1,0:00:00.00,{format_ass_time(hook_duration)},Hook,,0,0,0,,"
+            f"{{\\fad(120,400)\\b1}}{hook_text}\n"
+        )
+
     if not words:
-        return header
+        return header + "".join(events)
 
     prepared: List[Dict[str, Any]] = []
     for w in words:
@@ -336,9 +406,21 @@ def build_ass(
             continue
         start = max(0.0, float(w["start"]) - clip_start)
         end = max(start + 0.05, float(w["end"]) - clip_start)
-        prepared.append({"_t": text, "start": start, "end": end})
+
+        emphasis = get_keyword_emphasis(text) if enable_keywords else None
+        custom_col = emphasis[0] if emphasis else None
+        emoji = (emphasis[1] if (emphasis and enable_emojis) else None)
+
+        prepared.append({
+            "_t": text,
+            "start": start,
+            "end": end,
+            "custom_color": custom_col,
+            "emoji": emoji,
+        })
     if not prepared:
-        return header
+        return header + "".join(events)
+
     # Make word windows contiguous so the highlight never flickers off between words.
     for i in range(len(prepared) - 1):
         nxt = prepared[i + 1]["start"]
@@ -346,8 +428,6 @@ def build_ass(
             prepared[i]["end"] = max(prepared[i]["end"], nxt)
         else:
             prepared[i]["end"] = min(max(prepared[i]["end"], prepared[i]["start"] + 0.2), nxt)
-
-    events: List[str] = []
 
     def add(start: float, end: float, text: str) -> None:
         if end <= start:
@@ -363,17 +443,22 @@ def build_ass(
             parts = []
             for w in group:
                 cs = max(1, int(round((w["end"] - w["start"]) * 100)))
-                parts.append(f"{{\\kf{cs}}}{w['_t']}")
+                display_t = f"{w['_t']} {w['emoji']}" if w.get("emoji") else w["_t"]
+                parts.append(f"{{\\kf{cs}}}{display_t}")
             add(g_start, g_end, " ".join(parts))
         elif st.mode == "single":
             for w in group:
-                add(w["start"], w["end"], _active_tags(st) + w["_t"])
+                active_t = _active_tags(st, custom_color=w.get("custom_color"))
+                display_t = f"{w['_t']} {w['emoji']}" if w.get("emoji") else w["_t"]
+                add(w["start"], w["end"], active_t + display_t)
         else:  # highlight
             for i, active in enumerate(group):
                 pieces = []
                 for j, w in enumerate(group):
                     if j == i:
-                        pieces.append(_active_tags(st) + w["_t"] + _reset_tags(st))
+                        active_t = _active_tags(st, custom_color=active.get("custom_color"))
+                        display_t = f"{active['_t']} {active['emoji']}" if active.get("emoji") else active["_t"]
+                        pieces.append(active_t + display_t + _reset_tags(st))
                     else:
                         pieces.append(w["_t"])
                 add(active["start"], active["end"], " ".join(pieces))
@@ -388,14 +473,30 @@ def write_ass(
     position: Optional[str] = None,
     play_w: int = 1080,
     play_h: int = 1920,
+    hook: Optional[str] = None,
+    hook_duration: float = 2.5,
+    enable_keywords: bool = True,
+    enable_emojis: bool = True,
 ) -> pathlib.Path:
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        build_ass(words, clip_start, style=style, position=position, play_w=play_w, play_h=play_h),
+        build_ass(
+            words,
+            clip_start,
+            style=style,
+            position=position,
+            play_w=play_w,
+            play_h=play_h,
+            hook=hook,
+            hook_duration=hook_duration,
+            enable_keywords=enable_keywords,
+            enable_emojis=enable_emojis,
+        ),
         encoding="utf-8",
     )
     return path
+
 
 
 def burn_captions(

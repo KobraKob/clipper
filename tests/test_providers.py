@@ -62,6 +62,44 @@ class TestProviders(unittest.TestCase):
         out = fallback.complete_json("test prompt")
         self.assertEqual(out["title"], "Backup")
 
+    def test_fallback_transcriber_primary_success(self):
+        from clipper.providers import FallbackTranscriber
+        import pathlib
+
+        class DummyTranscriber:
+            def __init__(self, should_fail=False, label="primary"):
+                self.should_fail = should_fail
+                self.label = label
+            def transcribe(self, wav, work_dir, **kwargs):
+                if self.should_fail:
+                    raise RuntimeError("STT failed")
+                return {"language": "en", "segments": [{"text": self.label, "start": 0, "end": 1, "words": []}]}
+
+        primary = DummyTranscriber(should_fail=False, label="primary")
+        backup = DummyTranscriber(should_fail=False, label="backup")
+        fallback = FallbackTranscriber(primary=primary, backup=backup)
+        res = fallback.transcribe(pathlib.Path("fake.wav"), pathlib.Path("fake_dir"))
+        self.assertEqual(res["segments"][0]["text"], "primary")
+
+    def test_fallback_transcriber_primary_failure(self):
+        from clipper.providers import FallbackTranscriber
+        import pathlib
+
+        class DummyTranscriber:
+            def __init__(self, should_fail=False, label="primary"):
+                self.should_fail = should_fail
+                self.label = label
+            def transcribe(self, wav, work_dir, **kwargs):
+                if self.should_fail:
+                    raise RuntimeError("STT failed")
+                return {"language": "en", "segments": [{"text": self.label, "start": 0, "end": 1, "words": []}]}
+
+        primary = DummyTranscriber(should_fail=True)
+        backup = DummyTranscriber(should_fail=False, label="backup")
+        fallback = FallbackTranscriber(primary=primary, backup=backup)
+        res = fallback.transcribe(pathlib.Path("fake.wav"), pathlib.Path("fake_dir"))
+        self.assertEqual(res["segments"][0]["text"], "backup")
+
     def test_retry_success_after_failure(self):
         attempts = 0
 

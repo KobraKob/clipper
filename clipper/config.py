@@ -33,7 +33,7 @@ class Settings:
     provider: str = _env("PROVIDER", "local")
     stt_provider: str = _env("STT_PROVIDER", _env("PROVIDER", "local"))
     llm_provider: str = _env("LLM_PROVIDER", _env("PROVIDER", "local"))
-    fallback_to_local: bool = _env("FALLBACK_TO_LOCAL", "false").lower() in ("true", "1", "yes")
+    fallback_to_local: bool = _env("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes")
 
     # Local Whisper & Ollama
     whisper_model: str = _env("WHISPER_MODEL", "small")
@@ -48,7 +48,7 @@ class Settings:
     groq_stt_model: str = _env("GROQ_STT_MODEL", "whisper-large-v3-turbo")
     groq_fast: str = _env("GROQ_FAST_MODEL", "openai/gpt-oss-20b")
     groq_strong: str = _env("GROQ_STRONG_MODEL", "openai/gpt-oss-120b")
-    chunk_seconds: int = int(_env("STT_CHUNK_SECONDS", "600"))
+    chunk_seconds: int = int(_env("STT_CHUNK_SECONDS", "180"))
 
     # Scoring & candidate constraints
     shortlist: int = int(_env("SHORTLIST", "10"))
@@ -120,7 +120,7 @@ class Settings:
             fallback_to_local=(
                 fallback_to_local
                 if fallback_to_local is not None
-                else (_env("FALLBACK_TO_LOCAL", "false").lower() in ("true", "1", "yes"))
+                else (_env("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes"))
             ),
             shortlist=shortlist if shortlist is not None else int(_env("SHORTLIST", "10")),
         )
