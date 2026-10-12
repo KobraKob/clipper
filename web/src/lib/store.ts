@@ -182,7 +182,7 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     if (job.progressBar) args.push("--progress-bar");
     if (job.loudnorm === false) args.push("--no-loudnorm");
 
-    const child = spawn(PYTHON, args, {
+    const child = spawn(/*turbopackIgnore: true*/ PYTHON, args, {
       cwd: rootDir,
       stdio: ["ignore", logFd, logFd],
       windowsHide: true,
@@ -202,7 +202,7 @@ async function spawnClipperProcess(job: Job): Promise<void> {
 
       await storeMutex.runExclusive(async () => {
         // Check if manifest was produced on disk first (even if process had non-zero exit code)
-        let manifest: any = null;
+        let manifest: Record<string, unknown> | null = null;
         try {
           const raw = await fs.readFile(path.join(outDir, "metadata.json"), "utf8");
           manifest = JSON.parse(raw);
@@ -330,30 +330,21 @@ export async function getJob(id: string): Promise<JobView | null> {
 
   const job = jobs[index];
 
-  // Self-heal: If metadata.json exists on disk with clips, rehydrate and mark done
-  if (job.status !== "done" || !job.clips || job.clips.length === 0) {
-    try {
-      const outDir = await resolveOutDir(job.id);
-      const raw = await fs.readFile(path.join(outDir, "metadata.json"), "utf8");
-      const manifest = JSON.parse(raw);
-      if (manifest && Array.isArray(manifest.clips) && manifest.clips.length > 0) {
+  // Self-heal & sync latest clip status (including live upload progress):
+  try {
+    const outDir = await resolveOutDir(job.id);
+    const raw = await fs.readFile(path.join(outDir, "metadata.json"), "utf8");
+    const manifest = JSON.parse(raw);
+    if (manifest && Array.isArray(manifest.clips) && manifest.clips.length > 0) {
+      const freshClips = mapManifestClips(manifest);
+      job.clips = freshClips;
+      if (job.status !== "done") {
         job.status = "done";
-        job.clips = mapManifestClips(manifest);
         delete job.error;
-        await storeMutex.runExclusive(async () => {
-          const fresh = await readJobs();
-          const i = fresh.findIndex((j) => j.id === job.id);
-          if (i !== -1) {
-            fresh[i].status = "done";
-            fresh[i].clips = job.clips;
-            delete fresh[i].error;
-            await writeJobs(fresh);
-          }
-        });
       }
-    } catch {
-      // No metadata on disk
     }
+  } catch {
+    // No metadata on disk
   }
 
   if (job.status === "running") {
@@ -394,7 +385,7 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     source,
     sourceKind: isUrl ? "url" : "file",
     clipCount,
-    provider: input.provider === "groq" ? "groq" : "local",
+    provider: input.provider === "groq" ? "groq" : input.provider === "openrouter" ? "openrouter" : "local",
     vertical: Boolean(input.vertical),
     captions: Boolean(input.captions),
     captionStyle: /^[a-z_]{2,30}$/.test(input.captionStyle || "") ? (input.captionStyle as string) : "bold_pop",
@@ -538,7 +529,7 @@ export async function rerenderClip(
 
     const code = await new Promise<number>((resolve) => {
       const child = spawn(
-        PYTHON,
+        /*turbopackIgnore: true*/ PYTHON,
         rerenderArgs,
         { cwd: rootDir, stdio: "ignore", windowsHide: true },
       );
@@ -581,7 +572,7 @@ export async function getClipVideoFile(jobId: string, clipId: string): Promise<s
   // Check outputs location
   const candidateDir = await resolveOutDir(jobId);
   try {
-    const files = await fs.readdir(candidateDir);
+    const files = await fs.readdir(/*turbopackIgnore: true*/ candidateDir);
     const match = files.find((f) => f.includes(clipId.replace("clip-", "")) && f.endsWith(".mp4"));
     if (match) {
       return path.join(candidateDir, match);
@@ -610,7 +601,7 @@ export async function getClipCoverFile(jobId: string, clipId: string): Promise<s
 
   const candidateDir = await resolveOutDir(jobId);
   try {
-    const files = await fs.readdir(candidateDir);
+    const files = await fs.readdir(/*turbopackIgnore: true*/ candidateDir);
     const rank = clipId.replace("clip-", "");
     const match = files.find(
       (f) => (f.startsWith(`${rank.padStart(2, "0")}_`) || f.includes(rank)) && f.endsWith("_cover.jpg"),
@@ -626,60 +617,100 @@ export async function getClipCoverFile(jobId: string, clipId: string): Promise<s
 }
 
 /** Upload one clip to YouTube Shorts and/or Instagram Reels via the Python CLI, then sync the manifest back. */
-export async function publishClip(jobId: string, clipId: string, platforms: Platform[]): Promise<JobView> {
-  return storeMutex.runExclusive(async () => {
-    const jobs = await readJobs();
-    const index = jobs.findIndex((j) => j.id === jobId);
-    if (index === -1) throw new Error("Job not found.");
-    const rank = Number(clipId.replace("clip-", ""));
-    if (!Number.isInteger(rank)) throw new Error("Invalid clip id.");
-    const valid = platforms.filter((p): p is Platform => p === "youtube" || p === "instagram");
-    if (!valid.length) throw new Error("Choose YouTube and/or Instagram.");
+export async function resetYouTubeToken(): Promise<{ success: boolean; message: string }> {
+  const rootDir = await resolveRootDir();
+  const tokenFile = path.join(rootDir, "credentials", "youtube_token.json");
+  try {
+    await fs.unlink(tokenFile);
+    return { success: true, message: "YouTube account disconnected. Click Publish to choose another channel." };
+  } catch {
+    return { success: true, message: "No active token file found." };
+  }
+}
 
-    const rootDir = await resolveRootDir();
-    const outDir = await resolveOutDir(jobId);
-    const manifest = path.join(outDir, "metadata.json");
-    await fs.access(manifest).catch(() => {
-      throw new Error("This job has no exported clips yet.");
-    });
+export async function publishClip(
+  jobId: string,
+  clipId: string,
+  platforms: Platform[],
+  privacy?: "private" | "unlisted" | "public",
+  reauth?: boolean,
+): Promise<JobView> {
+  const jobs = await readJobs();
+  const index = jobs.findIndex((j) => j.id === jobId);
+  if (index === -1) throw new Error("Job not found.");
+  const rank = Number(clipId.replace("clip-", ""));
+  if (!Number.isInteger(rank)) throw new Error("Invalid clip id.");
+  const valid = platforms.filter((p): p is Platform => p === "youtube" || p === "instagram");
+  if (!valid.length) throw new Error("Choose YouTube and/or Instagram.");
 
-    for (const platform of valid) {
-      const publishArgs = [
-        "-m",
-        "clipper.cli",
-        "publish",
-        manifest,
-        "--rank",
-        String(rank),
-        "--platform",
-        platform,
-      ];
-      if (platform === "youtube") {
-        publishArgs.push("--privacy", "public");
+  const rootDir = await resolveRootDir();
+  const outDir = await resolveOutDir(jobId);
+  const manifest = path.join(outDir, "metadata.json");
+  await fs.access(manifest).catch(() => {
+    throw new Error("This job has no exported clips yet.");
+  });
+
+  const chosenPrivacy = privacy || "private";
+
+  for (const platform of valid) {
+    const publishArgs = [
+      "-m",
+      "clipper.cli",
+      "publish",
+      manifest,
+      "--rank",
+      String(rank),
+      "--platform",
+      platform,
+    ];
+    if (platform === "youtube") {
+      publishArgs.push("--privacy", chosenPrivacy);
+      if (reauth) {
+        publishArgs.push("--reauth");
       }
-
-      await new Promise<void>((resolve) => {
-        const child = spawn(
-          PYTHON,
-          publishArgs,
-          {
-            cwd: rootDir,
-            stdio: "ignore",
-            windowsHide: false,
-            env: {
-              ...process.env,
-              PYTHONIOENCODING: "utf-8",
-              PYTHONUTF8: "1",
-            },
-          },
-        );
-        child.on("close", () => resolve());
-        child.on("error", () => resolve());
-      });
     }
 
-    const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
-    const fresh = mapManifestClips(raw);
+    let stderrOutput = "";
+    const exitCode = await new Promise<number>((resolve) => {
+      const child = spawn(
+        /*turbopackIgnore: true*/ PYTHON,
+        publishArgs,
+        {
+          cwd: rootDir,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: false,
+          env: {
+            ...process.env,
+            PYTHONIOENCODING: "utf-8",
+            PYTHONUTF8: "1",
+          },
+        },
+      );
+      child.stdout?.on("data", (chunk) => {
+        const text = chunk.toString().trim();
+        if (text) console.log(`[publish] ${text}`);
+      });
+      child.stderr?.on("data", (chunk) => {
+        const text = chunk.toString();
+        stderrOutput += text;
+        console.error(`[publish error] ${text.trim()}`);
+      });
+      child.on("close", (code) => resolve(code ?? 0));
+      child.on("error", (err) => {
+        stderrOutput += err.message;
+        resolve(1);
+      });
+    });
+
+    if (exitCode !== 0) {
+      console.warn(`[publish] Platform ${platform} exited with code ${exitCode}: ${stderrOutput}`);
+    }
+  }
+
+  const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
+  const fresh = mapManifestClips(raw);
+
+  return storeMutex.runExclusive(async () => {
     const current = await readJobs();
     const i = current.findIndex((j) => j.id === jobId);
     if (i !== -1) {
@@ -717,7 +748,7 @@ export async function scheduleClip(
 
     const code = await new Promise<number>((resolve) => {
       const child = spawn(
-        PYTHON,
+        /*turbopackIgnore: true*/ PYTHON,
         ["-m", "clipper.cli", "schedule", manifest, "--rank", String(rank), "--time", scheduledAtIso, "--platform", platform],
         { cwd: rootDir, stdio: "ignore", windowsHide: true },
       );
@@ -754,7 +785,7 @@ export async function fetchClipAnalytics(jobId: string): Promise<JobView> {
 
     await new Promise<void>((resolve) => {
       const child = spawn(
-        PYTHON,
+        /*turbopackIgnore: true*/ PYTHON,
         ["-m", "clipper.cli", "analytics", manifest],
         { cwd: rootDir, stdio: "ignore", windowsHide: true },
       );

@@ -1,4 +1,4 @@
-export type Provider = "local" | "groq";
+export type Provider = "local" | "groq" | "openrouter";
 export type Layout = "fill" | "fit_blur" | "split_screen";
 export type Platform = "youtube" | "instagram";
 export type VideoEncoder = "auto" | "h264_nvenc" | "libx264" | "h264_qsv";

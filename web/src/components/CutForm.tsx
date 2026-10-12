@@ -146,8 +146,8 @@ export function CutForm() {
           </label>
           <fieldset className="flex flex-col gap-2">
             <legend className="font-semibold text-court">Inference Provider</legend>
-            <div className="grid grid-cols-2 border-4 border-court">
-              {(["local", "groq"] as const).map((option) => (
+            <div className="grid grid-cols-3 border-4 border-court">
+              {(["local", "groq", "openrouter"] as const).map((option) => (
                 <label
                   key={option}
                   className={`cursor-pointer px-3 py-3 text-center font-semibold transition ${

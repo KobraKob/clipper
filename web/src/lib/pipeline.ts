@@ -1,4 +1,4 @@
-import { PIPELINE_STAGES, type Job, type JobView } from "./types";
+import { PIPELINE_STAGES, type Job, type JobView, type StageId } from "./types";
 
 /**
  * Hydrates a job with real pipeline stage tracking.
@@ -18,7 +18,7 @@ export function hydrateJob(job: Job): JobView {
     return {
       ...job,
       stageIndex: stageIndex >= 0 ? stageIndex : 0,
-      stageId: (stageIndex >= 0 ? PIPELINE_STAGES[stageIndex].id : PIPELINE_STAGES[0].id) as any,
+      stageId: (stageIndex >= 0 ? PIPELINE_STAGES[stageIndex].id : PIPELINE_STAGES[0].id) as StageId,
       progress,
       progressMessage: job.error || job.progressInfo?.message || "An error occurred during processing.",
     };

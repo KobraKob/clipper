@@ -74,17 +74,33 @@ export async function rerenderClip(
 }
 
 export function providerNote(provider: Provider): string {
-  return provider === "local"
-    ? "Audio and scoring stay on this machine."
-    : "Audio or transcript text is sent to Groq. Use local for private material.";
+  if (provider === "local") {
+    return "Audio and scoring stay on this machine.";
+  }
+  if (provider === "openrouter") {
+    return "LLM scoring powered by OpenRouter (NVIDIA Nemotron 3 Ultra 550B). Audio transcribed via Groq/Whisper.";
+  }
+  return "Audio and transcript text are sent to Groq. Use local for private material.";
 }
 
-export async function publishClip(jobId: string, clipId: string, platforms: Platform[]): Promise<JobView> {
+export async function publishClip(
+  jobId: string,
+  clipId: string,
+  platforms: Platform[],
+  privacy?: "private" | "unlisted" | "public",
+  reauth?: boolean,
+): Promise<JobView> {
   const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/publish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ platforms }),
+    body: JSON.stringify({ platforms, privacy, reauth }),
   });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function resetYouTubeAuth(): Promise<{ success: boolean; message: string }> {
+  const res = await fetch("/api/youtube/reset", { method: "POST" });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }

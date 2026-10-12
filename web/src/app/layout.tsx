@@ -3,7 +3,7 @@ import localFont from "next/font/local";
 import { SiteFrame } from "@/components/SiteFrame";
 import "./globals.css";
 
-// Self-hosted fonts: no network access needed at dev/build time.
+// Self-hosted fonts keep the interface independent of third-party font requests.
 const figtree = localFont({
   src: "../fonts/Figtree-Variable.ttf",
   variable: "--font-figtree",
@@ -22,9 +22,16 @@ const barlow = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Clipper — Vertical AI Video Clips",
+  title: "Clipper — The Open-Source Clip Lab",
   description:
-    "Open-source AI video clipper studio. Extract high-impact vertical 9:16 clips with animated subtitles and viral retention scoring.",
+    "Turn long videos into sharp vertical clips. Transcribe, score, cut, reframe, and caption with an open-source video clipping studio.",
+  applicationName: "Clipper",
+  openGraph: {
+    title: "Clipper — The Open-Source Clip Lab",
+    description:
+      "Long video in. The good bits out. Create vertical clips with transcription, reframing, and timed captions.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

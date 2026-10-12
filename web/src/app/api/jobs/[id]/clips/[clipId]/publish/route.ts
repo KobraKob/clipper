@@ -11,8 +11,12 @@ export async function POST(
 ) {
   const { id, clipId } = await params;
   try {
-    const body = (await request.json()) as { platforms?: Platform[] };
-    const job = await publishClip(id, clipId, body.platforms ?? []);
+    const body = (await request.json()) as {
+      platforms?: Platform[];
+      privacy?: "private" | "unlisted" | "public";
+      reauth?: boolean;
+    };
+    const job = await publishClip(id, clipId, body.platforms ?? [], body.privacy, body.reauth);
     return NextResponse.json(job);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Publish failed.";

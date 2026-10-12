@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
 import {
   fetchClipAnalytics,
+  fetchJob,
   publishClip,
   rerenderClip,
   scheduleClip,
@@ -34,7 +35,10 @@ export function ClipCard({
   const [previewTab, setPreviewTab] = useState<"video" | "cover">("video");
 
   const [publishing, setPublishing] = useState<Platform | "both" | null>(null);
+  const [publishProgress, setPublishProgress] = useState(0);
+  const [publishStatusText, setPublishStatusText] = useState("");
   const [publishState, setPublishState] = useState(clip.publish || {});
+  const [publishPrivacy, setPublishPrivacy] = useState<"private" | "unlisted" | "public">("private");
   const [publishError, setPublishError] = useState("");
   const [copied, setCopied] = useState("");
   const [rerendering, setRerendering] = useState(false);
@@ -215,24 +219,61 @@ export function ClipCard({
     }
   }
 
-  async function doPublish(target: Platform | "both") {
+  async function doPublish(target: Platform | "both", forceReauth = false) {
     setPublishError("");
     setPublishing(target);
+    setPublishProgress(10);
+    setPublishStatusText(
+      forceReauth
+        ? "Opening browser to connect your YouTube Channel..."
+        : "Connecting to YouTube API and preparing upload...",
+    );
+
+    const timer = setInterval(async () => {
+      try {
+        const j = await fetchJob(jobId);
+        const c = j.clips.find((x) => x.id === clip.id);
+        if (c?.publish) {
+          setPublishState(c.publish);
+          const pKey = target === "both" ? "youtube" : target;
+          const platState = c.publish[pKey];
+          if (platState?.progress) {
+            setPublishProgress(platState.progress);
+            if (platState.status === "uploading") {
+              setPublishStatusText(`Uploading video chunks: ${platState.progress}%`);
+            }
+          }
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 1000);
+
     try {
       const job = await publishClip(
         jobId,
         clip.id,
         target === "both" ? ["youtube", "instagram"] : [target],
+        publishPrivacy,
+        forceReauth,
       );
       const updated = job.clips.find((c) => c.id === clip.id);
       setPublishState(updated?.publish || {});
+      setPublishProgress(100);
+      setPublishStatusText("Upload complete!");
       if (updated?.analytics) {
         setAnalytics(updated.analytics);
       }
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "Publish failed.");
+      setPublishStatusText("");
     } finally {
-      setPublishing(null);
+      clearInterval(timer);
+      setTimeout(() => {
+        setPublishing(null);
+        setPublishProgress(0);
+        setPublishStatusText("");
+      }, 1200);
     }
   }
 
@@ -502,7 +543,21 @@ export function ClipCard({
             </div>
 
             {/* Instant Publish */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-court">
+                Visibility:
+                <select
+                  value={publishPrivacy}
+                  onChange={(e) =>
+                    setPublishPrivacy(e.target.value as "private" | "unlisted" | "public")
+                  }
+                  className="border-2 border-court p-1 text-xs bg-paper font-normal"
+                >
+                  <option value="private">Private</option>
+                  <option value="unlisted">Unlisted</option>
+                  <option value="public">Public</option>
+                </select>
+              </label>
               {(["youtube", "instagram", "both"] as const).map((t) => (
                 <button
                   key={t}
@@ -521,6 +576,32 @@ export function ClipCard({
                 </button>
               ))}
             </div>
+
+            {/* Live Upload Progress Feedback */}
+            {publishing !== null ? (
+              <div className="border-2 border-court bg-volt/20 p-3 flex flex-col gap-1.5 animate-pulse">
+                <div className="flex items-center justify-between text-xs font-bold text-court">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-court animate-ping" />
+                    {publishing === "youtube"
+                      ? "Uploading YouTube Short"
+                      : publishing === "instagram"
+                      ? "Uploading Instagram Reel"
+                      : "Publishing to Platforms"}
+                  </span>
+                  <span>{publishProgress}%</span>
+                </div>
+                <div className="w-full bg-court/20 h-2.5 border border-court overflow-hidden">
+                  <div
+                    className="bg-court h-full transition-all duration-300 ease-out"
+                    style={{ width: `${Math.max(5, publishProgress)}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-ink/80 font-medium">
+                  {publishStatusText || "Streaming media chunks to platform API..."}
+                </p>
+              </div>
+            ) : null}
 
             {/* Schedule Post Form */}
             {showScheduleForm ? (
@@ -604,12 +685,24 @@ export function ClipCard({
                 <div
                   key={p}
                   role="alert"
-                  className="border-2 border-punch/40 bg-punch/5 p-2 text-xs font-semibold text-punch"
+                  className="border-2 border-punch/40 bg-punch/5 p-2.5 text-xs font-semibold text-punch flex flex-col gap-2"
                 >
-                  <p className="font-bold">
-                    {p === "youtube" ? "YouTube Shorts" : "Instagram Reels"} Publish Notice:
-                  </p>
-                  <p className="mt-1">{r.error}</p>
+                  <div>
+                    <p className="font-bold">
+                      {p === "youtube" ? "YouTube Shorts" : "Instagram Reels"} Publish Notice:
+                    </p>
+                    <p className="mt-1">{r.error}</p>
+                  </div>
+                  {p === "youtube" ? (
+                    <button
+                      type="button"
+                      disabled={publishing !== null}
+                      onClick={() => doPublish("youtube", true)}
+                      className="self-start border-2 border-punch bg-white px-2.5 py-1 text-xs font-bold text-punch hover:bg-punch hover:text-white transition disabled:opacity-60"
+                    >
+                      Sign In with Another Google Account ↗
+                    </button>
+                  ) : null}
                 </div>
               );
             })}
@@ -674,7 +767,7 @@ export function ClipCard({
             ) : null}
 
             <p className="text-xs text-ink/60">
-              YouTube uploads default to public (set YOUTUBE_PRIVACY in .env). Instagram requires INSTAGRAM_ACCESS_TOKEN.
+              YouTube uploads default to private (selectable above or via YOUTUBE_PRIVACY in .env). Instagram requires INSTAGRAM_ACCESS_TOKEN.
             </p>
           </div>
         ) : null}
