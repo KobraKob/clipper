@@ -89,7 +89,45 @@ export async function publishClip(jobId: string, clipId: string, platforms: Plat
   return res.json();
 }
 
+export async function scheduleClip(
+  jobId: string,
+  clipId: string,
+  platform: Platform | "both",
+  scheduledAtIso: string,
+): Promise<JobView> {
+  const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/schedule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platform, scheduledAtIso }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function fetchClipAnalytics(jobId: string, clipId: string): Promise<JobView> {
+  const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/analytics`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function selectTitleVariant(
+  jobId: string,
+  clipId: string,
+  variantId: string,
+): Promise<JobView> {
+  const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/title`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ variantId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 export async function deleteJob(id: string): Promise<void> {
   const res = await fetch(`/api/jobs/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await parseError(res));
 }
+

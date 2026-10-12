@@ -129,10 +129,18 @@ function mapManifestClips(manifest: any): Clip[] {
     text: c.hook || c.title,
     kept: true,
     file: c.file,
+    coverImage: c.cover_image || c.cover_path || undefined,
     captionStyle: c.caption_style ?? null,
     encoder: c.encoder ?? undefined,
+    hookOverlay: c.hook_overlay,
+    progressBar: c.progress_bar,
+    loudnorm: c.loudnorm,
+    titleVariants: c.title_variants || c.seo?.title_variants || [],
+    selectedTitleVariant: c.selected_title_variant || c.seo?.selected_title_variant || "direct",
     seo: c.seo,
     publish: c.publish || {},
+    schedule: c.schedule,
+    analytics: c.analytics,
   }));
 }
 
@@ -169,6 +177,10 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     if (job.videoEncoder && job.videoEncoder !== "auto") {
       args.push("--encoder", job.videoEncoder);
     }
+    if (job.trimSilence) args.push("--trim-silence");
+    if (job.hookOverlay === false) args.push("--no-hook-overlay");
+    if (job.progressBar) args.push("--progress-bar");
+    if (job.loudnorm === false) args.push("--no-loudnorm");
 
     const child = spawn(PYTHON, args, {
       cwd: rootDir,
@@ -386,8 +398,12 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     vertical: Boolean(input.vertical),
     captions: Boolean(input.captions),
     captionStyle: /^[a-z_]{2,30}$/.test(input.captionStyle || "") ? (input.captionStyle as string) : "bold_pop",
-    layout: input.layout === "fit_blur" ? "fit_blur" : "fill",
+    layout: input.layout === "fit_blur" ? "fit_blur" : input.layout === "split_screen" ? "split_screen" : "fill",
     videoEncoder,
+    trimSilence: Boolean(input.trimSilence),
+    hookOverlay: input.hookOverlay !== false,
+    progressBar: Boolean(input.progressBar),
+    loudnorm: input.loudnorm !== false,
     createdAt: now,
     startedAt: now,
     status: "running",
@@ -577,6 +593,38 @@ export async function getClipVideoFile(jobId: string, clipId: string): Promise<s
   return null;
 }
 
+export async function getClipCoverFile(jobId: string, clipId: string): Promise<string | null> {
+  const jobs = await readJobs();
+  const job = jobs.find((j) => j.id === jobId);
+  if (!job) return null;
+
+  const clip = job.clips.find((c) => c.id === clipId);
+  if (clip?.coverImage) {
+    try {
+      await fs.access(clip.coverImage);
+      return clip.coverImage;
+    } catch {
+      // not accessible
+    }
+  }
+
+  const candidateDir = await resolveOutDir(jobId);
+  try {
+    const files = await fs.readdir(candidateDir);
+    const rank = clipId.replace("clip-", "");
+    const match = files.find(
+      (f) => (f.startsWith(`${rank.padStart(2, "0")}_`) || f.includes(rank)) && f.endsWith("_cover.jpg"),
+    );
+    if (match) {
+      return path.join(candidateDir, match);
+    }
+  } catch {
+    // dir doesn't exist
+  }
+
+  return null;
+}
+
 /** Upload one clip to YouTube Shorts and/or Instagram Reels via the Python CLI, then sync the manifest back. */
 export async function publishClip(jobId: string, clipId: string, platforms: Platform[]): Promise<JobView> {
   return storeMutex.runExclusive(async () => {
@@ -637,7 +685,7 @@ export async function publishClip(jobId: string, clipId: string, platforms: Plat
     if (i !== -1) {
       current[i].clips = current[i].clips.map((c) => {
         const f = fresh.find((x) => x.id === c.id);
-        return f ? { ...c, publish: f.publish, seo: f.seo ?? c.seo } : c;
+        return f ? { ...c, publish: f.publish, seo: f.seo ?? c.seo, schedule: f.schedule, analytics: f.analytics } : c;
       });
       await writeJobs(current);
       return hydrateJob(current[i]);
@@ -645,4 +693,122 @@ export async function publishClip(jobId: string, clipId: string, platforms: Plat
     throw new Error("Job not found.");
   });
 }
+
+/** Assign a scheduled post time to a clip. */
+export async function scheduleClip(
+  jobId: string,
+  clipId: string,
+  platform: Platform | "both",
+  scheduledAtIso: string,
+): Promise<JobView> {
+  return storeMutex.runExclusive(async () => {
+    const jobs = await readJobs();
+    const index = jobs.findIndex((j) => j.id === jobId);
+    if (index === -1) throw new Error("Job not found.");
+    const rank = Number(clipId.replace("clip-", ""));
+    if (!Number.isInteger(rank)) throw new Error("Invalid clip id.");
+
+    const rootDir = await resolveRootDir();
+    const outDir = await resolveOutDir(jobId);
+    const manifest = path.join(outDir, "metadata.json");
+    await fs.access(manifest).catch(() => {
+      throw new Error("This job has no exported clips yet.");
+    });
+
+    const code = await new Promise<number>((resolve) => {
+      const child = spawn(
+        PYTHON,
+        ["-m", "clipper.cli", "schedule", manifest, "--rank", String(rank), "--time", scheduledAtIso, "--platform", platform],
+        { cwd: rootDir, stdio: "ignore", windowsHide: true },
+      );
+      child.on("close", (c) => resolve(c ?? 1));
+      child.on("error", () => resolve(1));
+    });
+
+    if (code !== 0) {
+      throw new Error(`Scheduling clip failed with code ${code}`);
+    }
+
+    const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
+    const fresh = mapManifestClips(raw);
+    const current = await readJobs();
+    const i = current.findIndex((j) => j.id === jobId);
+    if (i !== -1) {
+      current[i].clips = fresh;
+      await writeJobs(current);
+      return hydrateJob(current[i]);
+    }
+    throw new Error("Job not found.");
+  });
+}
+
+/** Fetch live performance analytics for a clip from YouTube. */
+export async function fetchClipAnalytics(jobId: string): Promise<JobView> {
+  return storeMutex.runExclusive(async () => {
+    const rootDir = await resolveRootDir();
+    const outDir = await resolveOutDir(jobId);
+    const manifest = path.join(outDir, "metadata.json");
+    await fs.access(manifest).catch(() => {
+      throw new Error("Job manifest not found.");
+    });
+
+    await new Promise<void>((resolve) => {
+      const child = spawn(
+        PYTHON,
+        ["-m", "clipper.cli", "analytics", manifest],
+        { cwd: rootDir, stdio: "ignore", windowsHide: true },
+      );
+      child.on("close", () => resolve());
+      child.on("error", () => resolve());
+    });
+
+    const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
+    const fresh = mapManifestClips(raw);
+    const current = await readJobs();
+    const i = current.findIndex((j) => j.id === jobId);
+    if (i !== -1) {
+      current[i].clips = fresh;
+      await writeJobs(current);
+      return hydrateJob(current[i]);
+    }
+    throw new Error("Job not found.");
+  });
+}
+
+/** Switch the active title variant for a clip. */
+export async function selectClipTitleVariant(
+  jobId: string,
+  clipId: string,
+  variantId: string,
+): Promise<JobView> {
+  return storeMutex.runExclusive(async () => {
+    const current = await readJobs();
+    const i = current.findIndex((j) => j.id === jobId);
+    if (i === -1) throw new Error("Job not found.");
+
+    current[i].clips = current[i].clips.map((c) => {
+      if (c.id !== clipId) return c;
+      const targetVar = c.titleVariants?.find((v) => v.id === variantId);
+      if (!targetVar) return c;
+      return {
+        ...c,
+        title: targetVar.title,
+        selectedTitleVariant: variantId,
+        seo: c.seo
+          ? {
+              ...c.seo,
+              youtube: {
+                ...c.seo.youtube,
+                title: targetVar.title,
+              },
+            }
+          : c.seo,
+      };
+    });
+
+    await writeJobs(current);
+    return hydrateJob(current[i]);
+  });
+}
+
 

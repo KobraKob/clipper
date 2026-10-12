@@ -1,6 +1,6 @@
 import { createReadStream, promises as fs } from "fs";
 import { NextResponse } from "next/server";
-import { getClipVideoFile, patchClip } from "@/lib/store";
+import { getClipCoverFile, getClipVideoFile, patchClip } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +92,33 @@ export async function GET(
   { params }: { params: Promise<{ id: string; clipId: string }> },
 ) {
   const { id, clipId } = await params;
+  const url = new URL(request.url);
+  const wantsCover = url.searchParams.get("cover") === "1";
+
+  if (wantsCover) {
+    const coverPath = await getClipCoverFile(id, clipId);
+    if (!coverPath) {
+      return NextResponse.json(
+        { error: "Cover frame for this clip has not been extracted yet or does not exist." },
+        { status: 404 },
+      );
+    }
+    try {
+      const buffer = await fs.readFile(coverPath);
+      return new NextResponse(buffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/jpeg",
+          "Content-Length": String(buffer.length),
+          "Cache-Control": "public, max-age=3600",
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to read cover image.";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
+
   const filePath = await getClipVideoFile(id, clipId);
 
   if (!filePath) {

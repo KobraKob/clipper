@@ -6,12 +6,21 @@ import { PIPELINE_STAGES, type Job, type JobView } from "./types";
  */
 export function hydrateJob(job: Job): JobView {
   if (job.status === "error") {
+    const rawStage =
+      job.progressInfo?.stage && job.progressInfo.stage !== "error"
+        ? job.progressInfo.stage
+        : PIPELINE_STAGES[0].id;
+    const stageIndex = PIPELINE_STAGES.findIndex((s) => s.id === rawStage);
+    const progress = job.progressInfo?.percent
+      ? Math.max(0.04, Math.min(0.99, job.progressInfo.percent / 100))
+      : 0.04;
+
     return {
       ...job,
-      stageIndex: 0,
-      stageId: PIPELINE_STAGES[0].id,
-      progress: 0,
-      progressMessage: job.error || "An error occurred during processing.",
+      stageIndex: stageIndex >= 0 ? stageIndex : 0,
+      stageId: (stageIndex >= 0 ? PIPELINE_STAGES[stageIndex].id : PIPELINE_STAGES[0].id) as any,
+      progress,
+      progressMessage: job.error || job.progressInfo?.message || "An error occurred during processing.",
     };
   }
 

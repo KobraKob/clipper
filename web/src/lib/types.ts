@@ -1,13 +1,22 @@
 export type Provider = "local" | "groq";
-export type Layout = "fill" | "fit_blur";
+export type Layout = "fill" | "fit_blur" | "split_screen";
 export type Platform = "youtube" | "instagram";
 export type VideoEncoder = "auto" | "h264_nvenc" | "libx264" | "h264_qsv";
 
+export type TitleVariant = {
+  id: string;
+  title: string;
+  label?: string;
+  angle?: string;
+};
+
 export type ClipSeo = {
-  youtube: { title: string; description: string; tags: string[] };
+  youtube: { title: string; description: string; tags: string[]; title_variants?: TitleVariant[]; selected_variant?: string };
   instagram: { caption: string };
   hashtags: string[];
   keywords: string[];
+  title_variants?: TitleVariant[];
+  selected_title_variant?: string;
   generated_by?: string;
 };
 
@@ -16,6 +25,28 @@ export type PublishResult = {
   url?: string | null;
   id?: string;
   error?: string;
+};
+
+export type ClipSchedule = {
+  status: "scheduled" | "published" | "error";
+  platform: Platform | "both";
+  scheduled_at: string;
+  published_at?: string;
+  publishAt?: string;
+  error?: string;
+};
+
+export type ClipAnalytics = {
+  video_id?: string;
+  view_count: number;
+  like_count: number;
+  comment_count: number;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  retention_seconds?: number;
+  retentionSeconds?: number;
+  updated_at: string;
 };
 
 export const PIPELINE_STAGES = [
@@ -52,10 +83,18 @@ export type Clip = {
   kept: boolean;
   file?: string;
   videoUrl?: string;
+  coverImage?: string;
   captionStyle?: string | null;
   encoder?: string;
+  hookOverlay?: boolean;
+  progressBar?: boolean;
+  loudnorm?: boolean;
+  titleVariants?: TitleVariant[];
+  selectedTitleVariant?: string;
   seo?: ClipSeo;
   publish?: Partial<Record<Platform, PublishResult>>;
+  schedule?: ClipSchedule;
+  analytics?: ClipAnalytics;
 };
 
 export type Job = {
@@ -69,6 +108,10 @@ export type Job = {
   captionStyle: string;
   layout: Layout;
   videoEncoder?: VideoEncoder;
+  trimSilence?: boolean;
+  hookOverlay?: boolean;
+  progressBar?: boolean;
+  loudnorm?: boolean;
   createdAt: number;
   startedAt: number;
   status: JobStatus;
@@ -94,4 +137,9 @@ export type CreateJobInput = {
   captionStyle?: string;
   layout?: Layout;
   videoEncoder?: VideoEncoder;
+  trimSilence?: boolean;
+  hookOverlay?: boolean;
+  progressBar?: boolean;
+  loudnorm?: boolean;
 };
+

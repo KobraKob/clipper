@@ -16,6 +16,10 @@ export function CutForm() {
   const [captionStyle, setCaptionStyle] = useState("bold_pop");
   const [layout, setLayout] = useState<Layout>("fill");
   const [videoEncoder, setVideoEncoder] = useState<VideoEncoder>("auto");
+  const [hookOverlay, setHookOverlay] = useState(true);
+  const [loudnorm, setLoudnorm] = useState(true);
+  const [trimSilence, setTrimSilence] = useState(false);
+  const [progressBar, setProgressBar] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -42,6 +46,10 @@ export function CutForm() {
         captionStyle,
         layout,
         videoEncoder,
+        trimSilence,
+        hookOverlay,
+        progressBar,
+        loudnorm,
       });
       router.push(`/jobs/${job.id}`);
     } catch (err) {
@@ -218,17 +226,18 @@ export function CutForm() {
         {vertical ? (
           <fieldset className="flex flex-col gap-2">
             <legend className="font-semibold text-court">Framing</legend>
-            <div className="grid grid-cols-2 border-4 border-court">
+            <div className="grid grid-cols-1 md:grid-cols-3 border-4 border-court">
               {(
                 [
-                  ["fill", "Fill screen", "Crops to 9:16 and follows the speaker"],
-                  ["fit_blur", "Fit + blur", "Whole frame on a blurred backdrop (slides, gameplay)"],
+                  ["fill", "Fill screen", "Crops to 9:16 and follows the active speaker"],
+                  ["fit_blur", "Fit + blur", "Whole frame on blurred backdrop (slides, gameplay)"],
+                  ["split_screen", "Split screen", "Two-speaker split view with dual face framing"],
                 ] as const
               ).map(([value, label, note]) => (
                 <label
                   key={value}
                   className={`cursor-pointer px-3 py-2 text-center transition ${
-                    layout === value ? "bg-volt text-ink" : "bg-white text-ink/80 hover:bg-paper"
+                    layout === value ? "bg-volt text-ink font-bold" : "bg-white text-ink/80 hover:bg-paper"
                   }`}
                 >
                   <input
@@ -246,6 +255,66 @@ export function CutForm() {
             </div>
           </fieldset>
         ) : null}
+
+        <fieldset className="flex flex-col gap-2">
+          <legend className="font-semibold text-court flex items-center gap-2">
+            Retention &amp; Audio Optimization
+            <span className="text-xs font-mono font-bold bg-volt text-ink px-1.5 py-0.5">Viral Shorts Kit</span>
+          </legend>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-4 border-court p-3 bg-paper/40">
+            <label className="flex items-start gap-2 cursor-pointer p-2 bg-white border-2 border-court/30 hover:border-court transition">
+              <input
+                type="checkbox"
+                checked={hookOverlay}
+                onChange={(e) => setHookOverlay(e.target.checked)}
+                className="mt-1 h-5 w-5 accent-punch cursor-pointer"
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-sm text-court">Hook Headline Overlay (0–2.5s)</span>
+                <span className="text-xs text-ink/70">Big punchy headline with smooth fade-out to maximize initial retention.</span>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2 cursor-pointer p-2 bg-white border-2 border-court/30 hover:border-court transition">
+              <input
+                type="checkbox"
+                checked={loudnorm}
+                onChange={(e) => setLoudnorm(e.target.checked)}
+                className="mt-1 h-5 w-5 accent-punch cursor-pointer"
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-sm text-court">Loudness Normalization (-14 LUFS)</span>
+                <span className="text-xs text-ink/70">Normalizes audio to YouTube &amp; Instagram broadcast standards so clips never sound quiet.</span>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2 cursor-pointer p-2 bg-white border-2 border-court/30 hover:border-court transition">
+              <input
+                type="checkbox"
+                checked={trimSilence}
+                onChange={(e) => setTrimSilence(e.target.checked)}
+                className="mt-1 h-5 w-5 accent-punch cursor-pointer"
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-sm text-court">Silence &amp; Filler Trimming</span>
+                <span className="text-xs text-ink/70">Cuts dead pauses &gt;0.4s and removes filler words (um/uh), keeping caption timing in sync.</span>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2 cursor-pointer p-2 bg-white border-2 border-court/30 hover:border-court transition">
+              <input
+                type="checkbox"
+                checked={progressBar}
+                onChange={(e) => setProgressBar(e.target.checked)}
+                className="mt-1 h-5 w-5 accent-punch cursor-pointer"
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-sm text-court">Bottom Progress Bar</span>
+                <span className="text-xs text-ink/70">Sleek neon progress bar at the bottom edge to encourage full watch time.</span>
+              </div>
+            </label>
+          </div>
+        </fieldset>
 
         {captions ? (
           <fieldset className="flex flex-col gap-2">

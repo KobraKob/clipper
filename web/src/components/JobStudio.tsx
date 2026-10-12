@@ -182,6 +182,38 @@ export function JobStudio({ jobId }: { jobId: string }) {
         </div>
       ) : null}
 
+      {job.status === "error" ? (
+        <div role="alert" className="border-4 border-punch bg-punch/10 p-6 flex flex-col gap-4 stamp-sm">
+          <div className="flex items-center gap-3">
+            <span className="bg-punch text-white text-xs font-bold uppercase px-2 py-1">Cut Failed</span>
+            <h2 className="display text-3xl text-punch">Processing Error</h2>
+          </div>
+          <div className="bg-white border-2 border-punch/40 p-4 font-mono text-sm text-ink break-words">
+            <p className="font-bold text-punch mb-1">Error Details:</p>
+            <p>{job.error || job.progressMessage || "An unexpected error occurred during processing."}</p>
+          </div>
+          <p className="text-xs text-ink/70">
+            Check the console or job logs in <code className="bg-white px-1 border border-court/30">workdir/{jobId}/clipper.log</code> for full trace.
+          </p>
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Link
+              href="/"
+              className="border-4 border-court bg-volt px-4 py-2 font-bold text-ink hover:bg-volt/80 transition stamp-sm"
+            >
+              ← Start New Cut
+            </Link>
+            <button
+              type="button"
+              onClick={handleDeleteJob}
+              disabled={busy}
+              className="border-4 border-court bg-white px-4 py-2 font-bold hover:bg-paper transition stamp-sm"
+            >
+              Delete This Cut
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {job.status === "done" && job.clips.length === 0 ? (
         <div className="border-4 border-court bg-white p-6">
           <p className="display text-3xl text-court">No clips generated</p>
