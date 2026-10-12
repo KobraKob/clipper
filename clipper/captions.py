@@ -301,7 +301,7 @@ KEYWORD_CATEGORIES: Dict[str, Dict[str, Any]] = {
             "crazy", "insane", "destroy", "destroyed", "danger", "dangerous", "warning",
             "huge", "exploding", "viral", "secret", "mistake", "never", "stop", "worst", "shocking",
         },
-        "color": "3333FF",  # Punch Red
+        "color": "FF3333",  # Punch Red
         "emoji": "🔥",
     },
     "growth": {
@@ -364,7 +364,7 @@ def build_ass(
     hook: Optional[str] = None,
     hook_duration: float = 2.5,
     enable_keywords: bool = True,
-    enable_emojis: bool = True,
+    enable_emojis: bool = False,
 ) -> str:
     """
     Generate an ASS document with per-word animated captions, optional hook headline overlay,
@@ -476,7 +476,7 @@ def write_ass(
     hook: Optional[str] = None,
     hook_duration: float = 2.5,
     enable_keywords: bool = True,
-    enable_emojis: bool = True,
+    enable_emojis: bool = False,
 ) -> pathlib.Path:
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

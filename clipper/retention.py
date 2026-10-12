@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Common filler words and disfluencies to trim
+# Common single-word filler hesitations to trim (excluding 'like' which is frequent in legitimate speech)
 DEFAULT_FILLER_WORDS: Set[str] = {
     "um",
     "uh",
@@ -28,10 +28,13 @@ DEFAULT_FILLER_WORDS: Set[str] = {
     "uhh",
     "er",
     "ah",
-    "like",
-    "you know",
-    "i mean",
 }
+
+# Multi-word filler phrases checked contiguously
+MULTI_WORD_FILLERS: List[Tuple[str, ...]] = [
+    ("you", "know"),
+    ("i", "mean"),
+]
 
 DEFAULT_MIN_SILENCE_GAP = 0.40  # seconds
 TARGET_LUFS = -14.0
@@ -87,13 +90,30 @@ def detect_keep_intervals(
     if not valid_words:
         return [(0.0, clip_duration)]
 
-    # 2. Separate keepers from fillers
+    # 2. Separate keepers from fillers (including multi-word phrases)
     keepers: List[Dict[str, Any]] = []
-    for w in valid_words:
-        text = str(w.get("w", ""))
-        if remove_fillers and is_filler_word(text):
-            continue
-        keepers.append(w)
+    skip_indices: Set[int] = set()
+
+    if remove_fillers:
+        for i in range(len(valid_words)):
+            if i in skip_indices:
+                continue
+            token = clean_word_token(str(valid_words[i].get("w", "")))
+            if is_filler_word(token):
+                skip_indices.add(i)
+                continue
+            # Check 2-word phrase matches
+            if i + 1 < len(valid_words):
+                next_token = clean_word_token(str(valid_words[i + 1].get("w", "")))
+                for phrase in MULTI_WORD_FILLERS:
+                    if (token, next_token) == phrase:
+                        skip_indices.add(i)
+                        skip_indices.add(i + 1)
+                        break
+
+    for i, w in enumerate(valid_words):
+        if i not in skip_indices:
+            keepers.append(w)
 
     if not keepers:
         # If all words were classified as fillers, avoid removing entire video
@@ -269,18 +289,17 @@ def build_progress_bar_filter(
     opacity: float = 0.95,
 ) -> str:
     """
-    Construct FFmpeg drawbox filter rendering an animated horizontal progress bar at the bottom.
-    Smoothly expands from width 0 to full width across the duration of the clip.
+    Construct FFmpeg filtergraph fragment rendering an animated horizontal progress bar at the bottom.
+    Smoothly expands from width 0 to full width across the duration of the clip using an overlay.
     """
     safe_duration = max(0.1, duration)
-    # FFmpeg drawbox format: color=0xRRGGBB@A
     h = color_hex.lstrip("#").upper()
-    color_arg = f"0x{h}@{opacity:.2f}"
+    color_val = f"0x{h}" if not h.startswith("0x") else h
     y_pos = out_h - bar_height
 
     return (
-        f"drawbox=x=0:y={y_pos}:w='min({out_w},ceil({out_w}*t/{safe_duration:.3f}))':"
-        f"h={bar_height}:color={color_arg}:t=fill"
+        f"color=c={color_val}:s={out_w}x{bar_height}:d={safe_duration:.3f}[pbar];"
+        f"[pmain][pbar]overlay=x='-w+w*t/{safe_duration:.3f}':y={y_pos}"
     )
 
 

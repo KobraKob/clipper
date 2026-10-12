@@ -28,6 +28,7 @@ from .retention import (
     detect_keep_intervals,
     remap_words_after_trim,
 )
+from .scoring import rank
 from .seo import generate_metadata
 
 logger = logging.getLogger(__name__)
@@ -243,9 +244,8 @@ def run_pipeline(
         write_progress(job_dir, "score", 55, "Scoring viral candidates with LLM...", base_out_dir)
         llm_service = llm or get_llm(s)
         logger.info("[pipeline] Scoring candidates using %s tier LLM...", s.llm_provider)
-        from .scoring import rank
-
-        analytics_ctx = format_top_hooks_prompt_context(base_out_dir)
+        history_dir = pathlib.Path(s.outputs_dir) if pathlib.Path(s.outputs_dir).exists() else base_out_dir.parent
+        analytics_ctx = format_top_hooks_prompt_context(history_dir)
         ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist, analytics_context=analytics_ctx)
 
         tokens_used = getattr(llm_service, "tokens_used", 0)
@@ -281,24 +281,44 @@ def run_pipeline(
             final_clip_path = base_out_dir / final_clip_name
 
             # Words that fall inside this clip
-            clip_start = max(0.0, start_time - pad_offset)
+            padded_start = max(0.0, start_time - pad_offset)
+            padded_end = end_time + pad_offset
+            effective_clip_start = padded_start
+            clip_duration = round(end_time - start_time, 2)
+            is_trimmed = False
+
             clip_words: List[Dict[str, Any]] = []
             for seg in segments:
                 for w in seg.get("words", []):
                     w_s = float(w["start"])
-                    if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
+                    if padded_start <= w_s <= padded_end:
                         clip_words.append(w)
+
+            # Extract Cover / Thumbnail frame from clean raw clip (BEFORE subtitle / hook text burn-in)
+            if cover_frame:
+                cover_path = base_out_dir / f"{idx:02d}_{slug}_cover.jpg"
+                try:
+                    pick_cover_frame(raw_clip, cover_path)
+                    clip_record_cover = str(cover_path.resolve())
+                except Exception as exc:
+                    logger.debug("[pipeline] Could not extract cover frame for clip %d: %s", idx, exc)
+                    clip_record_cover = None
+            else:
+                clip_record_cover = None
 
             # Optional silence and filler trimming
             if trim_silence and clip_words:
-                keep_intervals = detect_keep_intervals(clip_words, clip_start=start_time, clip_end=end_time)
-                if len(keep_intervals) > 1 or (keep_intervals and keep_intervals[0][1] < (end_time - start_time) - 0.3):
+                keep_intervals = detect_keep_intervals(clip_words, clip_start=padded_start, clip_end=padded_end)
+                if len(keep_intervals) > 1 or (keep_intervals and keep_intervals[0][1] < (padded_end - padded_start) - 0.3):
                     trimmed_raw = job_dir / f"clip_{idx}_trimmed.mp4"
                     try:
                         apply_silence_trimming(raw_clip, keep_intervals, trimmed_raw)
-                        clip_words = remap_words_after_trim(clip_words, keep_intervals, clip_start=start_time)
+                        clip_words = remap_words_after_trim(clip_words, keep_intervals, clip_start=padded_start)
                         raw_clip = trimmed_raw
-                        logger.info("  -> Trimmed pauses and filler words (intervals: %d)", len(keep_intervals))
+                        is_trimmed = True
+                        effective_clip_start = 0.0
+                        clip_duration = round(sum(e - s for s, e in keep_intervals), 2)
+                        logger.info("  -> Trimmed pauses and filler words (intervals: %d, dur: %.2fs)", len(keep_intervals), clip_duration)
                     except Exception as exc:
                         logger.warning("[pipeline] Silence trimming failed for clip %d: %s; using untrimmed cut.", idx, exc)
 
@@ -311,21 +331,21 @@ def run_pipeline(
                 ass_file.write_text(
                     build_ass(
                         clip_words,
-                        clip_start=clip_start,
+                        clip_start=effective_clip_start,
                         style=style,
                         play_w=s.out_width,
                         play_h=s.out_height,
                         hook=clip.get("hook") if hook_overlay else None,
                         hook_duration=2.5,
                         enable_keywords=True,
-                        enable_emojis=True,
+                        enable_emojis=False,
                     ),
                     encoding="utf-8",
                 )
 
             if vertical:
                 logger.info("  -> Rendering %dx%d vertical (%s layout, loudnorm: %s, progress: %s)...", s.out_width, s.out_height, layout, loudnorm, progress_bar)
-                rel_cuts = [c - clip_start for c in scene_cuts if start_time <= c <= end_time]
+                rel_cuts = [c - padded_start for c in scene_cuts if start_time <= c <= end_time]
                 render_vertical(
                     raw_clip,
                     final_clip_path,
@@ -342,7 +362,7 @@ def run_pipeline(
                     s=s,
                     loudnorm=loudnorm,
                     progress_bar=progress_bar,
-                    duration=round(end_time - start_time, 2),
+                    duration=clip_duration,
                 )
             elif ass_file is not None:
                 burn_captions(raw_clip, ass_file, final_clip_path)
@@ -357,9 +377,11 @@ def run_pipeline(
                 "reason": clip.get("reason", ""),
                 "start": start_time,
                 "end": end_time,
-                "duration": round(end_time - start_time, 2),
+                "duration": clip_duration,
                 "file": str(final_clip_path.resolve()),
+                "captions": captions,
                 "caption_style": style.key if captions else None,
+                "trim_silence": is_trimmed,
                 "layout": layout if vertical else "original",
                 "encoder": encoder or s.video_encoder,
                 "hook_overlay": hook_overlay,
@@ -367,15 +389,8 @@ def run_pipeline(
                 "loudnorm": loudnorm,
                 "publish": {},
             }
-
-            # Extract Cover / Thumbnail frame
-            if cover_frame:
-                cover_path = base_out_dir / f"{idx:02d}_{slug}_cover.jpg"
-                try:
-                    pick_cover_frame(final_clip_path, cover_path)
-                    clip_record["cover_image"] = str(cover_path.resolve())
-                except Exception as exc:
-                    logger.debug("[pipeline] Could not extract cover frame for clip %d: %s", idx, exc)
+            if clip_record_cover:
+                clip_record["cover_image"] = clip_record_cover
 
             if seo_on:
                 logger.info("  -> Generating Title A/B variants & descriptions...")
@@ -497,45 +512,77 @@ def rerender_clip(
     cut(video_path, start_time, end_time, raw_clip, pad=pad_offset)
 
     # 2. Extract words in new timeframe
-    clip_start = max(0.0, start_time - pad_offset)
+    padded_start = max(0.0, start_time - pad_offset)
+    padded_end = end_time + pad_offset
+    effective_clip_start = padded_start
+    clip_duration = round(end_time - start_time, 2)
+    is_trimmed = False
+
     clip_words: List[Dict[str, Any]] = []
     for seg in segments:
         for w in seg.get("words", []):
             w_s = float(w["start"])
-            if (start_time - pad_offset) <= w_s <= (end_time + pad_offset):
+            if padded_start <= w_s <= padded_end:
                 clip_words.append(w)
 
     final_clip_path = pathlib.Path(clip["file"])
-    style_key = caption_style or clip.get("caption_style") or s.caption_style
-    style = get_style(style_key, s.caption_position or None)
+
+    # Determine caption presence without forcing defaults on clips that had none
+    has_captions = (caption_style is not None) if caption_style is not None else clip.get("captions", clip.get("caption_style") is not None)
+    style_key = (caption_style or clip.get("caption_style") or s.caption_style) if has_captions else None
+    style = get_style(style_key, s.caption_position or None) if style_key else None
     current_layout = layout or clip.get("layout") or s.layout
 
     hook_overlay = clip.get("hook_overlay", True)
     progress_bar = clip.get("progress_bar", False)
     loudnorm = clip.get("loudnorm", True)
+    trim_silence = clip.get("trim_silence", False)
+
+    # Re-apply silence trimming if the clip was originally trimmed
+    if trim_silence and clip_words:
+        keep_intervals = detect_keep_intervals(clip_words, clip_start=padded_start, clip_end=padded_end)
+        if len(keep_intervals) > 1 or (keep_intervals and keep_intervals[0][1] < (padded_end - padded_start) - 0.3):
+            trimmed_raw = job_dir / f"clip_{rank}_trimmed.mp4"
+            try:
+                apply_silence_trimming(raw_clip, keep_intervals, trimmed_raw)
+                clip_words = remap_words_after_trim(clip_words, keep_intervals, clip_start=padded_start)
+                raw_clip = trimmed_raw
+                is_trimmed = True
+                effective_clip_start = 0.0
+                clip_duration = round(sum(e - s for s, e in keep_intervals), 2)
+            except Exception as exc:
+                logger.warning("[pipeline] Silence trimming failed on rerender: %s", exc)
 
     ass_file: Optional[pathlib.Path] = None
-    if clip_words and style_key is not None:
+    if clip_words and has_captions and style is not None:
         ass_file = job_dir / f"clip_{rank}.ass"
         ass_file.write_text(
             build_ass(
                 clip_words,
-                clip_start=clip_start,
+                clip_start=effective_clip_start,
                 style=style,
                 play_w=s.out_width,
                 play_h=s.out_height,
                 hook=clip.get("hook") if hook_overlay else None,
                 hook_duration=2.5,
                 enable_keywords=True,
-                enable_emojis=True,
+                enable_emojis=False,
             ),
             encoding="utf-8",
         )
 
     chosen_enc = encoder or clip.get("encoder") or s.video_encoder
 
+    # Extract clean cover frame from raw_clip BEFORE subtitle burning
+    cover_file = base_out_dir / f"{int(rank):02d}_{slugify(clip.get('title', 'clip'))}_cover.jpg"
+    try:
+        pick_cover_frame(raw_clip, cover_file)
+        clip["cover_image"] = str(cover_file.resolve())
+    except Exception:
+        pass
+
     if current_layout != "original":
-        rel_cuts = [c - clip_start for c in scene_cuts if start_time <= c <= end_time]
+        rel_cuts = [c - padded_start for c in scene_cuts if start_time <= c <= end_time]
         render_vertical(
             raw_clip,
             final_clip_path,
@@ -552,27 +599,22 @@ def rerender_clip(
             s=s,
             loudnorm=loudnorm,
             progress_bar=progress_bar,
-            duration=round(end_time - start_time, 2),
+            duration=clip_duration,
         )
     elif ass_file is not None:
         burn_captions(raw_clip, ass_file, final_clip_path)
     else:
         shutil.copy(raw_clip, final_clip_path)
 
-    # 3. Update metadata and refresh cover frame
+    # 3. Update metadata
     clip["start"] = start_time
     clip["end"] = end_time
-    clip["duration"] = round(end_time - start_time, 2)
-    clip["caption_style"] = style.key
+    clip["duration"] = clip_duration
+    clip["captions"] = has_captions
+    clip["caption_style"] = style_key
+    clip["trim_silence"] = is_trimmed
     clip["layout"] = current_layout
     clip["encoder"] = chosen_enc
-
-    cover_file = base_out_dir / f"{int(rank):02d}_{slugify(clip.get('title', 'clip'))}_cover.jpg"
-    try:
-        pick_cover_frame(final_clip_path, cover_file)
-        clip["cover_image"] = str(cover_file.resolve())
-    except Exception:
-        pass
 
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return clip

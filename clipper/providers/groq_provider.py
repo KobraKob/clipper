@@ -118,10 +118,11 @@ class GroqTranscriber:
         if not chunks:
             chunks = [wav]
 
-        chunk_items: List[Tuple[pathlib.Path, float]] = []
-        for c in chunks:
+        chunk_items: List[Tuple[pathlib.Path, float, float]] = []
+        for idx, c in enumerate(chunks):
             dur = self._get_duration(c) or float(chunk_len)
-            chunk_items.append((c, dur))
+            start_offset = float(idx * chunk_len)
+            chunk_items.append((c, start_offset, dur))
         return chunk_items
 
     def _transcribe_chunk(self, path: pathlib.Path) -> Dict[str, Any]:
@@ -155,17 +156,19 @@ class GroqTranscriber:
         detected_language: Optional[str] = None
         current_offset = 0.0
 
-        for idx, (chunk, duration) in enumerate(chunk_items):
+        for idx, (chunk, start_offset, duration) in enumerate(chunk_items):
+            current_offset = start_offset
             if progress_cb:
                 try:
                     progress_cb(idx + 1, len(chunk_items))
                 except Exception:
                     pass
             logger.info(
-                "[groq_stt] Transcribing chunk %d/%d (%s, %.1fs)...",
+                "[groq_stt] Transcribing chunk %d/%d (%s, offset: %.1fs, %.1fs)...",
                 idx + 1,
                 len(chunk_items),
                 chunk.name,
+                current_offset,
                 duration,
             )
             data = self._transcribe_chunk(chunk)
@@ -198,7 +201,6 @@ class GroqTranscriber:
                         "words": seg_words,
                     }
                 )
-            current_offset += duration
 
         return {
             "language": detected_language or "en",

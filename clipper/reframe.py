@@ -603,7 +603,8 @@ def build_fill_filter(
     if ass_filter:
         chain.append(ass_filter)
     if progress_filter:
-        chain.append(progress_filter)
+        base_chain = ",".join(chain)
+        return f"{base_chain}[pmain];{progress_filter},format=yuv420p"
     chain.append("format=yuv420p")
     return ",".join(chain)
 
@@ -623,12 +624,12 @@ def build_fit_blur_graph(
         f"[fgsrc]scale={out_w}:-2:flags=lanczos[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
     )
-    tail = ""
     if ass_filter:
         graph += "," + ass_filter
     if progress_filter:
-        graph += "," + progress_filter
-    graph += ",format=yuv420p[v]"
+        graph += f"[pmain];{progress_filter},format=yuv420p[v]"
+    else:
+        graph += ",format=yuv420p[v]"
     return graph
 
 
@@ -716,8 +717,8 @@ def build_split_screen_graph(
         graph += f";{tail}{ass_filter}[v_sub]"
         tail = "[v_sub]"
     if progress_filter:
-        graph += f";{tail}{progress_filter}[v_prog]"
-        tail = "[v_prog]"
+        graph += f";{tail}null[pmain];{progress_filter},format=yuv420p[v]"
+        return graph
     graph += f";{tail}format=yuv420p[v]"
     return graph
 

@@ -54,7 +54,7 @@ def run(
     source: str = typer.Argument(..., help="Path to local video file or URL (YouTube, etc.)."),
     clips: int = typer.Option(5, "--clips", "-n", help="Number of top clips to export."),
     provider: Optional[str] = typer.Option(
-        None, "--provider", "-p", help="Provider switch ('local' or 'groq'). Overrides .env."
+        None, "--provider", "-p", help="Provider switch ('local', 'groq', or 'openrouter'). Overrides .env."
     ),
     vertical: bool = typer.Option(
         True, "--vertical/--no-vertical", help="Reframe clips into 9:16 vertical video with face tracking."
@@ -203,6 +203,7 @@ def publish(
     rank: int = typer.Option(..., "--rank", "-r", help="Clip rank to publish (see the manifest)."),
     platform: str = typer.Option("both", "--platform", "-p", help="youtube | instagram | both"),
     privacy: Optional[str] = typer.Option(None, "--privacy", help="YouTube privacy: private | unlisted | public."),
+    reauth: bool = typer.Option(False, "--reauth", help="Force re-authentication with Google/YouTube account."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Upload a finished clip to YouTube Shorts and/or Instagram Reels using its generated metadata."""
@@ -213,8 +214,18 @@ def publish(
 
     _setup_logging(verbose)
     targets = ["youtube", "instagram"] if platform == "both" else [platform]
+
+    def _cli_progress(plat: str, frac: float):
+        if frac < 0:
+            console.print(f"[bold red][upload] {plat.capitalize()} upload failed.[/bold red]")
+        elif frac >= 1.0:
+            console.print(f"[bold green][upload] {plat.capitalize()} upload complete (100%).[/bold green]")
+        else:
+            pct = max(0, min(99, int(frac * 100)))
+            console.print(f"[cyan][upload] {plat.capitalize()} progress: {pct}%[/cyan]")
+
     try:
-        result = update_manifest(pathlib.Path(manifest), rank, targets, _settings, privacy)
+        result = update_manifest(pathlib.Path(manifest), rank, targets, _settings, privacy, on_progress=_cli_progress, force_reauth=reauth)
     except PublishError as exc:
         console.print(f"[bold red]Publish failed:[/bold red] {exc}")
         raise typer.Exit(code=1)
@@ -303,7 +314,7 @@ def analytics(
 @app.command()
 def transcribe(
     source: str = typer.Argument(..., help="Path to video or audio file."),
-    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="Provider ('local' or 'groq')."),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="Provider ('local', 'groq', or 'openrouter')."),
     workdir: str = typer.Option("workdir", "--workdir", "-w", help="Working cache directory."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logs."),
 ) -> None:
@@ -337,7 +348,7 @@ def transcribe(
 def score_only(
     transcript_file: str = typer.Argument(..., help="Path to existing transcript.json."),
     clips: int = typer.Option(5, "--clips", "-n", help="Number of clips to select."),
-    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM Provider ('local' or 'groq')."),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM Provider ('local', 'groq', or 'openrouter')."),
 ) -> None:
     """Score candidates from an existing transcript.json without video re-encoding."""
     p = pathlib.Path(transcript_file)

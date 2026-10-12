@@ -25,13 +25,23 @@ def _env_bool(name: str, default: bool) -> bool:
     return _env(name, "true" if default else "false").lower() in ("true", "1", "yes", "on")
 
 
+def _default_stt_provider() -> str:
+    env_stt = os.getenv("STT_PROVIDER")
+    if env_stt:
+        return env_stt
+    prov = os.getenv("PROVIDER", "local").lower().strip()
+    if prov == "openrouter":
+        return "groq" if os.getenv("GROQ_API_KEY") else "local"
+    return prov or "local"
+
+
 @dataclass(frozen=True)
 class Settings:
     """Application settings and runtime switches."""
 
     # Provider routing
     provider: str = _env("PROVIDER", "local")
-    stt_provider: str = _env("STT_PROVIDER", _env("PROVIDER", "local"))
+    stt_provider: str = _default_stt_provider()
     llm_provider: str = _env("LLM_PROVIDER", _env("PROVIDER", "local"))
     fallback_to_local: bool = _env("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes")
 
@@ -49,6 +59,11 @@ class Settings:
     groq_fast: str = _env("GROQ_FAST_MODEL", "openai/gpt-oss-20b")
     groq_strong: str = _env("GROQ_STRONG_MODEL", "openai/gpt-oss-120b")
     chunk_seconds: int = int(_env("STT_CHUNK_SECONDS", "180"))
+
+    # OpenRouter API (NVIDIA Nemotron 3 Ultra 550B)
+    openrouter_api_key: str = _env("OPENROUTER_API_KEY", "")
+    openrouter_model: str = _env("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
+    openrouter_base_url: str = _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
     # Scoring & candidate constraints
     shortlist: int = int(_env("SHORTLIST", "10"))
@@ -93,7 +108,7 @@ class Settings:
     # ---- Publishing ----
     youtube_client_secrets: str = _env("YOUTUBE_CLIENT_SECRETS", "credentials/youtube_client_secret.json")
     youtube_token_file: str = _env("YOUTUBE_TOKEN_FILE", "credentials/youtube_token.json")
-    youtube_privacy: str = _env("YOUTUBE_PRIVACY", "public")  # private | unlisted | public
+    youtube_privacy: str = _env("YOUTUBE_PRIVACY", "private")  # private | unlisted | public
     youtube_category_id: str = _env("YOUTUBE_CATEGORY_ID", "22")
     instagram_access_token: str = _env("INSTAGRAM_ACCESS_TOKEN", "")
     instagram_user_id: str = _env("INSTAGRAM_USER_ID", "")
@@ -113,9 +128,13 @@ class Settings:
     ) -> Settings:
         """Create a custom Settings instance with overrides (any Settings field may be passed by name)."""
         p = provider or _env("PROVIDER", "local")
+        default_stt = (
+            "groq" if (p == "openrouter" and bool(os.getenv("GROQ_API_KEY") or overrides.get("groq_api_key")))
+            else ("local" if p == "openrouter" else p)
+        )
         base = cls(
             provider=p,
-            stt_provider=stt_provider or (p if provider else _env("STT_PROVIDER", p)),
+            stt_provider=stt_provider or (default_stt if provider else _default_stt_provider()),
             llm_provider=llm_provider or (p if provider else _env("LLM_PROVIDER", p)),
             fallback_to_local=(
                 fallback_to_local

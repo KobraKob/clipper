@@ -148,23 +148,41 @@ def process_posting_queue(
             try:
                 # Update manifest via standard publish routine
                 from .publish import update_manifest
-                result = update_manifest(manifest_path, rank, [platform] if platform != "both" else ["youtube", "instagram"], s)
+                target_platforms = [platform] if platform != "both" else ["youtube", "instagram"]
+                result = update_manifest(manifest_path, rank, target_platforms, s)
 
-                # Mark schedule status as complete
+                # Check if any target platform succeeded or if all failed
+                has_success = any(
+                    result.get(p, {}).get("status") == "published"
+                    for p in target_platforms
+                )
+                error_messages = [
+                    f"{p}: {result.get(p, {}).get('error', 'Unknown upload failure')}"
+                    for p in target_platforms
+                    if result.get(p, {}).get("status") == "error"
+                ]
+
+                # Update schedule entry truthfully
                 manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
                 for c in manifest_data.get("clips", []):
                     if c.get("rank") == rank and "schedule" in c:
-                        c["schedule"]["status"] = "published"
-                        c["schedule"]["published_at"] = current_time.isoformat()
-                        c["schedule"]["result"] = result
+                        if has_success:
+                            c["schedule"]["status"] = "published"
+                            c["schedule"]["published_at"] = current_time.isoformat()
+                            c["schedule"]["result"] = result
+                        else:
+                            c["schedule"]["status"] = "error"
+                            c["schedule"]["error"] = "; ".join(error_messages) or "Upload failed"
+                            c["schedule"]["result"] = result
                 manifest_path.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
 
                 published_items.append({
                     "job_id": item["job_id"],
                     "rank": rank,
                     "platform": platform,
-                    "status": "success",
+                    "status": "success" if has_success else "error",
                     "result": result,
+                    "error": "; ".join(error_messages) if not has_success else None,
                 })
             except Exception as exc:
                 logger.error("[distribution] Scheduled publish failed for job %s clip #%d: %s", item["job_id"], rank, exc)

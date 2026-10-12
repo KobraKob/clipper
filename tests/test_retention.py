@@ -23,6 +23,7 @@ class TestRetention(unittest.TestCase):
         self.assertTrue(is_filler_word("um"))
         self.assertTrue(is_filler_word("Uh!"))
         self.assertTrue(is_filler_word("umm..."))
+        self.assertFalse(is_filler_word("like"))
         self.assertFalse(is_filler_word("money"))
         self.assertFalse(is_filler_word("important"))
 
@@ -73,7 +74,8 @@ class TestRetention(unittest.TestCase):
 
     def test_progress_bar_filter(self):
         f = build_progress_bar_filter(duration=30.0, out_w=1080, out_h=1920)
-        self.assertIn("drawbox=", f)
+        self.assertIn("overlay=", f)
+        self.assertIn("color=", f)
         self.assertIn("1080", f)
         self.assertIn("30.000", f)
 

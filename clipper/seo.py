@@ -89,12 +89,13 @@ def _truncate(text: str, limit: int) -> str:
 def fallback_metadata(clip: Dict[str, Any], text: str) -> Dict[str, Any]:
     title = clip.get("title") or "Must-watch moment"
     hook = clip.get("hook") or title
+    hook_clean = hook.strip().rstrip(".! ")
     kws = _top_keywords(text)
-    kw_str = kws[0].title() if kws else "This"
+
     variants = [
-        {"id": "curiosity", "title": _truncate(f"The Secret To {kw_str} Nobody Tells You", 70), "angle": "Curiosity Gap"},
-        {"id": "direct", "title": _truncate(title, 70), "angle": "Direct Impact"},
-        {"id": "question", "title": _truncate(f"Are You Doing {kw_str} Completely Wrong?", 70), "angle": "Bold Question"},
+        {"id": "direct", "title": _truncate(hook_clean, 70), "angle": "Direct Impact"},
+        {"id": "curiosity", "title": _truncate(f"The Truth About {hook_clean}", 70), "angle": "Curiosity Gap"},
+        {"id": "question", "title": _truncate(f"Why Nobody Talks About {hook_clean}", 70) if not hook_clean.endswith("?") else _truncate(hook_clean, 70), "angle": "Bold Question"},
     ]
     return {
         "youtube_title": _truncate(title, 70),

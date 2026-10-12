@@ -55,16 +55,21 @@ cp .env.example .env
 Set your configuration:
 
 ```ini
-# Provider switch: 'local' or 'groq'
+# Provider switch: 'local', 'groq', or 'openrouter'
 PROVIDER=local
-FALLBACK_TO_LOCAL=false
+FALLBACK_TO_LOCAL=true
 
 # Groq Configuration (Free Tier)
 GROQ_API_KEY=your_groq_api_key_here
 GROQ_STT_MODEL=whisper-large-v3-turbo
-GROQ_FAST_MODEL=llama-3.1-8b-instant
-GROQ_STRONG_MODEL=llama-3.3-70b-versatile
-STT_CHUNK_SECONDS=600
+GROQ_FAST_MODEL=openai/gpt-oss-20b
+GROQ_STRONG_MODEL=openai/gpt-oss-120b
+STT_CHUNK_SECONDS=180
+
+# OpenRouter Configuration (NVIDIA Nemotron 3 Ultra 550B - Free)
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
 # Local Configuration
 WHISPER_MODEL=small
