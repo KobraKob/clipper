@@ -218,6 +218,12 @@ export default function Home() {
       <section className="closing-strip">
         <div className="closing-index"><span>END OF TRANSMISSION</span><span>CLIPPER / OPEN TOOLING</span></div>
         <p className="closing-title">LESS TIMELINE.<br /><span>MORE TIMING.</span></p>
+        <figure className="founder-quote">
+          <div className="founder-quote-mark" aria-hidden="true">“</div>
+          <blockquote>I wasn’t built to wait for a seat at the table. I’m building the room.</blockquote>
+          <figcaption><span className="founder-quote-line" /> FIELD NOTE / 001 — THE BUILDING PHASE</figcaption>
+          <span className="founder-quote-coordinate" aria-hidden="true">NO PERMISSION REQUIRED</span>
+        </figure>
         <div className="closing-footer"><span>BUILT FOR THE SCROLL, NOT FOR A TED TALK ABOUT THE SCROLL.</span><a href="#studio">RUN IT BACK ↗</a></div>
       </section>
 
