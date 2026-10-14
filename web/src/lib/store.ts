@@ -60,9 +60,23 @@ async function resolveOutDir(jobId: string): Promise<string> {
 async function readJobs(): Promise<Job[]> {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf8");
-    return JSON.parse(raw) as Job[];
-  } catch {
-    return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Invalid job store format in ${DATA_FILE}: expected an array.`);
+    }
+    return parsed as Job[];
+  } catch (error) {
+    // A missing file means a new store. Corruption or permission errors must not
+    // silently become an empty store, or the next write could erase existing jobs.
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return [];
+    }
+    throw error;
   }
 }
 
@@ -191,6 +205,23 @@ async function spawnClipperProcess(job: Job): Promise<void> {
         PYTHONIOENCODING: "utf-8",
         PYTHONUTF8: "1",
       },
+    });
+
+    child.on("error", async (error) => {
+      try {
+        closeSync(logFd);
+      } catch {
+        // The close handler may already have closed the descriptor.
+      }
+      console.error("[clipper] Failed to start child process:", error);
+      await storeMutex.runExclusive(async () => {
+        const currentJobs = await readJobs();
+        const idx = currentJobs.findIndex((j) => j.id === job.id);
+        if (idx === -1 || currentJobs[idx].status === "done") return;
+        currentJobs[idx].status = "error";
+        currentJobs[idx].error = `Could not start clipper process: ${error.message}`;
+        await writeJobs(currentJobs);
+      });
     });
 
     child.on("close", async (code) => {
