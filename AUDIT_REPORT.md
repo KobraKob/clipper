@@ -8,7 +8,17 @@ Fix branch: `audit/fix-upload-validation`
 
 Reviewed repository structure, upload route, job store/process lifecycle, clip streaming route, publishing/scheduling routes, Python pipeline/reframe/ingestion/publishing modules, package configuration, and test inventory. This was a source-level audit through GitHub. The repository was not cloned or executed in this audit environment; no claim of passing runtime tests is made.
 
-## Fix applied on this branch
+## Fixes applied on this branch
+
+### Job store: preserve records on read/parse errors
+File: `web/src/lib/store.ts`
+
+`readJobs()` now treats only a missing file (ENOENT) as a new empty store. Invalid JSON, unexpected data shape, and other filesystem errors are surfaced instead of silently returning an empty list.
+
+### Python process launch: persist spawn errors
+File: `web/src/lib/store.ts`
+
+The main clipper process now records a failed state and useful error message when Node cannot launch the child process, instead of leaving the job stuck as running.
 
 ### Upload route: oversized and interrupted uploads
 File: `web/src/app/api/upload/route.ts`
@@ -25,15 +35,9 @@ Commit: `bffbc435677d6c0bcab2079882bd56640270a0a3`
 
 ## Findings requiring follow-up
 
-### High — failed Python process launch can leave jobs stuck as running
-File: `web/src/lib/store.ts`, `spawnClipperProcess()`
+### Fixed on this branch — process launch and store corruption
 
-The main clipper child process has a `close` handler but no `error` handler. If spawning Python fails (missing executable, permissions, invalid working directory), the outer catch silently ignores the failure. The job can remain `running` indefinitely without a useful error message. Add a child `error` handler that records a terminal error state and logs the failure; also make the outer catch persist failures.
-
-### High — corrupted job store is treated as an empty database
-File: `web/src/lib/store.ts`, `readJobs()`
-
-The function catches every read/parse error and returns `[]`. If `.data/jobs.json` is temporarily unreadable or contains invalid JSON, later writes can overwrite existing job records with an empty list. Distinguish ENOENT (new store) from parse/permission errors; preserve the bad file and return/report a recoverable error instead of silently resetting state.
+The spawn-error handler and `readJobs()` changes above address these two findings. Runtime tests have not yet been run in this environment, so verify them in CI before merging.
 
 ### High if exposed beyond localhost — API routes have no visible authentication
 Files: `web/src/app/api/**`
