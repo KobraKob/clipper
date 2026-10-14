@@ -96,11 +96,11 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
   if (error && !job) {
     return (
-      <div className="flex flex-col gap-4">
-        <p role="alert" className="border-4 border-punch bg-punch px-4 py-3 font-semibold text-white">
+      <div className="flex flex-col gap-4 max-w-2xl mx-auto py-12">
+        <p role="alert" className="border border-punch/60 bg-punch/15 text-punch px-4 py-3 font-semibold rounded-lg">
           {error}
         </p>
-        <Link href="/" className="inline-block border-4 border-court bg-volt px-4 py-2 font-semibold self-start">
+        <Link href="/" className="inline-block bg-volt text-[#101016] px-4 py-2 font-bold rounded-lg self-start hover:bg-[#e4ff78] transition">
           ← Back to New Cut
         </Link>
       </div>
@@ -108,7 +108,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
   }
 
   if (!job) {
-    return <p className="font-semibold text-lg">Loading the cut…</p>;
+    return <p className="font-semibold text-lg text-muted py-12 text-center">Loading the cut…</p>;
   }
 
   const running = job.status === "running";
@@ -118,24 +118,26 @@ export function JobStudio({ jobId }: { jobId: string }) {
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="font-semibold text-court">{job.sourceKind === "url" ? "From URL" : "From local video"}</p>
-          <h1 className="display text-6xl text-court md:text-7xl">This cut</h1>
-          <p className="mt-2 max-w-xl break-all font-mono text-sm bg-white/70 p-2 border-2 border-court/30">
+          <p className="text-xs font-mono font-bold tracking-wider uppercase text-ice">
+            {job.sourceKind === "url" ? "From URL" : "From local video"}
+          </p>
+          <h1 className="display text-5xl md:text-7xl text-ink mt-1">This cut</h1>
+          <p className="mt-2 max-w-xl break-all font-mono text-xs md:text-sm bg-panel-raised border border-white/12 text-muted p-2.5 rounded-lg">
             {job.source}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/" className="border-4 border-court bg-white px-4 py-2 font-semibold stamp-sm hover:bg-paper">
+          <Link href="/" className="border border-white/20 bg-panel px-4 py-2 font-semibold text-ink rounded-lg stamp-sm hover:bg-panel-raised transition">
             + New cut
           </Link>
-          <Link href="/library" className="border-4 border-court bg-volt px-4 py-2 font-semibold stamp-sm hover:bg-volt/80">
+          <Link href="/library" className="border border-volt bg-volt px-4 py-2 font-bold text-[#101016] rounded-lg stamp-sm hover:bg-[#e4ff78] transition">
             Open library
           </Link>
           <button
             type="button"
             onClick={handleDeleteJob}
             disabled={busy}
-            className="border-4 border-court bg-punch px-4 py-2 font-semibold text-white stamp-sm hover:bg-punch/90 transition disabled:opacity-60"
+            className="border border-punch/40 bg-punch/10 px-4 py-2 font-semibold text-punch rounded-lg stamp-sm hover:bg-punch hover:text-white transition disabled:opacity-60 cursor-pointer"
           >
             Delete cut
           </button>
@@ -143,7 +145,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
       </div>
 
       {error ? (
-        <p role="alert" className="border-4 border-punch bg-punch px-4 py-3 font-semibold text-white">
+        <p role="alert" className="border border-punch/60 bg-punch/15 px-4 py-3 font-semibold text-punch rounded-lg">
           {error}
         </p>
       ) : null}
@@ -158,47 +160,47 @@ export function JobStudio({ jobId }: { jobId: string }) {
           ["Frame", job.vertical ? "9:16 vertical" : "source format"],
           ["Captions", job.captions ? "burned animated" : "off"],
         ].map(([label, value]) => (
-          <div key={label} className="border-4 border-court bg-white p-3">
-            <dt className="text-sm font-semibold text-court">{label}</dt>
-            <dd className="display text-3xl">{value}</dd>
+          <div key={label} className="border border-white/12 bg-panel p-3.5 rounded-lg stamp-sm">
+            <dt className="text-xs font-semibold uppercase tracking-wider text-muted">{label}</dt>
+            <dd className="display text-2xl md:text-3xl text-volt mt-1">{value}</dd>
           </div>
         ))}
       </dl>
 
       {running ? (
-        <div className="border-4 border-court bg-white p-4">
+        <div className="border border-white/15 bg-panel p-5 rounded-xl stamp-sm">
           <div className="flex items-center justify-between">
-            <p className="font-semibold text-court">Pipeline in progress ({(job.progress * 100).toFixed(0)}%)</p>
-            <span className="font-mono text-xs font-bold uppercase bg-volt px-2 py-1">{job.stageId}</span>
+            <p className="font-semibold text-ink text-base">Pipeline in progress ({(job.progress * 100).toFixed(0)}%)</p>
+            <span className="font-mono text-xs font-bold uppercase bg-volt text-[#101016] px-2 py-0.5 rounded">{job.stageId}</span>
           </div>
           {job.progressMessage ? (
-            <p className="mt-2 font-mono text-sm text-court font-semibold bg-paper/60 p-2 border-2 border-court/30">
+            <p className="mt-3 font-mono text-sm text-volt font-semibold bg-panel-inset p-3 rounded-lg border border-white/10">
               {job.progressMessage}
             </p>
           ) : null}
-          <p className="mt-2 text-sm text-ink/80">
+          <p className="mt-3 text-sm text-muted">
             Real-time pipeline: speech transcription, candidate windowing, LLM scoring, 9:16 vertical reframing, and animated subtitles.
           </p>
         </div>
       ) : null}
 
       {job.status === "error" ? (
-        <div role="alert" className="border-4 border-punch bg-punch/10 p-6 flex flex-col gap-4 stamp-sm">
+        <div role="alert" className="border border-punch/60 bg-punch/10 p-6 flex flex-col gap-4 rounded-xl stamp-sm">
           <div className="flex items-center gap-3">
-            <span className="bg-punch text-white text-xs font-bold uppercase px-2 py-1">Cut Failed</span>
+            <span className="bg-punch text-white text-xs font-bold uppercase px-2 py-1 rounded">Cut Failed</span>
             <h2 className="display text-3xl text-punch">Processing Error</h2>
           </div>
-          <div className="bg-white border-2 border-punch/40 p-4 font-mono text-sm text-ink break-words">
+          <div className="bg-panel-inset border border-punch/40 p-4 font-mono text-sm text-ink rounded-lg break-words">
             <p className="font-bold text-punch mb-1">Error Details:</p>
             <p>{job.error || job.progressMessage || "An unexpected error occurred during processing."}</p>
           </div>
-          <p className="text-xs text-ink/70">
-            Check the console or job logs in <code className="bg-white px-1 border border-court/30">workdir/{jobId}/clipper.log</code> for full trace.
+          <p className="text-xs text-muted">
+            Check the console or job logs in <code className="bg-panel-raised px-1.5 py-0.5 rounded border border-white/10 text-ink">workdir/{jobId}/clipper.log</code> for full trace.
           </p>
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <Link
               href="/"
-              className="border-4 border-court bg-volt px-4 py-2 font-bold text-ink hover:bg-volt/80 transition stamp-sm"
+              className="bg-volt px-4 py-2 font-bold text-[#101016] hover:bg-[#e4ff78] rounded-lg transition stamp-sm"
             >
               ← Start New Cut
             </Link>
@@ -206,7 +208,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
               type="button"
               onClick={handleDeleteJob}
               disabled={busy}
-              className="border-4 border-court bg-white px-4 py-2 font-bold hover:bg-paper transition stamp-sm"
+              className="border border-white/20 bg-panel px-4 py-2 font-bold text-ink hover:bg-panel-raised rounded-lg transition stamp-sm cursor-pointer"
             >
               Delete This Cut
             </button>
@@ -215,9 +217,9 @@ export function JobStudio({ jobId }: { jobId: string }) {
       ) : null}
 
       {job.status === "done" && job.clips.length === 0 ? (
-        <div className="border-4 border-court bg-white p-6">
-          <p className="display text-3xl text-court">No clips generated</p>
-          <p className="mt-2 text-ink/80">
+        <div className="border border-white/15 bg-panel p-8 rounded-xl stamp-sm text-center">
+          <p className="display text-3xl text-volt">No clips generated</p>
+          <p className="mt-2 text-muted">
             The video was processed, but no candidate segments met the score/duration threshold.
           </p>
         </div>
@@ -226,8 +228,8 @@ export function JobStudio({ jobId }: { jobId: string }) {
       {job.status === "done" && job.clips.length > 0 ? (
         <section className="flex flex-col gap-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="display text-5xl text-court">Ranked clips</h2>
-            <p className="font-semibold text-court">
+            <h2 className="display text-4xl md:text-5xl text-ink">Ranked clips</h2>
+            <p className="font-semibold text-muted">
               {kept.length} kept · {kept.reduce((sum, clip) => sum + (clip.end - clip.start), 0) | 0}s total runtime
             </p>
           </div>
@@ -248,7 +250,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
       ) : null}
 
       {job.status === "done" && job.clips.length > 0 ? (
-        <p className="text-sm text-ink/70">
+        <p className="text-sm text-muted">
           Clips ready for publishing. Word-level timestamps start at:{" "}
           {job.clips.map((c) => formatTimecode(c.start)).join(", ")}.
         </p>

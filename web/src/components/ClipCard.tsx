@@ -99,21 +99,11 @@ export function ClipCard({
     if (clip.selectedTitleVariant) {
       setSelectedVariantId(clip.selectedTitleVariant);
     }
-    if (clip.schedule) {
-      setScheduleState(clip.schedule);
-    }
-    if (clip.analytics) {
-      setAnalytics(clip.analytics);
-    }
   }
 
   function handleBlur() {
-    if (isNaN(start) || isNaN(end) || start < 0) {
-      setTimeError("Timestamps must be non-negative numbers.");
-      return;
-    }
-    if (end <= start) {
-      setTimeError("End time must be greater than start time.");
+    if (start < 0 || end <= start) {
+      setTimeError("Start must be >= 0 and end must be after start.");
       return;
     }
     setTimeError("");
@@ -121,32 +111,26 @@ export function ClipCard({
   }
 
   async function handleRerenderClick() {
-    if (isNaN(start) || isNaN(end) || start < 0) {
-      setTimeError("Timestamps must be non-negative numbers.");
-      return;
-    }
-    if (end <= start) {
-      setTimeError("End time must be greater than start time.");
+    if (start < 0 || end <= start) {
+      setTimeError("Invalid times for re-rendering.");
       return;
     }
     setTimeError("");
     setRerendering(true);
-    setRerenderMessage("Re-rendering video (cutting, reframing & subtitles)…");
-
+    setRerenderMessage("Re-rendering clip (audio trim + reframe + caption burns)…");
     try {
       if (onRerender) {
         await onRerender(start, end);
       } else {
         await rerenderClip(jobId, clip.id, start, end);
       }
-      setVideoKey(Date.now());
+      setRerenderMessage("Re-render complete!");
+      setVideoKey((k) => k + 1);
       setHasVideo(true);
       setHasCover(true);
-      setRerenderMessage("Re-render complete!");
       setTimeout(() => setRerenderMessage(""), 3000);
     } catch (err) {
-      setTimeError(err instanceof Error ? err.message : "Re-rendering clip failed.");
-      setRerenderMessage("");
+      setRerenderMessage(err instanceof Error ? err.message : "Re-render failed.");
     } finally {
       setRerendering(false);
     }
@@ -154,20 +138,13 @@ export function ClipCard({
 
   async function handleSelectVariant(variantId: string) {
     setSelectedVariantId(variantId);
-    const chosen = titleVariants.find((v) => v.id === variantId);
-    if (chosen) {
-      setActiveTitle(chosen.title);
-    }
     setSavingTitle(true);
     try {
-      const job = await selectTitleVariant(jobId, clip.id, variantId);
-      const updated = job.clips.find((c) => c.id === clip.id);
-      if (updated) {
-        setActiveTitle(updated.title);
-        setSelectedVariantId(updated.selectedTitleVariant || variantId);
-      }
+      const res = await selectTitleVariant(jobId, clip.id, variantId);
+      setActiveTitle(res.title);
+      setSelectedVariantId(res.selectedVariant);
     } catch (err) {
-      console.error("Failed to update title variant", err);
+      setPublishError(err instanceof Error ? err.message : "Failed to select title variant.");
     } finally {
       setSavingTitle(false);
     }
@@ -177,17 +154,22 @@ export function ClipCard({
     e.preventDefault();
     if (!scheduleTime) return;
     setScheduling(true);
-    setScheduleMsg("");
-    setPublishError("");
+    setScheduleMsg("Scheduling clip…");
     try {
-      const targetIso = new Date(scheduleTime).toISOString();
-      const job = await scheduleClip(jobId, clip.id, schedulePlatform, targetIso);
-      const updated = job.clips.find((c) => c.id === clip.id);
-      setScheduleState(updated?.schedule);
-      setScheduleMsg("Post scheduled in queue!");
+      const scheduledUtc = new Date(scheduleTime).toISOString();
+      const res = await scheduleClip(
+        jobId,
+        clip.id,
+        scheduledUtc,
+        schedulePlatform,
+        publishPrivacy,
+      );
+      setScheduleState(res.schedule);
+      setScheduleMsg("Scheduled successfully!");
+      setShowScheduleForm(false);
       setTimeout(() => setScheduleMsg(""), 4000);
     } catch (err) {
-      setPublishError(err instanceof Error ? err.message : "Failed to schedule clip.");
+      setScheduleMsg(err instanceof Error ? err.message : "Scheduling failed.");
     } finally {
       setScheduling(false);
     }
@@ -195,7 +177,6 @@ export function ClipCard({
 
   async function handleRefreshAnalytics() {
     setLoadingAnalytics(true);
-    setPublishError("");
     try {
       const job = await fetchClipAnalytics(jobId, clip.id);
       const updated = job.clips.find((c) => c.id === clip.id);
@@ -282,47 +263,47 @@ export function ClipCard({
   const isYouTubePublished = publishState.youtube?.status === "published";
 
   return (
-    <article className={`border-4 border-court bg-white stamp-sm ${clip.kept ? "" : "opacity-60"}`}>
+    <article className={`border border-white/15 bg-panel rounded-xl overflow-hidden stamp-sm transition ${clip.kept ? "" : "opacity-60"}`}>
       {/* Card Header */}
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] border-b-4 border-court">
-        <div className="bg-court px-3 py-3 text-volt">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] border-b border-white/12 bg-panel-raised">
+        <div className="px-4 py-3 text-volt flex items-center">
           <div className="flex items-center gap-2">
-            <h3 className="display text-3xl">{activeTitle}</h3>
+            <h3 className="display text-2xl md:text-3xl leading-tight">{activeTitle}</h3>
             {savingTitle ? (
-              <span className="text-xs bg-volt text-ink font-bold px-1.5 py-0.5">Saving…</span>
+              <span className="text-xs bg-volt text-[#101016] font-bold px-1.5 py-0.5 rounded">Saving…</span>
             ) : null}
           </div>
         </div>
-        <p className="flex items-center bg-volt px-4 text-3xl font-extrabold text-ink">
+        <p className="flex items-center justify-center bg-volt px-4 text-3xl font-black text-[#101016]">
           {clip.score}
         </p>
       </div>
 
-      <div className="flex flex-col gap-4 p-4">
+      <div className="flex flex-col gap-4 p-4 md:p-5">
         {/* Retention Badges & Hook Callout */}
         <div className="flex flex-wrap items-center gap-2">
           {clip.hook ? (
-            <span className="border-2 border-court bg-volt/30 px-2 py-0.5 text-xs font-bold text-ink">
+            <span className="border border-volt/40 bg-volt/10 px-2.5 py-1 text-xs font-bold text-volt rounded">
               🎯 Hook (0–2.5s): &ldquo;{clip.hook}&rdquo;
             </span>
           ) : null}
           {clip.hookOverlay !== false ? (
-            <span className="border border-court/40 bg-white px-2 py-0.5 text-[11px] font-semibold text-court">
+            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
               ✨ Hook Overlay
             </span>
           ) : null}
           {clip.loudnorm !== false ? (
-            <span className="border border-court/40 bg-white px-2 py-0.5 text-[11px] font-semibold text-court">
+            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
               🔊 -14 LUFS
             </span>
           ) : null}
           {clip.progressBar ? (
-            <span className="border border-court/40 bg-white px-2 py-0.5 text-[11px] font-semibold text-court">
+            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
               ⏱️ Progress Bar
             </span>
           ) : null}
           {clip.captionStyle ? (
-            <span className="border border-court/40 bg-white px-2 py-0.5 text-[11px] font-semibold text-court">
+            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
               💬 {clip.captionStyle}
             </span>
           ) : null}
@@ -330,15 +311,15 @@ export function ClipCard({
 
         {/* Video / Cover Frame Preview */}
         <div className="flex flex-col sm:flex-row gap-4 items-start">
-          <div className="flex flex-col gap-1 shrink-0">
+          <div className="flex flex-col gap-1.5 shrink-0">
             {/* View Switcher: Video vs Cover */}
             {hasVideo && hasCover ? (
-              <div className="flex border-2 border-court text-xs font-bold">
+              <div className="flex border border-white/15 rounded overflow-hidden text-xs font-bold bg-panel-inset">
                 <button
                   type="button"
                   onClick={() => setPreviewTab("video")}
-                  className={`flex-1 px-2 py-1 text-center transition ${
-                    previewTab === "video" ? "bg-volt text-ink" : "bg-white text-ink/70 hover:bg-paper"
+                  className={`flex-1 px-3 py-1 text-center transition cursor-pointer ${
+                    previewTab === "video" ? "bg-volt text-[#101016]" : "bg-panel-raised text-muted hover:text-ink"
                   }`}
                 >
                   Video
@@ -346,8 +327,8 @@ export function ClipCard({
                 <button
                   type="button"
                   onClick={() => setPreviewTab("cover")}
-                  className={`flex-1 px-2 py-1 text-center transition ${
-                    previewTab === "cover" ? "bg-volt text-ink" : "bg-white text-ink/70 hover:bg-paper"
+                  className={`flex-1 px-3 py-1 text-center transition cursor-pointer ${
+                    previewTab === "cover" ? "bg-volt text-[#101016]" : "bg-panel-raised text-muted hover:text-ink"
                   }`}
                 >
                   Cover
@@ -356,7 +337,7 @@ export function ClipCard({
             ) : null}
 
             {previewTab === "cover" && hasCover ? (
-              <div className="aspect-[9/16] max-h-80 w-44 shrink-0 overflow-hidden border-4 border-ink bg-ink relative">
+              <div className="aspect-[9/16] max-h-80 w-44 shrink-0 overflow-hidden border border-white/20 bg-black rounded-lg relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={coverSrc}
@@ -364,12 +345,12 @@ export function ClipCard({
                   className="h-full w-full object-cover"
                   onError={() => setHasCover(false)}
                 />
-                <span className="absolute bottom-1 right-1 bg-ink/80 text-[10px] text-volt px-1 font-bold">
+                <span className="absolute bottom-1 right-1 bg-black/80 text-[10px] text-volt px-1.5 py-0.5 font-bold rounded">
                   Cover Frame
                 </span>
               </div>
             ) : hasVideo ? (
-              <div className="aspect-[9/16] max-h-80 w-44 shrink-0 overflow-hidden border-4 border-ink bg-ink">
+              <div className="aspect-[9/16] max-h-80 w-44 shrink-0 overflow-hidden border border-white/20 bg-black rounded-lg">
                 <video
                   key={videoKey}
                   controls
@@ -381,30 +362,32 @@ export function ClipCard({
                 />
               </div>
             ) : (
-              <div className="aspect-[9/16] max-h-72 w-40 shrink-0 self-start border-4 border-ink bg-court p-3 text-volt flex flex-col justify-between">
+              <div className="aspect-[9/16] max-h-72 w-40 shrink-0 self-start border border-white/20 bg-panel-inset p-3 text-volt rounded-lg flex flex-col justify-between">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-white">9:16 Preview</p>
-                  <p className="display mt-4 text-2xl leading-tight">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted">9:16 Preview</p>
+                  <p className="display mt-4 text-2xl leading-tight text-ink">
                     {clip.hook.split(" ").slice(0, 8).join(" ")}
                   </p>
                 </div>
-                <p className="text-[10px] font-semibold text-white/80">
+                <p className="text-[10px] font-semibold text-muted font-mono">
                   {formatTimecode(clip.start)} – {formatTimecode(clip.end)}
                 </p>
               </div>
             )}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <p className="font-semibold text-court">{clip.reason}</p>
-            <p className="text-sm text-ink/80">{clip.text}</p>
+          <div className="flex flex-col gap-2.5">
+            <p className="font-semibold text-ice text-sm">{clip.reason}</p>
+            <p className="text-sm text-ink/90 bg-panel-inset/60 border border-white/8 p-3 rounded-lg leading-relaxed">
+              {clip.text}
+            </p>
           </div>
         </div>
 
         {/* Timestamps and Rerender */}
-        <div className="flex flex-col gap-2 border-2 border-court/20 bg-paper/30 p-3">
+        <div className="flex flex-col gap-2.5 border border-white/10 bg-panel-raised/50 p-3.5 rounded-lg">
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-sm font-semibold">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted uppercase tracking-wider">
               Start Time (s)
               <input
                 type="number"
@@ -412,13 +395,13 @@ export function ClipCard({
                 step={0.1}
                 value={start}
                 disabled={rerendering}
-                className="border-4 border-court px-2 py-2 font-mono"
+                className="border border-white/20 bg-panel-inset text-ink px-2.5 py-2 font-mono rounded text-sm focus:border-ice focus:outline-none"
                 onChange={(e) => setStart(Number(e.target.value))}
                 onBlur={handleBlur}
               />
-              <span className="font-normal text-xs text-ink/70">{formatTimecode(start)}</span>
+              <span className="font-normal text-xs text-muted">{formatTimecode(start)}</span>
             </label>
-            <label className="flex flex-col gap-1 text-sm font-semibold">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-muted uppercase tracking-wider">
               End Time (s)
               <input
                 type="number"
@@ -426,11 +409,11 @@ export function ClipCard({
                 step={0.1}
                 value={end}
                 disabled={rerendering}
-                className="border-4 border-court px-2 py-2 font-mono"
+                className="border border-white/20 bg-panel-inset text-ink px-2.5 py-2 font-mono rounded text-sm focus:border-ice focus:outline-none"
                 onChange={(e) => setEnd(Number(e.target.value))}
                 onBlur={handleBlur}
               />
-              <span className="font-normal text-xs text-ink/70">{formatTimecode(end)}</span>
+              <span className="font-normal text-xs text-muted">{formatTimecode(end)}</span>
             </label>
           </div>
 
@@ -439,12 +422,12 @@ export function ClipCard({
               type="button"
               disabled={rerendering || busy}
               onClick={handleRerenderClick}
-              className="border-2 border-court bg-white px-3 py-1 text-xs font-bold hover:bg-volt transition disabled:opacity-60"
+              className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-bold text-ink rounded hover:bg-volt hover:text-[#101016] hover:border-volt transition disabled:opacity-60 cursor-pointer"
             >
               {rerendering ? "Re-rendering…" : "Re-render Video"}
             </button>
             {rerenderMessage ? (
-              <span className="text-xs font-semibold text-court">{rerenderMessage}</span>
+              <span className="text-xs font-semibold text-volt">{rerenderMessage}</span>
             ) : null}
           </div>
         </div>
@@ -457,10 +440,10 @@ export function ClipCard({
 
         {/* Title A/B Variants Selector */}
         {titleVariants.length > 0 ? (
-          <div className="flex flex-col gap-2 border-2 border-court/30 bg-paper/40 p-3 text-sm">
+          <div className="flex flex-col gap-2.5 border border-white/10 bg-panel-raised/40 p-3.5 rounded-lg text-sm">
             <div className="flex items-center justify-between">
-              <p className="font-bold text-court">Title A/B Variants (Viral Testing)</p>
-              <span className="text-[11px] font-mono font-bold bg-volt text-ink px-2 py-0.5">
+              <p className="font-bold text-ink">Title A/B Variants (Viral Testing)</p>
+              <span className="text-[11px] font-mono font-bold bg-volt text-[#101016] px-2 py-0.5 rounded">
                 A/B Engine
               </span>
             </div>
@@ -468,10 +451,10 @@ export function ClipCard({
               {titleVariants.map((v) => (
                 <label
                   key={v.id}
-                  className={`flex items-start gap-2 p-2.5 border-2 cursor-pointer transition ${
+                  className={`flex items-start gap-2.5 p-3 border rounded-lg cursor-pointer transition ${
                     selectedVariantId === v.id
-                      ? "border-court bg-volt/30 font-semibold"
-                      : "border-court/30 bg-white hover:bg-paper"
+                      ? "border-volt bg-volt/10 font-semibold"
+                      : "border-white/10 bg-panel-raised hover:border-white/25"
                   }`}
                 >
                   <input
@@ -480,20 +463,20 @@ export function ClipCard({
                     value={v.id}
                     checked={selectedVariantId === v.id}
                     onChange={() => handleSelectVariant(v.id)}
-                    className="mt-1 h-4 w-4 accent-punch cursor-pointer"
+                    className="mt-1 h-4 w-4 accent-volt cursor-pointer"
                   />
                   <div className="flex flex-col flex-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-court">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted">
                         {v.label || v.angle || v.id}
                       </span>
                       {selectedVariantId === v.id ? (
-                        <span className="text-[10px] font-bold bg-court text-volt px-1.5 py-0.5">
+                        <span className="text-[10px] font-bold bg-volt text-[#101016] px-1.5 py-0.5 rounded">
                           ACTIVE FOR PUBLISH
                         </span>
                       ) : null}
                     </div>
-                    <span className="text-sm mt-0.5 text-ink">{v.title}</span>
+                    <span className="text-sm mt-1 text-ink">{v.title}</span>
                   </div>
                 </label>
               ))}
@@ -503,14 +486,14 @@ export function ClipCard({
 
         {/* SEO Metadata and Copy Buttons */}
         {clip.seo ? (
-          <div className="flex flex-col gap-2 border-2 border-court/30 bg-paper/50 p-3 text-sm">
-            <p className="font-bold text-court">Title, description &amp; hashtags</p>
-            <p className="font-semibold">{clip.seo.youtube.title}</p>
-            <p className="whitespace-pre-line text-ink/80">{clip.seo.youtube.description}</p>
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2.5 border border-white/10 bg-panel-raised/40 p-3.5 rounded-lg text-sm">
+            <p className="font-bold text-ink">Title, description &amp; hashtags</p>
+            <p className="font-semibold text-volt">{clip.seo.youtube.title}</p>
+            <p className="whitespace-pre-line text-muted text-xs leading-relaxed">{clip.seo.youtube.description}</p>
+            <div className="flex flex-wrap gap-2 pt-1">
               <button
                 type="button"
-                className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold hover:bg-volt transition"
+                className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink rounded hover:bg-volt hover:text-[#101016] hover:border-volt transition cursor-pointer"
                 onClick={() =>
                   copy("yt", `${clip.seo!.youtube.title}\n\n${clip.seo!.youtube.description}`)
                 }
@@ -519,7 +502,7 @@ export function ClipCard({
               </button>
               <button
                 type="button"
-                className="border-2 border-court bg-white px-2 py-1 text-xs font-semibold hover:bg-volt transition"
+                className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink rounded hover:bg-volt hover:text-[#101016] hover:border-volt transition cursor-pointer"
                 onClick={() => copy("ig", clip.seo!.instagram.caption)}
               >
                 {copied === "ig" ? "Copied" : "Copy Instagram caption"}
@@ -530,13 +513,13 @@ export function ClipCard({
 
         {/* Publish & Distribution Hub */}
         {hasVideo && clip.seo ? (
-          <div className="flex flex-col gap-3 border-2 border-court/30 p-3 bg-paper/20">
+          <div className="flex flex-col gap-3.5 border border-white/10 p-3.5 bg-panel-raised/30 rounded-lg">
             <div className="flex items-center justify-between">
-              <p className="font-bold text-court">Publish &amp; Distribution</p>
+              <p className="font-bold text-ink">Publish &amp; Distribution</p>
               <button
                 type="button"
                 onClick={() => setShowScheduleForm(!showScheduleForm)}
-                className="text-xs font-bold underline text-court hover:text-punch"
+                className="text-xs font-bold underline text-muted hover:text-volt transition cursor-pointer"
               >
                 {showScheduleForm ? "Hide Scheduling" : "Schedule in Posting Queue"}
               </button>
@@ -544,14 +527,14 @@ export function ClipCard({
 
             {/* Instant Publish */}
             <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs font-semibold text-court">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-muted">
                 Visibility:
                 <select
                   value={publishPrivacy}
                   onChange={(e) =>
                     setPublishPrivacy(e.target.value as "private" | "unlisted" | "public")
                   }
-                  className="border-2 border-court p-1 text-xs bg-paper font-normal"
+                  className="border border-white/20 p-1.5 text-xs bg-panel-inset text-ink rounded font-normal"
                 >
                   <option value="private">Private</option>
                   <option value="unlisted">Unlisted</option>
@@ -564,7 +547,7 @@ export function ClipCard({
                   type="button"
                   disabled={publishing !== null}
                   onClick={() => doPublish(t)}
-                  className="border-4 border-court bg-white px-3 py-2 font-semibold hover:bg-volt transition disabled:opacity-60 disabled:cursor-wait"
+                  className="border border-white/20 bg-panel text-ink px-3.5 py-2 text-xs font-bold rounded-lg hover:bg-volt hover:text-[#101016] hover:border-volt transition disabled:opacity-60 disabled:cursor-wait cursor-pointer"
                 >
                   {publishing === t
                     ? "Uploading…"
@@ -579,10 +562,10 @@ export function ClipCard({
 
             {/* Live Upload Progress Feedback */}
             {publishing !== null ? (
-              <div className="border-2 border-court bg-volt/20 p-3 flex flex-col gap-1.5 animate-pulse">
-                <div className="flex items-center justify-between text-xs font-bold text-court">
+              <div className="border border-volt/30 bg-volt/10 p-3 rounded-lg flex flex-col gap-2 animate-pulse">
+                <div className="flex items-center justify-between text-xs font-bold text-volt">
                   <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-court animate-ping" />
+                    <span className="inline-block w-2 h-2 rounded-full bg-volt animate-ping" />
                     {publishing === "youtube"
                       ? "Uploading YouTube Short"
                       : publishing === "instagram"
@@ -591,13 +574,13 @@ export function ClipCard({
                   </span>
                   <span>{publishProgress}%</span>
                 </div>
-                <div className="w-full bg-court/20 h-2.5 border border-court overflow-hidden">
+                <div className="w-full bg-black/40 h-2 rounded overflow-hidden">
                   <div
-                    className="bg-court h-full transition-all duration-300 ease-out"
+                    className="bg-volt h-full transition-all duration-300 ease-out"
                     style={{ width: `${Math.max(5, publishProgress)}%` }}
                   />
                 </div>
-                <p className="text-[11px] text-ink/80 font-medium">
+                <p className="text-[11px] text-muted font-medium">
                   {publishStatusText || "Streaming media chunks to platform API..."}
                 </p>
               </div>
@@ -607,31 +590,31 @@ export function ClipCard({
             {showScheduleForm ? (
               <form
                 onSubmit={handleScheduleSubmit}
-                className="flex flex-col gap-2 p-3 border-2 border-court bg-white"
+                className="flex flex-col gap-3 p-3.5 border border-white/12 bg-panel-inset rounded-lg"
               >
-                <p className="text-xs font-bold uppercase tracking-wider text-court">
+                <p className="text-xs font-bold uppercase tracking-wider text-volt">
                   Posting Queue Scheduler
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <label className="flex flex-col text-xs font-semibold">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="flex flex-col text-xs font-semibold text-muted">
                     Target Platform
                     <select
                       value={schedulePlatform}
                       onChange={(e) => setSchedulePlatform(e.target.value as Platform | "both")}
-                      className="border-2 border-court p-1 mt-1 text-sm bg-paper"
+                      className="border border-white/20 p-2 mt-1 text-sm bg-panel text-ink rounded"
                     >
                       <option value="youtube">YouTube Shorts</option>
                       <option value="instagram">Instagram Reels</option>
                       <option value="both">Both Platforms</option>
                     </select>
                   </label>
-                  <label className="flex flex-col text-xs font-semibold">
+                  <label className="flex flex-col text-xs font-semibold text-muted">
                     Scheduled Time
                     <input
                       type="datetime-local"
                       value={scheduleTime}
                       onChange={(e) => setScheduleTime(e.target.value)}
-                      className="border-2 border-court p-1 mt-1 text-sm bg-paper"
+                      className="border border-white/20 p-2 mt-1 text-sm bg-panel text-ink rounded font-mono"
                     />
                   </label>
                 </div>
@@ -639,12 +622,12 @@ export function ClipCard({
                   <button
                     type="submit"
                     disabled={scheduling}
-                    className="border-2 border-court bg-volt px-3 py-1 text-xs font-bold hover:bg-volt/80 transition disabled:opacity-60"
+                    className="bg-volt px-4 py-1.5 text-xs font-bold text-[#101016] rounded hover:bg-[#e4ff78] transition disabled:opacity-60 cursor-pointer"
                   >
                     {scheduling ? "Scheduling…" : "Confirm Schedule"}
                   </button>
                   {scheduleMsg ? (
-                    <span className="text-xs font-semibold text-court">{scheduleMsg}</span>
+                    <span className="text-xs font-semibold text-volt">{scheduleMsg}</span>
                   ) : null}
                 </div>
               </form>
@@ -652,9 +635,9 @@ export function ClipCard({
 
             {/* Schedule State Badge */}
             {scheduleState ? (
-              <div className="flex items-center gap-2 border border-court/30 bg-volt/20 p-2 text-xs font-semibold text-court">
+              <div className="flex items-center gap-2 border border-volt/30 bg-volt/10 p-2.5 rounded-lg text-xs font-semibold text-ink">
                 <span>📅 Scheduled:</span>
-                <span className="font-mono">
+                <span className="font-mono text-volt">
                   {new Date(
                     scheduleState.scheduled_at ||
                       scheduleState.publishAt ||
@@ -662,7 +645,7 @@ export function ClipCard({
                       "",
                   ).toLocaleString()}
                 </span>
-                <span className="bg-court text-volt px-1.5 py-0.5 text-[10px] font-bold uppercase">
+                <span className="bg-volt text-[#101016] px-1.5 py-0.5 text-[10px] font-bold uppercase rounded">
                   {scheduleState.status}
                 </span>
               </div>
@@ -673,10 +656,10 @@ export function ClipCard({
               const r = publishState[p];
               if (!r) return null;
               return r.status === "published" ? (
-                <p key={p} className="text-xs font-semibold text-court">
+                <p key={p} className="text-xs font-semibold text-volt">
                   {p === "youtube" ? "YouTube" : "Instagram"}: published{" "}
                   {r.url ? (
-                    <a href={r.url} target="_blank" rel="noreferrer" className="underline font-bold">
+                    <a href={r.url} target="_blank" rel="noreferrer" className="underline font-bold text-ice">
                       open post ↗
                     </a>
                   ) : null}
@@ -685,7 +668,7 @@ export function ClipCard({
                 <div
                   key={p}
                   role="alert"
-                  className="border-2 border-punch/40 bg-punch/5 p-2.5 text-xs font-semibold text-punch flex flex-col gap-2"
+                  className="border border-punch/50 bg-punch/10 p-3 rounded-lg text-xs font-semibold text-punch flex flex-col gap-2"
                 >
                   <div>
                     <p className="font-bold">
@@ -698,7 +681,7 @@ export function ClipCard({
                       type="button"
                       disabled={publishing !== null}
                       onClick={() => doPublish("youtube", true)}
-                      className="self-start border-2 border-punch bg-white px-2.5 py-1 text-xs font-bold text-punch hover:bg-punch hover:text-white transition disabled:opacity-60"
+                      className="self-start border border-punch bg-panel px-3 py-1.5 text-xs font-bold text-punch hover:bg-punch hover:text-white rounded transition disabled:opacity-60 cursor-pointer"
                     >
                       Sign In with Another Google Account ↗
                     </button>
@@ -710,7 +693,7 @@ export function ClipCard({
             {publishError ? (
               <div
                 role="alert"
-                className="border-2 border-punch/40 bg-punch/5 p-2 text-xs font-bold text-punch"
+                className="border border-punch/50 bg-punch/10 p-3 rounded-lg text-xs font-bold text-punch"
               >
                 {publishError}
               </div>
@@ -718,67 +701,67 @@ export function ClipCard({
 
             {/* Analytics Loop Card (When published on YouTube or analytics present) */}
             {isYouTubePublished || analytics ? (
-              <div className="flex flex-col gap-2 border-2 border-court bg-white p-3">
+              <div className="flex flex-col gap-2.5 border border-white/12 bg-panel p-3.5 rounded-lg">
                 <div className="flex items-center justify-between">
-                  <p className="font-bold text-court text-xs uppercase tracking-wider">
+                  <p className="font-bold text-ink text-xs uppercase tracking-wider">
                     YouTube Performance Analytics
                   </p>
                   <button
                     type="button"
                     disabled={loadingAnalytics}
                     onClick={handleRefreshAnalytics}
-                    className="border border-court bg-paper px-2 py-0.5 text-[11px] font-semibold hover:bg-volt transition disabled:opacity-60"
+                    className="border border-white/20 bg-panel-raised px-2.5 py-1 text-[11px] font-semibold text-muted hover:text-ink rounded transition disabled:opacity-60 cursor-pointer"
                   >
                     {loadingAnalytics ? "Refreshing…" : "Refresh Stats"}
                   </button>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                  <div className="border border-court/30 bg-paper/50 p-2">
-                    <span className="text-[10px] text-ink/70 uppercase block font-semibold">
+                  <div className="border border-white/10 bg-panel-inset p-2.5 rounded">
+                    <span className="text-[10px] text-muted uppercase block font-semibold">
                       Views
                     </span>
-                    <span className="text-lg font-extrabold text-court">
+                    <span className="text-lg font-extrabold text-volt">
                       {analytics?.view_count ?? analytics?.views ?? 0}
                     </span>
                   </div>
-                  <div className="border border-court/30 bg-paper/50 p-2">
-                    <span className="text-[10px] text-ink/70 uppercase block font-semibold">
+                  <div className="border border-white/10 bg-panel-inset p-2.5 rounded">
+                    <span className="text-[10px] text-muted uppercase block font-semibold">
                       Likes
                     </span>
-                    <span className="text-lg font-extrabold text-court">
+                    <span className="text-lg font-extrabold text-volt">
                       {analytics?.like_count ?? analytics?.likes ?? 0}
                     </span>
                   </div>
-                  <div className="border border-court/30 bg-paper/50 p-2">
-                    <span className="text-[10px] text-ink/70 uppercase block font-semibold">
+                  <div className="border border-white/10 bg-panel-inset p-2.5 rounded">
+                    <span className="text-[10px] text-muted uppercase block font-semibold">
                       Comments
                     </span>
-                    <span className="text-lg font-extrabold text-court">
+                    <span className="text-lg font-extrabold text-volt">
                       {analytics?.comment_count ?? analytics?.comments ?? 0}
                     </span>
                   </div>
                 </div>
                 {(analytics?.retention_seconds || analytics?.retentionSeconds) ? (
-                  <p className="text-[11px] text-ink/70">
+                  <p className="text-[11px] text-muted">
                     Average retention: {analytics.retention_seconds ?? analytics.retentionSeconds}s
                   </p>
                 ) : null}
               </div>
             ) : null}
 
-            <p className="text-xs text-ink/60">
+            <p className="text-xs text-muted">
               YouTube uploads default to private (selectable above or via YOUTUBE_PRIVACY in .env). Instagram requires INSTAGRAM_ACCESS_TOKEN.
             </p>
           </div>
         ) : null}
 
         {/* Card Footer Actions */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t-2 border-court/20">
+        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/10">
           <button
             type="button"
             disabled={busy}
             onClick={() => onKeep(!clip.kept)}
-            className="border-4 border-court bg-volt px-3 py-2 font-semibold hover:bg-volt/80 transition"
+            className="bg-volt px-4 py-2 font-bold text-xs text-[#101016] hover:bg-[#e4ff78] rounded-lg transition cursor-pointer"
           >
             {clip.kept ? "Drop this clip" : "Keep this clip"}
           </button>
@@ -787,7 +770,7 @@ export function ClipCard({
             <a
               href={videoSrc}
               download={`${activeTitle.replace(/\s+/g, "_").toLowerCase()}.mp4`}
-              className="border-4 border-court bg-punch text-white px-3 py-2 font-semibold hover:bg-punch/90 transition inline-block text-center"
+              className="bg-punch text-white px-4 py-2 font-bold text-xs hover:bg-punch/90 rounded-lg transition inline-block text-center cursor-pointer"
             >
               Download MP4
             </a>
@@ -797,7 +780,7 @@ export function ClipCard({
             <a
               href={coverSrc}
               download={`${activeTitle.replace(/\s+/g, "_").toLowerCase()}_cover.jpg`}
-              className="border-4 border-court bg-white px-3 py-2 font-semibold hover:bg-paper transition inline-block text-center"
+              className="border border-white/20 bg-panel px-4 py-2 font-semibold text-xs text-ink hover:bg-panel-raised rounded-lg transition inline-block text-center cursor-pointer"
             >
               Download Cover JPEG
             </a>
@@ -805,7 +788,7 @@ export function ClipCard({
 
           <button
             type="button"
-            className="border-4 border-court bg-white px-3 py-2 font-semibold hover:bg-paper transition"
+            className="border border-white/20 bg-panel px-4 py-2 font-semibold text-xs text-ink hover:bg-panel-raised rounded-lg transition cursor-pointer"
             onClick={() => {
               const blob = new Blob([JSON.stringify(clip, null, 2)], {
                 type: "application/json",

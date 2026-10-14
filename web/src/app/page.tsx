@@ -79,17 +79,6 @@ export default function Home() {
         <span className="topline-status"><span /> SYSTEM READY</span>
       </div>
 
-      <header className="masthead">
-        <a href="#top" className="wordmark" aria-label="Clipper home">
-          <span className="wordmark-symbol">C<span>/</span></span>
-          <span>CLIPPER<span className="wordmark-sub">MEDIA EXTRACTION UNIT</span></span>
-        </a>
-        <nav className="masthead-nav" aria-label="Main navigation">
-          <a href="#pipeline">THE PIPELINE</a>
-          <a href="#studio">THE EDIT BAY</a>
-          <span className="nav-chip">BUILD 0.9 / NO BS</span>
-        </nav>
-      </header>
 
       <Ticker items={TICKER_TOP} className="ticker ticker--top" />
 
