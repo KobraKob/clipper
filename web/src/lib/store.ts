@@ -213,7 +213,7 @@ async function spawnClipperProcess(job: Job): Promise<void> {
       } catch {
         // The close handler may already have closed the descriptor.
       }
-      logger.error?.("[clipper] Failed to start child process:", error);
+      console.error("[clipper] Failed to start child process:", error);
       await storeMutex.runExclusive(async () => {
         const currentJobs = await readJobs();
         const idx = currentJobs.findIndex((j) => j.id === job.id);
