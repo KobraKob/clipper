@@ -60,9 +60,23 @@ async function resolveOutDir(jobId: string): Promise<string> {
 async function readJobs(): Promise<Job[]> {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf8");
-    return JSON.parse(raw) as Job[];
-  } catch {
-    return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Invalid job store format in ${DATA_FILE}: expected an array.`);
+    }
+    return parsed as Job[];
+  } catch (error) {
+    // A missing file means a new store. Corruption or permission errors must not
+    // silently become an empty store, or the next write could erase existing jobs.
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return [];
+    }
+    throw error;
   }
 }
 
