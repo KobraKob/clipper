@@ -324,3 +324,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 @media (prefers-reduced-motion: reduce) {
   *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; transition-duration:.01ms!important; }
 }
+
+
+.founder-quote { position:relative; max-width:940px; margin:0 auto 58px; padding:30px 34px 28px; color:#f4f3f8; background:#171720; border:1px solid rgba(0,0,0,.28); border-left:5px solid #6151ef; box-shadow:8px 8px 0 rgba(17,17,22,.12); }
+.founder-quote-mark { position:absolute; top:7px; left:24px; color:#ff5b78; font-family:Georgia,serif; font-size:70px; line-height:1; }
+.founder-quote blockquote { max-width:780px; margin:14px 0 25px 36px; font-family:var(--font-display); font-size:clamp(27px,4vw,48px); font-weight:800; line-height:1.02; letter-spacing:-.035em; }
+.founder-quote figcaption { display:flex; align-items:center; gap:10px; margin-left:36px; color:#b8b7c5; font-size:9px; font-weight:900; letter-spacing:.14em; }
+.founder-quote-line { display:inline-block; width:28px; height:2px; background:#69e8df; }
+.founder-quote-coordinate { position:absolute; right:18px; top:18px; color:#777687; font:800 8px/1 var(--font-sans); letter-spacing:.12em; }
+@media (max-width:520px) { .founder-quote { padding:27px 17px 22px; } .founder-quote blockquote { margin-left:20px; margin-top:22px; font-size:clamp(25px,7vw,34px); } .founder-quote figcaption { margin-left:20px; font-size:7px; } .founder-quote-coordinate { display:none; } .founder-quote-mark { left:13px; } }
