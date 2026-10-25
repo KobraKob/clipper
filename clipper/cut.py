@@ -43,7 +43,7 @@ def cut(
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "ultrafast",
         "-crf",
         "20",
         "-c:a",
