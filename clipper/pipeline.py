@@ -34,6 +34,12 @@ from .seo import generate_metadata
 logger = logging.getLogger(__name__)
 
 
+def _log_elapsed(stage: str, started_at: float) -> None:
+    """Log elapsed wall time for a pipeline stage."""
+    logger.info("[timing] %s completed in %.2fs", stage, time.perf_counter() - started_at)
+
+
+
 def slugify(text: str, max_len: int = 50) -> str:
     """Generate safe filesystem slug from a string."""
     clean = re.sub(r"[^\w\s-]", "", text).strip().lower()
@@ -148,6 +154,7 @@ def run_pipeline(
 
     try:
         # 1. Ingestion
+        stage_started = time.perf_counter()
         write_progress(job_dir, "ingest", 5, f"Ingesting source: {source}", base_out_dir)
         logger.info("[pipeline] Ingesting source: %s", source)
         if is_url(source):
@@ -167,12 +174,17 @@ def run_pipeline(
         write_progress(job_dir, "ingest", 15, "Source downloaded. Extracting audio...", base_out_dir)
 
         # 2. Extract audio (16 kHz mono WAV)
+        stage_started = time.perf_counter()
         wav_path = job_dir / "audio.wav"
         if not wav_path.exists():
             logger.info("[pipeline] Extracting 16 kHz mono audio...")
             extract_audio(video_path, wav_path)
 
+        _log_elapsed("audio extraction (including cache lookup)", stage_started)
+
         # 3. Transcribe or read cache
+        _log_elapsed("source download / lookup", stage_started)
+
         write_progress(job_dir, "transcribe", 25, "Transcribing speech to text...", base_out_dir)
 
         def on_transcribe_progress(current_chunk: int, total_chunks: int) -> None:
@@ -185,6 +197,7 @@ def run_pipeline(
                 base_out_dir,
             )
 
+        stage_started = time.perf_counter()
         tr_data = get_transcript(
             wav_path,
             job_dir,
@@ -192,12 +205,14 @@ def run_pipeline(
             s=s,
             progress_callback=on_transcribe_progress,
         )
+        _log_elapsed("transcription / transcript cache", stage_started)
         segments = tr_data.get("segments", [])
         if not segments:
             raise RuntimeError("Transcription produced zero segments.")
 
         write_progress(job_dir, "transcribe", 38, "Transcript ready.", base_out_dir)
 
+        stage_started = time.perf_counter()
         # 4. Detect visual scene cuts (cached in scenes.json to avoid expensive whole-file re-scanning)
         scenes_cache = job_dir / "scenes.json"
         candidates_cache = job_dir / "candidates.json"
@@ -218,6 +233,9 @@ def run_pipeline(
             scene_cuts = detect_scene_cuts(video_path)
             scenes_cache.write_text(json.dumps(scene_cuts, indent=2), encoding="utf-8")
 
+        _log_elapsed("scene detection / scene cache", stage_started)
+
+        stage_started = time.perf_counter()
         # 5. Build and pre-filter candidates
         write_progress(job_dir, "candidates", 48, "Generating sentence-aligned candidate windows...", base_out_dir)
         if candidates_cache.exists():
@@ -240,6 +258,9 @@ def run_pipeline(
         if not cands:
             raise RuntimeError("No suitable candidate windows found matching duration criteria.")
 
+        _log_elapsed("candidate generation / candidate cache", stage_started)
+
+        stage_started = time.perf_counter()
         # 6. Two-Stage LLM Scoring with Channel Analytics Feedback Loop
         write_progress(job_dir, "score", 55, "Scoring viral candidates with LLM...", base_out_dir)
         llm_service = llm or get_llm(s)
@@ -248,6 +269,7 @@ def run_pipeline(
         analytics_ctx = format_top_hooks_prompt_context(history_dir)
         ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist, analytics_context=analytics_ctx)
 
+        _log_elapsed("LLM candidate scoring", stage_started)
         tokens_used = getattr(llm_service, "tokens_used", 0)
         if tokens_used:
             logger.info("[pipeline] LLM tokens consumed: %d", tokens_used)
@@ -258,6 +280,7 @@ def run_pipeline(
         source_info = load_source_info(job_dir) if is_url(source) else {}
 
         for idx, clip in enumerate(ranked_clips, start=1):
+            clip_started = time.perf_counter()
             clip_title = clip.get("title", f"Clip {idx}")
             slug = slugify(clip_title)
             current_pct = 60 + int((idx - 1) / max(1, len(ranked_clips)) * 35)
@@ -404,6 +427,7 @@ def run_pipeline(
                 )
                 clip_record["title_variants"] = clip_record["seo"].get("title_variants", [])
                 clip_record["selected_title_variant"] = clip_record["seo"].get("selected_title_variant", "direct")
+            _log_elapsed(f"clip {idx} total (cut, reframe, metadata)", clip_started)
             exported_clips.append(clip_record)
 
 
