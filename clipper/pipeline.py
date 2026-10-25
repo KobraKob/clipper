@@ -171,6 +171,7 @@ def run_pipeline(
             if not video_path.exists():
                 raise FileNotFoundError(f"Source video file not found: {video_path}")
 
+        _log_elapsed("source download / lookup", stage_started)
         write_progress(job_dir, "ingest", 15, "Source downloaded. Extracting audio...", base_out_dir)
 
         # 2. Extract audio (16 kHz mono WAV)
@@ -183,8 +184,6 @@ def run_pipeline(
         _log_elapsed("audio extraction (including cache lookup)", stage_started)
 
         # 3. Transcribe or read cache
-        _log_elapsed("source download / lookup", stage_started)
-
         write_progress(job_dir, "transcribe", 25, "Transcribing speech to text...", base_out_dir)
 
         def on_transcribe_progress(current_chunk: int, total_chunks: int) -> None:
