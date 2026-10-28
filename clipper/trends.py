@@ -11,14 +11,14 @@ import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 _CACHE_TTL_SECONDS = 60 * 60
-_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_CACHE: Dict[str, Tuple[float, Optional[List[Dict[str, Any]]]]] = {}
 
 
-def fetch_trending_topics(region: str = "IN", timeout: float = 2.5) -> List[Dict[str, Any]]:
+def fetch_trending_topics(region: str = "IN", timeout: float = 2.5) -> Optional[List[Dict[str, Any]]]:
     """Read current trending search phrases from the public Google Trends RSS feed."""
     geo = (region or "IN").strip().upper()
     if not re.fullmatch(r"[A-Z]{2}", geo):
@@ -27,7 +27,7 @@ def fetch_trending_topics(region: str = "IN", timeout: float = 2.5) -> List[Dict
     cached = _CACHE.get(geo)
     now = time.monotonic()
     if cached and now - cached[0] < _CACHE_TTL_SECONDS:
-        return [dict(item) for item in cached[1]]
+        return [dict(item) for item in cached[1]] if cached[1] is not None else None
 
     url = f"https://trends.google.com/trending/rss?geo={geo}"
     request = urllib.request.Request(
@@ -55,7 +55,7 @@ def fetch_trending_topics(region: str = "IN", timeout: float = 2.5) -> List[Dict
     except (OSError, TimeoutError, urllib.error.URLError, ET.ParseError, ValueError) as exc:
         logger.info("[trends] Could not fetch live trends for %s: %s", geo, exc)
         # Do not replace a recent cached response with an empty result after a transient outage.
-        if cached:
+        if cached and cached[1] is not None:
             return [dict(item) for item in cached[1]]
-        _CACHE[geo] = (now, [])
-        return []
+        _CACHE[geo] = (now, None)
+        return None
