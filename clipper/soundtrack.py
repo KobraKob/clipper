@@ -169,6 +169,19 @@ def select_soundtrack_offset(
     return round(best_offset, 3)
 
 
+def _video_has_audio(video_path: pathlib.Path) -> bool:
+    probe = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(video_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    return probe.returncode == 0 and bool(probe.stdout.strip())
+
+
 def mix_soundtrack(
     video_path: pathlib.Path | str,
     soundtrack_path: pathlib.Path | str,
@@ -193,14 +206,22 @@ def mix_soundtrack(
     temp = video.with_name(f"{video.stem}.soundtrack-tmp{video.suffix}")
     temp.unlink(missing_ok=True)
 
-    filter_graph = (
+    has_original_audio = _video_has_audio(video)
+    music_filter = (
         f"[1:a]atrim=start={offset:.3f}:duration={duration:.3f},"
         f"asetpts=PTS-STARTPTS,volume={volume:.3f},"
-        f"afade=t=out:st={fade_start:.3f}:d={fade_duration:.3f}[music];"
-        "[music][0:a]sidechaincompress=threshold=0.035:ratio=8:attack=20:release=320:makeup=1[ducked];"
-        "[0:a][ducked]amix=inputs=2:duration=first:dropout_transition=0,"
-        "alimiter=limit=0.95[outa]"
+        f"afade=t=out:st={fade_start:.3f}:d={fade_duration:.3f}"
     )
+    if has_original_audio:
+        filter_graph = (
+            music_filter + "[music];"
+            "[music][0:a]sidechaincompress=threshold=0.035:ratio=8:attack=20:release=320:makeup=1[ducked];"
+            "[0:a][ducked]amix=inputs=2:duration=first:dropout_transition=0,"
+            "alimiter=limit=0.95[outa]"
+        )
+    else:
+        # Silent source videos still get soundtrack audio. There is no speech signal to duck.
+        filter_graph = music_filter + "[outa]"
 
     try:
         subprocess.run(
