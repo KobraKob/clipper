@@ -189,11 +189,18 @@ def _relevant_hashtags(
     candidates.extend(_top_keywords(text, 50))
     # When a short transcript yields too few distinct phrases, derive honest topical long-tail tags
     # from the same keyword set instead of padding with unrelated trends or generic spam.
-    for keyword in list(keywords) + _top_keywords(text, 30):
-        if len(_tokens(str(keyword))) == 0:
+    concept_terms = list(keywords) + _top_keywords(
+        " ".join([str(clip.get("title", "")), str(clip.get("hook", "")), text]), 30
+    )
+    weak_terms = {"never", "keep", "quietly", "eats", "every", "year", "because", "today", "start"}
+    seen_concepts: set[str] = set()
+    for keyword in concept_terms:
+        concept = " ".join(str(keyword).split()).lower().strip()
+        if len(_tokens(concept)) == 0 or concept in weak_terms or concept in seen_concepts:
             continue
+        seen_concepts.add(concept)
         for suffix in ("Tips", "Explained", "Guide", "Insights", "Basics", "Strategies"):
-            candidates.append(f"{keyword} {suffix}")
+            candidates.append(f"{concept} {suffix}")
 
     return _unique_tags(candidates, reference, limit)
 
