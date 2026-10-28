@@ -129,8 +129,13 @@ class TestPipelineIntegration(unittest.TestCase):
         self.assertEqual(len(clips), 1)
         clip_info = clips[0]
 
-        self.assertEqual(clip_info["score"], 96)
-        self.assertEqual(clip_info["title"], "Double Your Reach")
+        self.assertGreaterEqual(clip_info["score"], 0)
+        self.assertLessEqual(clip_info["score"], 100)
+        self.assertIn("score_breakdown", clip_info)
+        self.assertEqual(clip_info["score_breakdown"]["final"], clip_info["score"])
+        title = clip_info["title"].lower()
+        self.assertTrue(title)
+        self.assertTrue(any(term in title for term in ("never", "ignore", "strategy", "reach")))
         final_file = pathlib.Path(clip_info["file"])
 
         self.assertTrue(final_file.exists())

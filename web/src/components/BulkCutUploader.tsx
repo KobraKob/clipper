@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { createJob, uploadVideo } from "@/lib/api";
+import { createJob, uploadSoundtrack, uploadVideo } from "@/lib/api";
 import type { Provider } from "@/lib/types";
 
 type BulkCutUploaderProps = {
@@ -39,6 +39,10 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
   const [progress, setProgress] = useState({ index: 0, total: 0, percent: 0, label: "" });
   const [selectionError, setSelectionError] = useState("");
   const [result, setResult] = useState<BatchResult | null>(null);
+  const [soundtrackPath, setSoundtrackPath] = useState("");
+  const [soundtrackName, setSoundtrackName] = useState("");
+  const [soundtrackVolume, setSoundtrackVolume] = useState(0.18);
+  const [uploadingSoundtrack, setUploadingSoundtrack] = useState(false);
 
   function handleFilesSelected(event: ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? []);
@@ -57,6 +61,23 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
 
   function removeFile(target: File) {
     setFiles((current) => current.filter((file) => fileKey(file) !== fileKey(target)));
+  }
+
+  async function handleSoundtrackSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setSelectionError("");
+    setUploadingSoundtrack(true);
+    try {
+      const uploaded = await uploadSoundtrack(file);
+      setSoundtrackPath(uploaded.path);
+      setSoundtrackName(file.name);
+    } catch (error) {
+      setSelectionError(error instanceof Error ? error.message : "Failed to upload soundtrack.");
+    } finally {
+      setUploadingSoundtrack(false);
+      event.target.value = "";
+    }
   }
 
   async function handleBulkCut(event: FormEvent<HTMLFormElement>) {
@@ -104,6 +125,8 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
           hookOverlay: true,
           progressBar: false,
           loudnorm: true,
+          soundtrackPath: soundtrackPath || undefined,
+          soundtrackVolume,
         });
         created += 1;
       } catch (error) {
@@ -161,7 +184,7 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
             type="file"
             accept="video/*,.mkv,.avi,.mov,.mp4,.webm"
             multiple
-            disabled={busy}
+            disabled={busy || uploadingSoundtrack}
             onChange={handleFilesSelected}
             className="sr-only"
             aria-label="Choose multiple video files"
@@ -207,15 +230,40 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
           </div>
         ) : null}
 
+        <div className="ux-batch-options" aria-label="Optional soundtrack settings">
+          <label className="ux-batch-option">
+            <span>OPTIONAL SHARED SOUNDTRACK</span>
+            <input
+              type="file"
+              accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,audio/*"
+              disabled={busy || uploadingSoundtrack}
+              onChange={handleSoundtrackSelected}
+            />
+            <small>{uploadingSoundtrack ? "Uploading…" : soundtrackName || "Upload once to use across this batch (max 100 MB)"}</small>
+          </label>
+          {soundtrackPath ? (
+            <label className="ux-batch-option">
+              <span>MUSIC LEVEL</span>
+              <select value={soundtrackVolume} disabled={busy} onChange={(event) => setSoundtrackVolume(Number(event.target.value))}>
+                <option value={0.12}>Subtle · 12%</option>
+                <option value={0.18}>Balanced · 18%</option>
+                <option value={0.25}>Noticeable · 25%</option>
+                <option value={0.32}>Loud · 32%</option>
+              </select>
+              <button type="button" disabled={busy} onClick={() => { setSoundtrackPath(""); setSoundtrackName(""); }} className="ux-batch-remove">Remove soundtrack</button>
+            </label>
+          ) : null}
+        </div>
+
         <div className="ux-batch-options">
           <label className="ux-batch-option">
             <span>CLIP COUNT / VIDEO</span>
             <select
               value={clipCount}
               disabled={busy}
-              onChange={(event) => setClipCount(Math.min(8, Math.max(1, Number(event.target.value) || 5)))}
+              onChange={(event) => setClipCount(Math.min(10, Math.max(1, Number(event.target.value) || 5)))}
             >
-              {[3, 5, 8].map((count) => <option key={count} value={count}>{count} clips</option>)}
+              {[3, 5, 8, 10].map((count) => <option key={count} value={count}>{count} clips</option>)}
             </select>
           </label>
           <label className="ux-batch-option">

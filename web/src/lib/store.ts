@@ -12,6 +12,7 @@ const OUTPUTS_DIR_ENV = process.env.OUTPUTS_DIR;
 const PYTHON = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 const ALLOWED_VIDEO_EXTS = new Set([".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv"]);
+const ALLOWED_SOUNDTRACK_EXTS = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"]);
 
 /** Mutex ensuring all reads and mutations of jobs.json are atomic and strictly serialized. */
 class Mutex {
@@ -56,6 +57,35 @@ async function resolveOutDir(jobId: string): Promise<string> {
   if (OUTPUTS_DIR_ENV) return path.join(OUTPUTS_DIR_ENV, jobId);
   const root = await resolveRootDir();
   return path.join(root, "outputs", jobId);
+}
+
+async function validateUploadedSoundtrack(filePath: string): Promise<string> {
+  const resolved = path.resolve(filePath);
+  if (!ALLOWED_SOUNDTRACK_EXTS.has(path.extname(resolved).toLowerCase())) {
+    throw new Error("Soundtrack must be MP3, WAV, M4A, AAC, OGG or FLAC.");
+  }
+
+  const rootDir = await resolveRootDir();
+  const allowedRoot = path.resolve(rootDir, "workdir", "soundtracks");
+  const lexicalRelative = path.relative(allowedRoot, resolved);
+  if (!lexicalRelative || lexicalRelative.startsWith("..") || path.isAbsolute(lexicalRelative)) {
+    throw new Error("Soundtrack must be uploaded through Clipper.");
+  }
+
+  try {
+    const realRoot = await fs.realpath(allowedRoot);
+    const realFile = await fs.realpath(resolved);
+    const realRelative = path.relative(realRoot, realFile);
+    if (!realRelative || realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+      throw new Error("Soundtrack path escapes the upload directory.");
+    }
+    const stat = await fs.stat(realFile);
+    if (!stat.isFile()) throw new Error("Soundtrack path is not a regular file.");
+    return realFile;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Soundtrack")) throw error;
+    throw new Error("Uploaded soundtrack file could not be found.");
+  }
 }
 
 async function readJobs(): Promise<Job[]> {
@@ -175,6 +205,8 @@ function mapManifestClips(manifest: any): Clip[] {
     hook: c.hook,
     reason: c.reason,
     score: c.score,
+    scoreBreakdown: c.score_breakdown,
+    soundtrack: c.soundtrack,
     start: c.start,
     end: c.end,
     text: c.hook || c.title,
@@ -232,6 +264,10 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     if (job.hookOverlay === false) args.push("--no-hook-overlay");
     if (job.progressBar) args.push("--progress-bar");
     if (job.loudnorm === false) args.push("--no-loudnorm");
+    if (job.soundtrackPath) {
+      args.push("--soundtrack", job.soundtrackPath);
+      args.push("--soundtrack-volume", String(job.soundtrackVolume ?? 0.18));
+    }
 
     const child = spawn(/*turbopackIgnore: true*/ PYTHON, args, {
       cwd: rootDir,
@@ -464,7 +500,10 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     }
   }
 
-  const clipCount = Math.min(8, Math.max(1, Math.round(input.clipCount) || 5));
+  const clipCount = Math.min(10, Math.max(1, Math.round(input.clipCount) || 5));
+  const soundtrackPath = input.soundtrackPath?.trim() ? await validateUploadedSoundtrack(input.soundtrackPath.trim()) : undefined;
+  const requestedSoundtrackVolume = Number(input.soundtrackVolume ?? 0.18);
+  const soundtrackVolume = Number.isFinite(requestedSoundtrackVolume) ? Math.min(0.4, Math.max(0.05, requestedSoundtrackVolume)) : 0.18;
   const now = Date.now();
   const validEncoders = new Set(["auto", "h264_nvenc", "libx264", "h264_qsv"]);
   const videoEncoder = (input.videoEncoder && validEncoders.has(input.videoEncoder))
@@ -486,6 +525,8 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     hookOverlay: input.hookOverlay !== false,
     progressBar: Boolean(input.progressBar),
     loudnorm: input.loudnorm !== false,
+    soundtrackPath,
+    soundtrackVolume,
     createdAt: now,
     startedAt: now,
     status: "running",

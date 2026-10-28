@@ -27,9 +27,14 @@ class MockScoringLLM:
         else:
             return {
                 "score": 94,
-                "hook": "Stop doing this immediately!",
-                "title": "Major Mistake Revealed",
-                "reason": "Clear problem-solution structure with high retention.",
+                "dimension_scores": {
+                    "hook_strength": 9, "standalone_context": 9, "payoff": 9,
+                    "emotional_resonance": 8, "specificity": 8, "clarity": 9,
+                    "pacing": 8, "originality": 8,
+                },
+                "hook": "Sample clip text.",
+                "title": "Sample Clip Text",
+                "reason": "Sample clip text presents a clear useful idea.",
             }
 
 
@@ -47,17 +52,22 @@ class TestScoring(unittest.TestCase):
     def test_stage1_batch_assignment(self):
         scored = stage1(self.cands, self.mock_llm, batch_size=5)
         self.assertEqual(len(scored), 5)
-        self.assertEqual(scored[0]["fast_score"], 92)
-        self.assertEqual(scored[1]["fast_score"], 40)
-        self.assertEqual(scored[2]["fast_score"], 85)
+        self.assertEqual(scored[0]["fast_model_score"], 92)
+        self.assertEqual(scored[1]["fast_model_score"], 40)
+        self.assertEqual(scored[2]["fast_model_score"], 85)
+        self.assertGreaterEqual(scored[0]["fast_score"], 0)
+        self.assertLessEqual(scored[0]["fast_score"], 100)
+        self.assertNotEqual(scored[0]["fast_score"], scored[0]["fast_model_score"])
 
     def test_stage2_detailed_enrichment(self):
         cand = {"start": 0.0, "end": 30.0, "text": "Sample clip text."}
         enriched = stage2(cand, self.mock_llm)
-        self.assertEqual(enriched["score"], 94)
-        self.assertEqual(enriched["hook"], "Stop doing this immediately!")
-        self.assertEqual(enriched["title"], "Major Mistake Revealed")
-        self.assertIn("retention", enriched["reason"])
+        self.assertGreaterEqual(enriched["score"], 0)
+        self.assertLessEqual(enriched["score"], 100)
+        self.assertEqual(enriched["hook"], "Sample clip text.")
+        self.assertEqual(enriched["title"], "Sample Clip Text")
+        self.assertIn("final", enriched["score_breakdown"])
+        self.assertIn("clear useful idea", enriched["reason"])
 
     def test_select_top_deduplication(self):
         items = [
@@ -78,6 +88,29 @@ class TestScoring(unittest.TestCase):
             self.assertIn("score", item)
             self.assertIn("title", item)
             self.assertIn("hook", item)
+    def test_rank_supports_ten_clips_and_caps_larger_requests(self):
+        candidates = []
+        for index in range(12):
+            start = index * 40.0
+            text = f"Sample topic {index} includes specific advice and a useful surprising example."
+            candidates.append({
+                "start": start, "end": start + 25.0, "duration": 25.0,
+                "text": text, "first_text": text, "word_count": len(text.split()),
+            })
+        final = rank(candidates, self.mock_llm, n=99, shortlist_size=20)
+        self.assertEqual(len(final), 10)
+        self.assertTrue(all(0 <= item["score"] <= 100 for item in final))
+
+    def test_stage1_missing_scores_fall_back_to_heuristics(self):
+        class PartialLLM:
+            def complete_json(self, prompt: str, tier: str = "strong") -> Dict[str, Any]:
+                return {"scores": [{"id": 0, "score": 500}]}
+
+        candidates = [dict(item) for item in self.cands[:2]]
+        scored = stage1(candidates, PartialLLM(), batch_size=5)
+        self.assertEqual(scored[0]["fast_model_score"], 100)
+        self.assertIsNone(scored[1]["fast_model_score"])
+        self.assertEqual(scored[1]["fast_score"], scored[1]["heuristic_quality_score"])
 
 
 if __name__ == "__main__":
