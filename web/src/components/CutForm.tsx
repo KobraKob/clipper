@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { createJob, providerNote, uploadVideo } from "@/lib/api";
+import { createJob, providerNote, uploadSoundtrack, uploadVideo } from "@/lib/api";
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 import type { Layout, Provider, VideoEncoder } from "@/lib/types";
 
@@ -24,6 +24,10 @@ export function CutForm() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
+  const [soundtrackPath, setSoundtrackPath] = useState("");
+  const [soundtrackName, setSoundtrackName] = useState("");
+  const [soundtrackVolume, setSoundtrackVolume] = useState(0.18);
+  const [uploadingSoundtrack, setUploadingSoundtrack] = useState(false);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -50,6 +54,8 @@ export function CutForm() {
         hookOverlay,
         progressBar,
         loudnorm,
+        soundtrackPath: soundtrackPath || undefined,
+        soundtrackVolume,
       });
       router.push(`/jobs/${job.id}`);
     } catch (err) {
@@ -76,6 +82,24 @@ export function CutForm() {
       setUploadProgress("");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleSoundtrackSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError("");
+    setUploadingSoundtrack(true);
+    try {
+      const uploaded = await uploadSoundtrack(file);
+      setSoundtrackPath(uploaded.path);
+      setSoundtrackName(file.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload soundtrack.");
+    } finally {
+      setUploadingSoundtrack(false);
+      e.target.value = "";
     }
   }
 
@@ -132,15 +156,51 @@ export function CutForm() {
           </div>
         </div>
 
+        <fieldset className="flex flex-col gap-3 border border-white/12 bg-panel-inset/50 p-4 rounded-lg">
+          <legend className="px-1 font-semibold text-ink">Optional soundtrack</legend>
+          <p className="text-xs leading-relaxed text-muted">
+            Upload music for every cut. Clipper analyses its energy and tempo, chooses a strong section for each clip, and ducks music under speech.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="cursor-pointer border border-white/20 bg-panel-raised px-3.5 py-2 text-sm font-semibold text-ink rounded hover:border-volt hover:text-volt transition">
+              {uploadingSoundtrack ? "Uploading soundtrack…" : soundtrackName ? "Replace soundtrack" : "Choose audio…"}
+              <input
+                type="file"
+                accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,audio/*"
+                disabled={uploadingSoundtrack || busy}
+                className="sr-only"
+                onChange={handleSoundtrackSelected}
+              />
+            </label>
+            <span className="min-w-0 flex-1 text-xs text-muted">{soundtrackName || "MP3, WAV, M4A, AAC, OGG or FLAC · up to 100 MB"}</span>
+            {soundtrackPath ? (
+              <button type="button" disabled={busy} onClick={() => { setSoundtrackPath(""); setSoundtrackName(""); }} className="text-xs underline text-muted hover:text-volt">
+                Remove
+              </button>
+            ) : null}
+          </div>
+          {soundtrackPath ? (
+            <label className="flex flex-col gap-1.5 text-sm font-semibold text-ink">
+              Music level
+              <select value={soundtrackVolume} disabled={busy} onChange={(event) => setSoundtrackVolume(Number(event.target.value))} className="w-full max-w-xs border border-white/20 bg-panel-inset px-3 py-2 text-sm text-ink rounded-lg">
+                <option value={0.12}>Subtle · 12%</option>
+                <option value={0.18}>Balanced · 18%</option>
+                <option value={0.25}>Noticeable · 25%</option>
+                <option value={0.32}>Loud · 32%</option>
+              </select>
+            </label>
+          ) : null}
+        </fieldset>
+
         <div className="grid gap-4 md:grid-cols-2">
           <label className="flex flex-col gap-2">
             <span className="font-semibold text-ink">Target Clips Count</span>
             <input
               type="number"
               min={1}
-              max={8}
+              max={10}
               value={clipCount}
-              onChange={(e) => setClipCount(Math.max(1, Math.min(8, Number(e.target.value))))}
+              onChange={(e) => setClipCount(Math.max(1, Math.min(10, Number(e.target.value))))}
               className="w-full border border-white/20 bg-panel-inset px-3 py-3 text-lg font-bold text-ink rounded-lg focus:border-ice focus:outline-none transition"
             />
           </label>
@@ -372,7 +432,7 @@ export function CutForm() {
 
         <button
           type="submit"
-          disabled={busy || uploading}
+          disabled={busy || uploading || uploadingSoundtrack}
           className="display bg-volt px-4 py-4 text-2xl md:text-3xl text-[#101016] font-black rounded-lg shadow-lg hover:bg-[#e4ff78] hover:-translate-y-0.5 active:translate-y-0 transition cursor-pointer disabled:opacity-60 disabled:cursor-wait w-full"
         >
           {uploading ? "Uploading video…" : busy ? "Starting cut…" : "Cut clips"}
