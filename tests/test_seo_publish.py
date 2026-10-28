@@ -41,6 +41,35 @@ class TestSeo(unittest.TestCase):
         self.assertEqual(m["generated_by"], "heuristic")
         self.assertTrue(m["youtube"]["title"])
         self.assertIn("savings", m["keywords"])
+    def test_metadata_has_structured_relevant_global_and_trend_groups(self):
+        trends = [
+            {"title": "Savings and inflation analysis"},
+            {"title": "Football championship final"},
+        ]
+        meta = generate_metadata(CLIP, TEXT, llm=None, trending_topics=trends, trend_region="IN")
+        groups = meta["hashtag_groups"]
+        self.assertGreaterEqual(len(groups["relevant"]), 10)
+        self.assertEqual(len(groups["global"]), 10)
+        self.assertIn("SavingsAndInflationAnalysis", groups["trending"])
+        self.assertNotIn("FootballChampionshipFinal", groups["trending"])
+        self.assertLessEqual(len(meta["hashtags"]), 40)
+        self.assertEqual(len(meta["hashtags"]), len(set(tag.casefold() for tag in meta["hashtags"])))
+        self.assertLessEqual(meta["instagram"]["caption"].count("#"), 5)
+
+    def test_unrelated_llm_seo_suggestions_are_rejected(self):
+        llm = FakeLLM({
+            "youtube_title": "Football Final: Incredible Goal",
+            "youtube_description": "The football final has an incredible result.",
+            "keywords": ["football", "soccer", "savings", "inflation"],
+            "hashtags": ["FootballFinal", "Soccer", "SavingsTips", "Inflation"],
+            "instagram_caption": "What a football match. Follow for more.",
+        })
+        meta = generate_metadata(CLIP, TEXT, llm=llm)
+        self.assertNotIn("FootballFinal", meta["hashtags"])
+        self.assertNotIn("Soccer", meta["hashtags"])
+        self.assertTrue(any("Savings" in item or "Inflation" in item for item in meta["hashtags"]))
+        self.assertNotIn("Football", meta["youtube"]["title"])
+        self.assertIn("savings", meta["keywords"])
 
 
 class FakeResp:
