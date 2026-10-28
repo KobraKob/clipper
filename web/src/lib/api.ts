@@ -22,6 +22,19 @@ export async function uploadVideo(
   return res.json();
 }
 
+export async function uploadSoundtrack(
+  file: File,
+): Promise<{ path: string; fileName: string; originalName: string; size: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch("/api/upload/soundtrack", {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 export async function createJob(input: CreateJobInput): Promise<JobView> {
   const res = await fetch("/api/jobs", {
     method: "POST",
