@@ -200,8 +200,8 @@ def select_soundtrack_offset(
         else:
             energy_match = 1.0 - min(abs(average - min(1.0, max(0.0, float(target_energy)))), 1.0)
             score = (
-                0.16 * opening + 0.14 * average + 0.10 * peak + 0.05 * dynamics
-                + 0.45 * energy_match + 0.10 * variety
+                0.10 * opening + 0.08 * average + 0.05 * peak + 0.05 * dynamics
+                + 0.62 * energy_match + 0.10 * variety
             )
         if score > best_score:
             best_score = score
