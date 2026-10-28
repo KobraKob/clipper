@@ -410,9 +410,9 @@ body::before { display: none; }
   padding: 35px 20px; background: #080b11; border-bottom: 1px solid var(--line);
 }
 .ux-preview-grid {
-  position: absolute; inset: 0; pointer-events: none; opacity: .45;
-  background-image: linear-gradient(rgba(113,149,255,.09) 1px, transparent 1px), linear-gradient(90deg, rgba(113,149,255,.09) 1px, transparent 1px);
-  background-size: 36px 36px;
+  position: absolute; inset: 0; pointer-events: none;
+  background: #0a0e15;
+  border-block: 1px solid rgba(113,149,255,.08);
 }
 .ux-preview-coordinate { position: absolute; z-index: 2; color: #566780; font: 800 8px/1 var(--font-sans); letter-spacing: .13em; }
 .ux-preview-coordinate-top { top: 17px; left: 18px; }
