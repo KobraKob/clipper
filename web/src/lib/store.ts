@@ -3,6 +3,7 @@ import { openSync, closeSync, promises as fs } from "fs";
 import path from "path";
 import { hydrateJob } from "./pipeline";
 import type { Clip, CreateJobInput, Job, JobView, Platform, ProgressInfo } from "./types";
+import { normalizeTitleVariants } from "./titleVariants";
 import { readLogTail } from "./logTail";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), ".data");
@@ -199,32 +200,40 @@ function isAllowedLocalVideoPath(filePath: string): boolean {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapManifestClips(manifest: any): Clip[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (manifest.clips || []).map((c: any) => ({
-    id: `clip-${c.rank}`,
-    title: c.seo?.youtube?.title || c.title,
-    hook: c.hook,
-    reason: c.reason,
-    score: c.score,
-    scoreBreakdown: c.score_breakdown,
-    soundtrack: c.soundtrack,
-    start: c.start,
-    end: c.end,
-    text: c.hook || c.title,
-    kept: true,
-    file: c.file,
-    coverImage: c.cover_image || c.cover_path || undefined,
-    captionStyle: c.caption_style ?? null,
-    encoder: c.encoder ?? undefined,
-    hookOverlay: c.hook_overlay,
-    progressBar: c.progress_bar,
-    loudnorm: c.loudnorm,
-    titleVariants: c.title_variants || c.seo?.title_variants || [],
-    selectedTitleVariant: c.selected_title_variant || c.seo?.selected_title_variant || "direct",
-    seo: c.seo,
-    publish: c.publish || {},
-    schedule: c.schedule,
-    analytics: c.analytics,
-  }));
+  return (manifest.clips || []).map((c: any) => {
+    const titleVariants = normalizeTitleVariants(c.title_variants || c.seo?.title_variants || []);
+    const requestedSelection = c.selected_title_variant || c.seo?.selected_title_variant || "direct";
+    const selectedTitleVariant = titleVariants.some((variant) => variant.id === requestedSelection)
+      ? requestedSelection
+      : titleVariants[0]?.id || requestedSelection;
+
+    return {
+      id: `clip-${c.rank}`,
+      title: c.seo?.youtube?.title || c.title,
+      hook: c.hook,
+      reason: c.reason,
+      score: c.score,
+      scoreBreakdown: c.score_breakdown,
+      soundtrack: c.soundtrack,
+      start: c.start,
+      end: c.end,
+      text: c.hook || c.title,
+      kept: true,
+      file: c.file,
+      coverImage: c.cover_image || c.cover_path || undefined,
+      captionStyle: c.caption_style ?? null,
+      encoder: c.encoder ?? undefined,
+      hookOverlay: c.hook_overlay,
+      progressBar: c.progress_bar,
+      loudnorm: c.loudnorm,
+      titleVariants,
+      selectedTitleVariant,
+      seo: c.seo,
+      publish: c.publish || {},
+      schedule: c.schedule,
+      analytics: c.analytics,
+    };
+  });
 }
 
 async function spawnClipperProcess(job: Job): Promise<void> {
@@ -951,18 +960,24 @@ export async function selectClipTitleVariant(
 
     current[i].clips = current[i].clips.map((c) => {
       if (c.id !== clipId) return c;
-      const targetVar = c.titleVariants?.find((v) => v.id === variantId);
+      const variants = normalizeTitleVariants(c.titleVariants?.length ? c.titleVariants : c.seo?.title_variants || []);
+      const targetVar = variants.find((v) => v.id === variantId);
       if (!targetVar) return c;
       return {
         ...c,
         title: targetVar.title,
+        titleVariants: variants,
         selectedTitleVariant: variantId,
         seo: c.seo
           ? {
               ...c.seo,
+              title_variants: variants,
+              selected_title_variant: variantId,
               youtube: {
                 ...c.seo.youtube,
                 title: targetVar.title,
+                title_variants: variants,
+                selected_variant: variantId,
               },
             }
           : c.seo,
