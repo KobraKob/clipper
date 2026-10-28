@@ -289,7 +289,7 @@ export function LibraryGrid() {
                 <li key={job.id} className="min-w-0">
                   <article className={`group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-white/12 bg-panel transition hover:border-ice/40 hover:bg-panel-raised/70 ${view === "list" ? "md:flex-row" : ""}`}>
                     <div className={`relative shrink-0 overflow-hidden border-b border-white/10 bg-panel-inset ${view === "list" ? "aspect-[16/5] md:aspect-auto md:w-48 md:border-b-0 md:border-r" : "aspect-[16/7]"}`}>
-                      <div className="absolute inset-0 flex flex-col justify-between p-4">
+                      <div className="absolute inset-0 z-10 flex flex-col justify-between p-4">
                         <div className="flex items-start justify-between gap-2">
                           <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusClasses(job.status)}`}>
                             {statusLabel(job.status, job.progress)}
@@ -312,7 +312,7 @@ export function LibraryGrid() {
                             alt=""
                             aria-hidden="true"
                             loading="lazy"
-                            className="absolute inset-0 h-full w-full object-cover opacity-35 transition duration-300 group-hover:scale-[1.02] group-hover:opacity-50"
+                            className="absolute inset-0 z-0 h-full w-full object-cover opacity-35 transition duration-300 group-hover:scale-[1.02] group-hover:opacity-50"
                             onError={(event) => { event.currentTarget.style.display = "none"; }}
                           />
                         </>
