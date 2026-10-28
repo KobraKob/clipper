@@ -12,8 +12,8 @@
   --volt: #c9ff3f;
   --punch: #3563ff;
   --ice: #7295ff;
-  --line: rgba(255, 255, 255, 0.12);
-  --line-strong: rgba(255, 255, 255, 0.24);
+  --line: rgba(226, 234, 255, 0.12);
+  --line-strong: rgba(226, 234, 255, 0.24);
   --font-sans: var(--font-figtree), "Segoe UI", sans-serif;
   --font-display: var(--font-barlow), Impact, sans-serif;
 }
@@ -301,24 +301,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 
 
 /* Midnight / cobalt / acid-lime UX refresh */
-:root {
-  color-scheme: dark;
-  --paper: #07090e;
-  --ink: #f3f6fc;
-  --muted: #9ba7ba;
-  --panel: #10141d;
-  --panel-raised: #171d29;
-  --panel-inset: #090c12;
-  --court: #171d29;
-  --volt: #c9ff3f;
-  --punch: #3563ff;
-  --ice: #7295ff;
-  --line: rgba(226, 234, 255, 0.12);
-  --line-strong: rgba(226, 234, 255, 0.24);
-  --font-sans: var(--font-figtree), "Segoe UI", sans-serif;
-  --font-display: var(--font-barlow), Impact, sans-serif;
-}
-
 ::selection { color: #07090e; background: var(--volt); }
 body::before { display: none; }
 .site-frame-header {
