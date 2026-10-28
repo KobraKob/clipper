@@ -24,6 +24,8 @@ IG_HASHTAGS_MAX = 5
 GLOBAL_HASHTAGS = [
     "Shorts", "YouTubeShorts", "Reels", "ShortFormVideo", "ViralVideo",
     "TrendingNow", "MustWatch", "DailyContent", "CreatorCommunity", "Discover",
+    "ForYou", "FYP", "ExplorePage", "WatchNow", "VideoOfTheDay",
+    "ContentCreator", "NewVideo", "ShareThis", "Entertainment", "LearnSomething",
 ]
 
 SEO_PROMPT = """You are a meticulous short-form video SEO editor. Generate metadata for THIS exact clip.
@@ -185,6 +187,13 @@ def _relevant_hashtags(
     candidates.extend(str(item) for item in keywords)
     candidates.extend(_topic_phrases(" ".join([str(clip.get("title", "")), str(clip.get("hook", "")), text])))
     candidates.extend(_top_keywords(text, 50))
+    # When a short transcript yields too few distinct phrases, derive honest topical long-tail tags
+    # from the same keyword set instead of padding with unrelated trends or generic spam.
+    for keyword in list(keywords) + _top_keywords(text, 30):
+        if len(_tokens(str(keyword))) == 0:
+            continue
+        for suffix in ("Tips", "Explained", "Guide", "Insights", "Basics", "Strategies"):
+            candidates.append(f"{keyword} {suffix}")
 
     return _unique_tags(candidates, reference, limit)
 
@@ -198,10 +207,14 @@ def _trending_hashtags(
     """Return only current feed terms that overlap the clip; never pad with unrelated trends."""
     excluded_keys = {item.casefold() for item in excluded}
     candidates: List[str] = []
+    reference_tokens = _tokens(reference)
     for item in trending_topics or []:
         title = str(item.get("title", "")) if isinstance(item, dict) else str(item)
         tag = _slug_tag(title)
-        if tag and _is_relevant(title, reference) and tag.casefold() not in excluded_keys:
+        overlap = _tokens(title).intersection(reference_tokens)
+        # A shared long-tail term can be meaningful on its own; common one-word overlaps are weak.
+        strong_overlap = len(overlap) >= 2 or any(len(word) >= 9 for word in overlap)
+        if tag and strong_overlap and tag.casefold() not in excluded_keys:
             candidates.append(tag)
     return _unique_tags(candidates, reference, limit)
 
