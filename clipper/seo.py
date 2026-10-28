@@ -231,6 +231,23 @@ def _trending_hashtags(
     return _unique_tags(candidates, reference, limit)
 
 
+def _ensure_unique_variant_ids(variants: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Ensure every generated title variant has a stable, unique selection ID."""
+    used: set[str] = set()
+    result: List[Dict[str, str]] = []
+    for index, variant in enumerate(variants, start=1):
+        candidate = str(variant.get("id") or "").strip() or f"variant_{index}"
+        if candidate in used:
+            candidate = f"variant_{index}"
+            suffix = 2
+            while candidate in used:
+                candidate = f"variant_{index}_{suffix}"
+                suffix += 1
+        used.add(candidate)
+        result.append({**variant, "id": candidate})
+    return result
+
+
 def _fallback_title(clip: Dict[str, Any], text: str, keywords: Sequence[str]) -> str:
     title = str(clip.get("title") or "").strip()
     hook = str(clip.get("hook") or "").strip().rstrip(".! ")
@@ -350,7 +367,7 @@ def generate_metadata(
         variants = fallback["title_variants"]
     if not any(item["title"].casefold() == title.casefold() for item in variants):
         variants.insert(0, {"id": "direct", "title": title, "angle": "Direct Impact"})
-    variants = variants[:3]
+    variants = _ensure_unique_variant_ids(variants[:3])
 
     description = str(raw.get("youtube_description") or "")
     if not description or not _is_content_specific(description, reference):
