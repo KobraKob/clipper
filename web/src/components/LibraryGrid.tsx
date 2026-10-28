@@ -21,8 +21,25 @@ export function LibraryGrid() {
   }, []);
 
   useEffect(() => {
-    void refreshJobs();
-  }, [refreshJobs]);
+    let cancelled = false;
+
+    // Keep effect state updates inside the async request callbacks. React's
+    // effect lint rule flags calling a state-setting helper synchronously here.
+    fetchJobs()
+      .then((nextJobs) => {
+        if (cancelled) return;
+        setJobs(nextJobs);
+        setError("");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Could not load the library.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleDelete(e: React.MouseEvent, jobId: string) {
     e.preventDefault();
