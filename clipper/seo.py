@@ -1,110 +1,252 @@
-"""
-Title / description / hashtag generation for each exported clip (YouTube Shorts + Instagram Reels).
+"""Cut-specific SEO metadata for YouTube Shorts and Instagram Reels.
 
-Uses the configured LLM (Groq or local) with a strict JSON contract. If the LLM fails or returns junk,
-a deterministic heuristic fallback still produces usable metadata, so publishing never blocks on SEO.
+The generator uses the transcript as its evidence source, validates LLM suggestions against
+that source, adds a deterministic keyword/phrase fallback, and optionally uses current Google
+Trends topics only when they overlap the clip. Trend terms are never fabricated.
 """
-
 from __future__ import annotations
 
 import logging
 import re
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
 YT_TITLE_MAX = 100
 YT_DESC_MAX = 5000
-YT_TAGS_CHARS_MAX = 450  # API limit is 500 chars total across tags; keep headroom
+YT_TAGS_CHARS_MAX = 450
 IG_CAPTION_MAX = 2200
-IG_HASHTAGS_MAX = 5  # Instagram now caps hashtags per post; a few relevant ones outperform a wall of tags
+IG_HASHTAGS_MAX = 5
 
-SEO_PROMPT = """You write metadata for short-form vertical videos (YouTube Shorts, Instagram Reels).
-Given the clip transcript, produce metadata optimised for search and for click-through.
+# These are broad distribution / format tags, deliberately separate from topical tags.
+GLOBAL_HASHTAGS = [
+    "YouTubeShorts", "Reels", "ShortFormVideo", "ViralVideo", "TrendingNow",
+    "MustWatch", "DailyContent", "CreatorCommunity", "Discover", "ShareThis",
+]
+
+SEO_PROMPT = """You are a meticulous short-form video SEO editor. Generate metadata for THIS exact clip.
+Treat the transcript as the source of truth. Do not introduce a person, claim, topic, statistic,
+event, product, or promise that is not supported by the clip. Ignore generic channel-level context.
 
 Rules:
-- youtube_title: max 70 characters, curiosity-driven, front-load the main keyword, no clickbait lies,
-  no hashtags, no ALL CAPS shouting, no emoji spam (at most one emoji).
-- title_variants: array of 3 distinct title options for A/B testing:
-  [
-    {{"id": "curiosity", "title": "...", "angle": "Curiosity Gap"}},
-    {{"id": "direct", "title": "...", "angle": "Direct Impact"}},
-    {{"id": "question", "title": "...", "angle": "Bold Question"}}
-  ]
-- youtube_description: 2-3 short sentences. Line 1 must restate the hook with the main keyword.
-  Then one line inviting a comment/follow. Do NOT include hashtags here.
-- keywords: 8-12 search keywords/phrases people would actually type (lowercase, no #).
-- hashtags: 6-10 hashtags WITHOUT the # symbol: 2-3 broad (e.g. shorts, fyp), 3-5 topic-specific, 1-2 niche.
-- instagram_caption: a scroll-stopping first line (the hook), then 1-2 short lines, then a call to action
-  (e.g. "Follow for more"). No hashtags in this text.
+- youtube_title: 35–70 characters when practical, front-load the most important phrase people
+  would search for, make the payoff clear, and create curiosity without exaggerating. No hashtags.
+- title_variants: create 3 genuinely distinct, transcript-grounded titles (direct, curiosity, question).
+  Each option must describe this clip, not merely sound viral.
+- youtube_description: 2–3 useful, specific sentences. Naturally repeat the primary search phrase.
+  State what viewers will learn/see, invite a relevant comment, and do not invent credentials or results.
+- keywords: 8–15 plausible search phrases based on concepts actually present in this transcript.
+- hashtags: provide up to 30 topical hashtag candidates derived from names, concepts, entities,
+  subtopics, and phrases that appear in or are directly implied by the clip. No generic filler.
+- instagram_caption: use the hook and the exact topic. Do not write hashtags into the caption.
+- Do not claim a keyword or hashtag is trending. Live trend candidates are handled and validated separately.
 - language: {language}
 
 Return ONLY valid JSON:
-{{"youtube_title": "...", "title_variants": [{{"id": "curiosity", "title": "...", "angle": "Curiosity Gap"}}, {{"id": "direct", "title": "...", "angle": "Direct Impact"}}, {{"id": "question", "title": "...", "angle": "Bold Question"}}], "youtube_description": "...", "keywords": ["..."], "hashtags": ["..."], "instagram_caption": "..."}}
+{{"youtube_title":"...","title_variants":[{{"id":"direct","title":"...","angle":"Direct Impact"}},{{"id":"curiosity","title":"...","angle":"Curiosity Gap"}},{{"id":"question","title":"...","angle":"Specific Question"}}],"youtube_description":"...","keywords":["..."],"hashtags":["..."],"instagram_caption":"..."}}
 
-Clip title (internal): {title}
+Clip title: {title}
 Clip hook: {hook}
 Transcript:
 \"\"\"{text}\"\"\"
 """
 
 _STOP = set(
-    "a an the and or but if so to of in on at for with from by as is are was were be been being it its this that "
-    "these those i you he she we they me him her us them my your his our their not no yes do does did done have has "
-    "had will would can could should just like really very about into than then there here what when where who whom "
-    "why how all any some more most other out up down over under again also get got going gonna thing things know "
-    "think say said says yeah okay right well one two".split()
+    """a an the and or but if so to of in on at for with from by as is are was were be been being
+    it its this that these those i you he she we they me him her us them my your his our their
+    not no yes do does did done have has had will would can could should just like really very
+    about into than then there here what when where who whom why how all any some more most other
+    out up down over under again also get got going gonna thing things know think say said says
+    yeah okay right well one two three four much many make made use using used get gets got
+    video videos clip clips shorts short reel reels watch follow comment subscribe today now
+    best top amazing crazy truth revealed reveal ultimate full explained explain""".split()
 )
 
 
-def _slug_tag(text: str) -> str:
-    return re.sub(r"[^0-9a-zA-Z]", "", text.title().replace(" ", ""))
-
-
-def _top_keywords(text: str, n: int = 10) -> List[str]:
-    words = re.findall(r"[A-Za-z][A-Za-z']{3,}", text.lower())
-    counts = Counter(w for w in words if w not in _STOP)
-    return [w for w, _ in counts.most_common(n)]
-
-
-def _clean_hashtags(raw: Any, extra: Optional[List[str]] = None, limit: int = 12) -> List[str]:
-    items: List[str] = []
-    for src in (raw if isinstance(raw, list) else []), (extra or []):
-        for t in src:
-            tag = re.sub(r"[^0-9A-Za-z_]", "", str(t).replace("#", "").strip().replace(" ", ""))
-            if tag and tag.lower() not in {x.lower() for x in items} and not tag.isdigit():
-                items.append(tag)
-    return items[:limit]
-
-
-def _truncate(text: str, limit: int) -> str:
-    text = " ".join(str(text).split())
+def _truncate(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").split())
     if len(text) <= limit:
         return text
-    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:-– ")
-    return cut + "…"
+    prefix = text[: max(1, limit - 1)].rsplit(" ", 1)[0].rstrip(",;:-– ")
+    return (prefix or text[: limit - 1]) + "…"
+
+
+def _tokens(value: str) -> List[str]:
+    # Split camel case before tokenization so "PersonalFinanceTips" is searchable.
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", value or "")
+    return [
+        word.lower()
+        for word in re.findall(r"[A-Za-z][A-Za-z']{2,}", text)
+        if word.lower() not in _STOP
+    ]
+
+
+def _expanded_tokens(value: str) -> set[str]:
+    result: set[str] = set()
+    for word in _tokens(value):
+        result.add(word)
+        if len(word) > 4 and word.endswith("ies"):
+            result.add(word[:-3] + "y")
+        if len(word) > 5 and word.endswith(("ing", "ers")):
+            result.add(word[:-3])
+        if len(word) > 4 and word.endswith("ed"):
+            result.add(word[:-2])
+        if len(word) > 4 and word.endswith("s") and not word.endswith("ss"):
+            result.add(word[:-1])
+    return result
+
+
+def _is_relevant(candidate: str, reference: str) -> bool:
+    candidate_tokens = _expanded_tokens(candidate)
+    reference_tokens = _expanded_tokens(reference)
+    return bool(candidate_tokens and candidate_tokens.intersection(reference_tokens))
+
+
+def _slug_tag(value: str) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", value or ""))
+    return "".join(word[:1].upper() + word[1:] for word in words)
+
+
+def _top_keywords(text: str, n: int = 20) -> List[str]:
+    words = _tokens(text)
+    counts = Counter(words)
+    # Preserve first occurrence as a stable tie-break instead of arbitrary set order.
+    first = {word: words.index(word) for word in counts}
+    return sorted(counts, key=lambda word: (-counts[word], first[word]))[:n]
+
+
+def _topic_phrases(text: str, n: int = 100) -> List[str]:
+    """Create ranked, transcript-derived unigrams, bigrams, and trigrams."""
+    result: List[str] = []
+    for source in re.split(r"[.!?;\n]+", text or ""):
+        raw_words = re.findall(r"[A-Za-z][A-Za-z']{2,}", source)
+        for size in (3, 2):
+            for start in range(0, max(0, len(raw_words) - size + 1)):
+                phrase_words = raw_words[start : start + size]
+                meaningful = [word for word in phrase_words if word.lower() not in _STOP]
+                if len(meaningful) >= 2:
+                    result.append(" ".join(meaningful))
+    result.extend(_top_keywords(text, n=50))
+    seen: set[str] = set()
+    unique: List[str] = []
+    for phrase in result:
+        key = re.sub(r"[^a-z0-9]", "", phrase.lower())
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(phrase)
+        if len(unique) >= n:
+            break
+    return unique
+
+
+def _clean_candidate_tags(raw: Any) -> List[str]:
+    if not isinstance(raw, list):
+        return []
+    tags: List[str] = []
+    seen: set[str] = set()
+    for value in raw:
+        tag = _slug_tag(str(value).replace("#", "").strip())
+        key = tag.casefold()
+        if tag and not tag.isdigit() and key not in seen:
+            seen.add(key)
+            tags.append(tag)
+    return tags
+
+
+def _unique_tags(values: Iterable[str], reference: str, limit: int) -> List[str]:
+    result: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        tag = _slug_tag(value)
+        key = tag.casefold()
+        if not tag or tag.isdigit() or key in seen or not _is_relevant(tag, reference):
+            continue
+        seen.add(key)
+        result.append(tag)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _relevant_hashtags(
+    raw_tags: Any,
+    keywords: Sequence[str],
+    clip: Dict[str, Any],
+    text: str,
+    limit: int = 20,
+) -> List[str]:
+    reference = " ".join(
+        [str(clip.get("title", "")), str(clip.get("hook", "")), text, " ".join(keywords)]
+    )
+    candidates: List[str] = []
+    candidates.extend(_clean_candidate_tags(raw_tags))
+    candidates.extend(str(item) for item in keywords)
+    candidates.extend(_topic_phrases(" ".join([str(clip.get("title", "")), str(clip.get("hook", "")), text])))
+    candidates.extend(_top_keywords(text, 50))
+
+    return _unique_tags(candidates, reference, limit)
+
+
+def _trending_hashtags(
+    trending_topics: Optional[Sequence[Any]],
+    reference: str,
+    excluded: Iterable[str],
+    limit: int = 10,
+) -> List[str]:
+    """Return only current feed terms that overlap the clip; never pad with unrelated trends."""
+    excluded_keys = {item.casefold() for item in excluded}
+    candidates: List[str] = []
+    for item in trending_topics or []:
+        title = str(item.get("title", "")) if isinstance(item, dict) else str(item)
+        tag = _slug_tag(title)
+        if tag and _is_relevant(title, reference) and tag.casefold() not in excluded_keys:
+            candidates.append(tag)
+    return _unique_tags(candidates, reference, limit)
+
+
+def _fallback_title(clip: Dict[str, Any], text: str, keywords: Sequence[str]) -> str:
+    title = str(clip.get("title") or "").strip()
+    hook = str(clip.get("hook") or "").strip().rstrip(".! ")
+    reference = f"{title} {hook} {text}"
+    if title and _is_relevant(title, f"{hook} {text}"):
+        return _truncate(title, 70)
+    if hook and _is_relevant(hook, text):
+        return _truncate(hook, 70)
+    main = next(iter(keywords), None)
+    if main:
+        return _truncate(f"{main.title()}: the key point", 70)
+    meaningful = _top_keywords(text, 3)
+    if meaningful:
+        return _truncate(" ".join(word.title() for word in meaningful[:3]), 70)
+    return "Key Takeaway"
 
 
 def fallback_metadata(clip: Dict[str, Any], text: str) -> Dict[str, Any]:
-    title = clip.get("title") or "Must-watch moment"
-    hook = clip.get("hook") or title
-    hook_clean = hook.strip().rstrip(".! ")
-    kws = _top_keywords(text)
-
+    """Deterministic, clip-specific metadata used when the LLM is unavailable."""
+    keywords = _top_keywords(text, 15)
+    main_title = _fallback_title(clip, text, keywords)
+    hook = str(clip.get("hook") or main_title).strip()
     variants = [
-        {"id": "direct", "title": _truncate(hook_clean, 70), "angle": "Direct Impact"},
-        {"id": "curiosity", "title": _truncate(f"The Truth About {hook_clean}", 70), "angle": "Curiosity Gap"},
-        {"id": "question", "title": _truncate(f"Why Nobody Talks About {hook_clean}", 70) if not hook_clean.endswith("?") else _truncate(hook_clean, 70), "angle": "Bold Question"},
+        {"id": "direct", "title": _truncate(main_title, 70), "angle": "Direct Impact"},
+        {"id": "curiosity", "title": _truncate(f"What {main_title.rstrip('?!.')} Means", 70), "angle": "Curiosity Gap"},
+        {"id": "question", "title": _truncate(f"Why {main_title.rstrip('?!.')} Matters", 70), "angle": "Specific Question"},
     ]
+    reference = " ".join([str(clip.get("title", "")), hook, text])
+    relevant = _relevant_hashtags([], keywords, clip, text, limit=20)
     return {
-        "youtube_title": _truncate(title, 70),
+        "youtube_title": main_title,
         "title_variants": variants,
         "selected_title_variant": "direct",
-        "youtube_description": f"{_truncate(hook, 200)}\n\nWhat do you think? Tell me in the comments and follow for more.",
-        "keywords": kws,
-        "hashtags": ["shorts", "fyp", "viral"] + [_slug_tag(k) for k in kws[:4]],
-        "instagram_caption": f"{_truncate(hook, 150)}\n\nFollow for more.",
+        "youtube_description": (
+            f"{_truncate(hook, 220)}\n\n"
+            f"This clip covers {', '.join(keywords[:3]) or 'the key idea'} in context. "
+            "Share your take in the comments."
+        ),
+        "keywords": keywords,
+        "hashtags": relevant,
+        "instagram_caption": f"{_truncate(hook, 180)}\n\nWhat is your take?",
     }
 
 
@@ -115,80 +257,161 @@ def generate_metadata(
     language: str = "English",
     source_url: Optional[str] = None,
     credit_source: bool = True,
+    trending_topics: Optional[Sequence[Any]] = None,
+    trend_region: str = "IN",
 ) -> Dict[str, Any]:
-    """Return platform-ready metadata for one clip with Title A/B variants. Never raises."""
-    text = " ".join(transcript_text.split())[:3500]
+    """Create SEO metadata, validating generated language against the clip transcript."""
+    text = " ".join(str(transcript_text or "").split())[:6000]
+    reference = " ".join([str(clip.get("title", "")), str(clip.get("hook", "")), text])
     raw: Dict[str, Any] = {}
     if llm is not None and text:
         prompt = SEO_PROMPT.format(
-            language=language, title=clip.get("title", ""), hook=clip.get("hook", ""), text=text
+            language=language,
+            title=str(clip.get("title", "")),
+            hook=str(clip.get("hook", "")),
+            text=text,
         )
         try:
             raw = llm.complete_json(prompt, tier="strong") or {}
-        except Exception as exc:  # network, quota, bad JSON ...
-            logger.warning("[seo] LLM metadata failed (%s); using heuristic fallback.", exc)
+            if not isinstance(raw, dict):
+                raw = {}
+        except Exception as exc:
+            logger.warning("[seo] LLM metadata failed (%s); using deterministic fallback.", exc)
             raw = {}
-    fb = fallback_metadata(clip, text)
 
-    def pick(key: str) -> Any:
-        v = raw.get(key)
-        return v if v else fb[key]
+    fallback = fallback_metadata(clip, text)
 
-    title = _truncate(pick("youtube_title"), YT_TITLE_MAX)
-    raw_variants = raw.get("title_variants")
-    if isinstance(raw_variants, list) and len(raw_variants) >= 2:
-        title_variants = [
-            {
-                "id": str(v.get("id", f"var_{i}")),
-                "title": _truncate(str(v.get("title", "")), YT_TITLE_MAX),
-                "angle": str(v.get("angle", "Variant")),
-            }
-            for i, v in enumerate(raw_variants)
-            if v.get("title")
-        ]
+    def candidate_list(key: str) -> List[str]:
+        value = raw.get(key)
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    keywords = _unique_tags(
+        candidate_list("keywords") + fallback["keywords"],
+        reference,
+        15,
+    )
+    if not keywords:
+        keywords = _top_keywords(text, 12)
+
+    candidate_title = str(raw.get("youtube_title") or "")
+    if candidate_title and _is_relevant(candidate_title, reference):
+        title = _truncate(candidate_title, 70)
     else:
-        title_variants = fb["title_variants"]
+        title = _truncate(fallback["youtube_title"], 70)
 
-    kws = [str(k).strip().lower().lstrip("#") for k in (pick("keywords") or []) if str(k).strip()]
-    tags_all = _clean_hashtags(raw.get("hashtags"), fb["hashtags"])
-    # Make sure the Shorts discovery tag is present exactly once.
-    tags_all = ["Shorts"] + [t for t in tags_all if t.lower() != "shorts"]
-    tags_all = tags_all[:12]
+    raw_variants = raw.get("title_variants")
+    variants: List[Dict[str, str]] = []
+    if isinstance(raw_variants, list):
+        for index, value in enumerate(raw_variants):
+            if not isinstance(value, dict):
+                continue
+            variant_title = str(value.get("title") or "").strip()
+            if not variant_title or not _is_relevant(variant_title, reference):
+                continue
+            variants.append({
+                "id": str(value.get("id") or f"variant_{index}"),
+                "title": _truncate(variant_title, 70),
+                "angle": str(value.get("angle") or "Specific angle")[:60],
+            })
+            if len(variants) == 3:
+                break
+    if len(variants) < 2:
+        variants = fallback["title_variants"]
+    if not any(item["title"].casefold() == title.casefold() for item in variants):
+        variants.insert(0, {"id": "direct", "title": title, "angle": "Direct Impact"})
+    variants = variants[:3]
 
-    desc = str(pick("youtube_description")).strip()
+    description = str(raw.get("youtube_description") or "")
+    if not description or not _is_relevant(description, reference):
+        description = str(fallback["youtube_description"])
+    # Avoid repetitive, keyword-stuffed descriptions while preserving the core topic.
+    description = description.strip()
     if credit_source and source_url and source_url.startswith("http"):
-        desc += f"\n\nFull video: {source_url}"
-    desc += "\n\n" + " ".join("#" + t for t in tags_all[:5])
-    desc = desc[:YT_DESC_MAX]
+        description += f"\n\nFull video: {source_url}"
 
-    # YouTube `tags` field: total length budget.
-    yt_tags: List[str] = []
-    used = 0
-    for k in kws + [t.lower() for t in tags_all]:
-        if k in yt_tags:
-            continue
-        if used + len(k) + 1 > YT_TAGS_CHARS_MAX:
+    relevant_tags = _relevant_hashtags(
+        candidate_list("hashtags"),
+        keywords,
+        clip,
+        text,
+        limit=20,
+    )
+    global_tags: List[str] = []
+    seen = {tag.casefold() for tag in relevant_tags}
+    for tag in GLOBAL_HASHTAGS:
+        if tag.casefold() not in seen:
+            global_tags.append(tag)
+            seen.add(tag.casefold())
+        if len(global_tags) >= 10:
             break
-        yt_tags.append(k)
-        used += len(k) + 1
+    trend_tags = _trending_hashtags(
+        trending_topics,
+        reference,
+        seen,
+        limit=10,
+    )
+    hashtags = relevant_tags + global_tags + trend_tags
 
-    ig_tags = [t for t in tags_all if t.lower() != "shorts"][:IG_HASHTAGS_MAX]
-    ig_caption = _truncate(str(pick("instagram_caption")), IG_CAPTION_MAX - 120)
-    ig_caption += "\n\n" + " ".join("#" + t for t in ig_tags)
+    # Use a clear, truthful note in metadata when live trends are missing or irrelevant.
+    trend_status = "matched" if len(trend_tags) >= 10 else (
+        "partial" if trend_tags else "no-relevant-current-trends"
+    )
+    trend_checked_at = datetime.now(timezone.utc).isoformat() if trending_topics is not None else None
+
+    # Keep the platform-specific bank. YouTube ignores hashtags after 60 and warns against
+    # over-tagging; we cap at 40 and use only 5 for Instagram's current post/Reel limit.
+    hashtag_line = " ".join("#" + tag for tag in hashtags[:40])
+    description += "\n\n" + hashtag_line
+    description = description[:YT_DESC_MAX]
+
+    youtube_tags: List[str] = []
+    used_chars = 0
+    for value in list(keywords) + [tag.lower() for tag in hashtags]:
+        clean = " ".join(value.lower().split()).strip()
+        if not clean or clean in youtube_tags:
+            continue
+        projected = used_chars + len(clean) + (1 if youtube_tags else 0)
+        if projected > YT_TAGS_CHARS_MAX:
+            continue
+        youtube_tags.append(clean)
+        used_chars = projected
+
+    # Instagram's five-tag limit means it gets its strongest topical tags, not the whole bank.
+    instagram_tags: List[str] = []
+    for tag in relevant_tags + [tag for tag in global_tags if tag.casefold() == "reels"]:
+        if tag.casefold() not in {value.casefold() for value in instagram_tags}:
+            instagram_tags.append(tag)
+        if len(instagram_tags) >= IG_HASHTAGS_MAX:
+            break
+    instagram_caption = str(raw.get("instagram_caption") or "")
+    if not instagram_caption or not _is_relevant(instagram_caption, reference):
+        instagram_caption = str(fallback["instagram_caption"])
+    instagram_caption = _truncate(instagram_caption, IG_CAPTION_MAX - 120)
+    instagram_caption += "\n\n" + " ".join("#" + tag for tag in instagram_tags)
 
     return {
         "youtube": {
             "title": title,
-            "title_variants": title_variants,
-            "selected_variant": title_variants[0]["id"] if title_variants else "direct",
-            "description": desc,
-            "tags": yt_tags,
+            "title_variants": variants,
+            "selected_variant": variants[0]["id"] if variants else "direct",
+            "description": description,
+            "tags": youtube_tags,
         },
-        "instagram": {"caption": ig_caption[:IG_CAPTION_MAX]},
-        "title_variants": title_variants,
-        "selected_title_variant": title_variants[0]["id"] if title_variants else "direct",
-        "hashtags": tags_all,
-        "keywords": kws,
+        "instagram": {"caption": instagram_caption[:IG_CAPTION_MAX]},
+        "title_variants": variants,
+        "selected_title_variant": variants[0]["id"] if variants else "direct",
+        "hashtags": hashtags,
+        "hashtag_groups": {
+            "relevant": relevant_tags,
+            "global": global_tags,
+            "trending": trend_tags,
+        },
+        "trend_source": "Google Trends RSS" if trending_topics is not None else None,
+        "trend_region": trend_region.upper(),
+        "trend_checked_at": trend_checked_at,
+        "trend_status": trend_status,
+        "keywords": keywords,
         "generated_by": "llm" if raw else "heuristic",
     }
-
