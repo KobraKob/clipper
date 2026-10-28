@@ -93,7 +93,9 @@ This follow-up audit focuses on the current main branch after the frontend and b
 - **Prevent stale-store overwrite during recovery:** the metadata self-healing write now merges recovered clips into the latest store snapshot under the mutex, rather than writing a potentially stale snapshot captured before filesystem reads.
 - **Remove unused CSS:** removed legacy page-specific styles from the superseded homepage. web/src/app/globals.css shrinks from 51,921 to 32,883 characters (19,038 characters, about 36.7%). Shared navigation and reusable design tokens are retained.
 - **Remove checked-in Git internals:** web/.git-backup/ contains 73 tracked files/tree entries and 96,429 bytes of objects, refs, logs, configuration, and sample hooks. The directory is removed from the current tree and ignored to prevent recurrence. This does not erase the objects from prior public Git history.
-- **Automated checks:** added a GitHub Actions workflow for Python tests, frontend tests, ESLint, TypeScript checking, and a Next.js production build.
+- **Lockfile consistency:** the first CI run found that web/package-lock.json was out of sync with transitive @emnapi optional dependencies. Refreshed the lockfile using npm metadata and verified that npm ci completed successfully on the runner.
+- **Corrected stale publishing test:** CI exposed a test expecting public YouTube visibility despite the application defaulting to private. Updated the assertion to match the safer default; this is a test correction, not a behavior change.
+- **Automated checks:** added a GitHub Actions workflow for Python tests, frontend tests, ESLint, TypeScript checking, and a Next.js production build. The full run after these fixes is pending.
 
 ### Remaining risks / items for deployment
 
