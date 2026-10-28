@@ -106,4 +106,4 @@ This follow-up audit focuses on the current main branch after the frontend and b
 
 ### Verification boundary
 
-Source-level changes and regression-test cases were reviewed. The code could not be cloned or executed locally because this environment cannot resolve GitHub. The new CI workflow is intended to run the full test, lint, type-check, and production-build checks on the review branch. Merge only after those jobs pass.
+Source-level changes and regression-test cases were reviewed. The code could not be cloned or executed locally because this environment cannot resolve GitHub. GitHub Actions run 40708911394 passed at commit f18eda5eab62dc6b49c9bdb604a2e1fe911447ed: Python suite 96 passed; frontend suite 14 passed; ESLint passed; TypeScript check passed; Next.js production build passed (compiled successfully in 4 seconds). The clean npm installation also passed in the lockfile repair run. The audit-report update itself is documentation-only.
