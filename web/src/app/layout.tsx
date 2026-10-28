@@ -22,14 +22,14 @@ const barlow = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Clipper — The Open-Source Clip Lab",
+  title: "Clipper — Cut the noise. Keep the moment.",
   description:
-    "Turn long videos into sharp vertical clips. Transcribe, score, cut, reframe, and caption with an open-source video clipping studio.",
+    "Turn long videos into vertical clips. Find standout moments, reframe, caption, and export with a local-first open-source clipping studio.",
   applicationName: "Clipper",
   openGraph: {
     title: "Clipper — The Open-Source Clip Lab",
     description:
-      "Long video in. The good bits out. Create vertical clips with transcription, reframing, and timed captions.",
+      "Turn long videos into short-form clips with transcription, face-aware reframing, and word-timed captions.",
     type: "website",
   },
 };
