@@ -379,7 +379,7 @@ def select_top(
     """Greedy, deterministic selection using score plus temporal IoU de-duplication."""
     if not items:
         return []
-    target = max(1, min(10, int(n)))
+    target = max(1, int(n))
     threshold = max(0.0, min(1.0, float(max_overlap)))
     sorted_items = sorted(
         items,
