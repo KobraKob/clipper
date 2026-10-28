@@ -205,6 +205,8 @@ function mapManifestClips(manifest: any): Clip[] {
     hook: c.hook,
     reason: c.reason,
     score: c.score,
+    scoreBreakdown: c.score_breakdown,
+    soundtrack: c.soundtrack,
     start: c.start,
     end: c.end,
     text: c.hook || c.title,
