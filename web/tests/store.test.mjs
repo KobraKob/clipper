@@ -6,6 +6,24 @@ import os from "node:os";
 import { createJob, deleteJob, getJob, listJobs, patchClip, setJobClips } from "../src/lib/store.ts";
 import { formatTimecode, hydrateJob } from "../src/lib/pipeline.ts";
 import { readLogTail } from "../src/lib/logTail.ts";
+import { normalizeTitleVariants } from "../src/lib/titleVariants.ts";
+
+test("normalizeTitleVariants repairs duplicate or missing IDs deterministically", () => {
+  const variants = normalizeTitleVariants([
+    { id: "direct", title: "Primary title" },
+    { id: "direct", title: "Duplicate direct title" },
+    { id: "curiosity", title: "Curiosity title" },
+    { title: "Missing ID title" },
+  ]);
+
+  assert.deepEqual(variants.map((variant) => variant.id), [
+    "direct",
+    "variant_2",
+    "curiosity",
+    "variant_4",
+  ]);
+  assert.equal(new Set(variants.map((variant) => variant.id)).size, variants.length);
+});
 
 test("readLogTail returns the requested final lines from a small log", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "clipper-log-tail-"));
