@@ -1,225 +1,250 @@
+import Link from "next/link";
 import { CutForm } from "@/components/CutForm";
 import { PhoneStack } from "@/components/PhoneStack";
 import { PIPELINE_STAGES } from "@/lib/types";
 
-const TICKER_TOP = [
-  "LONG FORM IS ON NOTICE",
-  "HOOK FIRST, LORE LATER",
-  "9:16 OR IT DIDN'T HAPPEN",
-  "YOUR EDITOR CAN BLINK NOW",
-  "LESS SCROLL-BY, MORE STOP-BY",
+const PROCESS_DETAILS = [
+  "Accept a video URL or a local source file.",
+  "Create word-level timestamps from speech.",
+  "Scan long footage for promising moments.",
+  "Rank hooks and remove overlapping candidates.",
+  "Cut precise segments around selected moments.",
+  "Keep the speaker framed for vertical viewing.",
+  "Burn in timed captions with your chosen style.",
+  "Export clips and accompanying metadata.",
 ];
-
-const TICKER_BOTTOM = [
-  "NO WATERMARK. NO DRAMA.",
-  "CUT THE DEAD AIR",
-  "LET THE GOOD BIT COOK",
-  "CONTENT, NOT CONTENT-FARM VIBES",
-  "THE ALGORITHM IS NOT YOUR THERAPIST",
-];
-
-function Ticker({
-  items,
-  className = "",
-  reverse = false,
-}: {
-  items: string[];
-  className?: string;
-  reverse?: boolean;
-}) {
-  const row = (
-    <div className="marquee-track" aria-hidden="true">
-      {items.map((item, i) => (
-        <span key={item} className="ticker-item">
-          {item}
-          <span className={i % 2 === 0 ? "ticker-mark ticker-mark--lime" : "ticker-mark ticker-mark--red"}>
-            {i % 2 === 0 ? "✳" : "↗"}
-          </span>
-        </span>
-      ))}
-    </div>
-  );
-
-  return (
-    <div className={`marquee ${reverse ? "marquee-reverse" : ""} ${className}`}>
-      {row}
-      {row}
-    </div>
-  );
-}
-
-function SectionIndex({ number, label }: { number: string; label: string }) {
-  return (
-    <div className="section-index">
-      <span>{number}</span>
-      <span className="section-index-line" />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function SignalBars() {
-  return (
-    <div className="signal-bars" aria-label="Audio signal visualisation">
-      {Array.from({ length: 36 }, (_, i) => (
-        <span key={i} className={`signal-bar signal-bar--${(i % 5) + 1}`} />
-      ))}
-    </div>
-  );
-}
 
 export default function Home() {
   return (
-    <main className="clipper-page">
-      <div className="topline">
-        <span className="topline-led" />
-        <span>INDEPENDENT CREATOR TOOLING</span>
-        <span className="topline-divider">/</span>
-        <span>OPEN SOURCE BY DESIGN</span>
-        <span className="topline-status"><span /> SYSTEM READY</span>
+    <main className="clipper-page ux-page" id="top">
+      <div className="ux-announce">
+        <div className="ux-announce-inner">
+          <span className="ux-live-dot" aria-hidden="true" />
+          <span>OPEN-SOURCE CREATOR TOOLING</span>
+          <span className="ux-announce-separator">/</span>
+          <span>LOCAL-FIRST BY DESIGN</span>
+          <span className="ux-announce-status"><span aria-hidden="true" /> SYSTEM READY</span>
+        </div>
       </div>
 
-
-      <Ticker items={TICKER_TOP} className="ticker ticker--top" />
-
-      <section id="top" className="hero-stage">
-        <div className="hero-grid" aria-hidden="true" />
-        <div className="hero-coordinate hero-coordinate--top" aria-hidden="true">12° / FRAME LOCKED</div>
-        <div className="hero-coordinate hero-coordinate--bottom" aria-hidden="true">REC • 00:00:03:12</div>
-
-        <div className="hero-layout">
-          <div className="hero-copy">
-            <div className="eyebrow"><span className="eyebrow-dot" /> THE OPEN-SOURCE CLIP LAB <span className="eyebrow-code">[ 9:16 MODE ]</span></div>
-            <h1 className="hero-title">
-              YOUR LONG VIDEO
-              <br />
-              HAS <span className="hero-title-cut">THREE GOOD</span>
-              <br />
-              <span className="hero-title-last">MINUTES.</span>
-            </h1>
-            <div className="hero-subline">
-              <span className="hero-slash">{"//"}</span>
-              <p>Let’s find them before the group chat loses interest.</p>
-            </div>
-            <p className="hero-description">
-              Turn podcasts, lectures, streams, and talking-head footage into punchy vertical clips.
-              We transcribe, score, cut, reframe, and caption. You can stop scrubbing through 47 minutes
-              to find one usable sentence.
-            </p>
-            <div className="hero-actions">
-              <a className="button-primary" href="#studio"><span>OPEN THE EDIT BAY</span><span className="button-arrow">↘</span></a>
-              <div className="hero-action-note"><span className="tiny-cross">✳</span> Free to run. No watermark. Your call on local vs cloud.</div>
-            </div>
-            <div className="hero-specs" aria-label="Product specifications">
-              <div><strong>9:16</strong><span>VERTICAL NATIVE</span></div>
-              <div><strong>00:03</strong><span>HOOK WINDOW*</span></div>
-              <div><strong>0%</strong><span>WATERMARK ENERGY</span></div>
-            </div>
-            <p className="micro-note">*A strong opening helps. Viral is not a legally binding promise.</p>
+      <section className="ux-hero" aria-labelledby="hero-title">
+        <div className="ux-hero-copy">
+          <div className="ux-kicker">
+            <span className="ux-kicker-mark" aria-hidden="true">C/</span>
+            <span>THE OPEN-SOURCE CLIP STUDIO</span>
           </div>
 
-          <div className="hero-visual">
-            <div className="visual-topline"><span>FIG. 01 — OUTPUT PREVIEW</span><span>LIVE FRAME / 9:16</span></div>
-            <div className="preview-housing">
-              <div className="preview-corner preview-corner--tl" />
-              <div className="preview-corner preview-corner--tr" />
-              <div className="preview-corner preview-corner--bl" />
-              <div className="preview-corner preview-corner--br" />
-              <div className="preview-ruler preview-ruler--left" aria-hidden="true"><span>01</span><span>02</span><span>03</span><span>04</span></div>
-              <div className="phone-stack-wrap"><PhoneStack /></div>
-              <div className="preview-hud preview-hud--top"><span className="hud-led" /> SUBJECT TRACKING <strong>ACTIVE</strong></div>
-              <div className="preview-hud preview-hud--bottom"><span>CAPTIONS SYNCED</span><strong>98.4%</strong></div>
-              <div className="floating-tag floating-tag--lime">GOOD BIT DETECTED ↗</div>
-              <div className="floating-tag floating-tag--red">DEAD AIR: EJECTED</div>
-            </div>
-            <div className="visual-bottomline"><span>SUBJECT: YOUR BEST 20 SECONDS</span><span className="mono">EXPORT_READY: TRUE</span></div>
+          <h1 className="ux-title" id="hero-title">
+            Long video.
+            <br />
+            <span className="ux-title-secondary">Short attention.</span>
+            <br />
+            <span className="ux-title-accent">Keep the moment.</span>
+          </h1>
+
+          <p className="ux-lede">
+            Find the moments worth sharing. Clipper turns podcasts, streams,
+            lectures, and interviews into focused vertical clips—without the
+            hours of scrubbing.
+          </p>
+
+          <div className="ux-hero-actions">
+            <a className="ux-button ux-button-primary" href="#studio">
+              <span>Create clips</span>
+              <span className="ux-button-arrow" aria-hidden="true">↘</span>
+            </a>
+            <a className="ux-button ux-button-secondary" href="#pipeline">
+              Explore the workflow
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+
+          <div className="ux-trust-row" aria-label="Product principles">
+            <span><i aria-hidden="true" /> No watermark</span>
+            <span><i aria-hidden="true" /> Local or cloud</span>
+            <span><i aria-hidden="true" /> Open source</span>
           </div>
         </div>
 
-        <div className="pipeline-rail" id="pipeline">
-          <div className="pipeline-rail-label"><span className="rail-pulse" /> SIGNAL PATH</div>
-          {PIPELINE_STAGES.map((stage, i) => (
-            <div key={stage.id} className="pipeline-step">
-              <span className="pipeline-number">0{i + 1}</span>
-              <span>{stage.label}</span>
-              {i < PIPELINE_STAGES.length - 1 && <span className="pipeline-arrow" aria-hidden="true">→</span>}
+        <div className="ux-hero-visual">
+          <div className="ux-preview-card">
+            <div className="ux-preview-head">
+              <div className="ux-preview-file">
+                <span className="ux-file-icon" aria-hidden="true">▶</span>
+                <span>
+                  <strong>OUTPUT PREVIEW</strong>
+                  <small>VERTICAL FORMAT / 9:16</small>
+                </span>
+              </div>
+              <span className="ux-live-badge"><i aria-hidden="true" /> LIVE FRAME</span>
             </div>
+
+            <div className="ux-preview-stage">
+              <div className="ux-preview-grid" aria-hidden="true" />
+              <div className="ux-preview-coordinate ux-preview-coordinate-top">FRAME / 001</div>
+              <div className="ux-phone-window" aria-hidden="true">
+                <PhoneStack />
+              </div>
+              <div className="ux-float-label ux-float-label-top">
+                <span className="ux-float-label-icon" aria-hidden="true">↗</span>
+                <span><small>MOMENT FOUND</small><strong>Hook detected</strong></span>
+              </div>
+              <div className="ux-float-label ux-float-label-bottom">
+                <span className="ux-audio-bars" aria-hidden="true"><i /><i /><i /><i /><i /><i /></span>
+                <span><small>CAPTION TIMING</small><strong>Word-level sync</strong></span>
+              </div>
+            </div>
+
+            <div className="ux-preview-foot">
+              <span><i aria-hidden="true" /> SUBJECT TRACKING</span>
+              <span>1080 × 1920 <b>·</b> MP4</span>
+            </div>
+          </div>
+          <div className="ux-side-note"><span>01</span> ONE SOURCE. MULTIPLE CUTS.</div>
+        </div>
+      </section>
+
+      <section className="ux-spec-strip" aria-label="Clipper capabilities">
+        <div className="ux-spec-item">
+          <strong>9:16</strong>
+          <span>Vertical-first output</span>
+        </div>
+        <div className="ux-spec-item">
+          <strong>1080p+</strong>
+          <span>High-resolution exports</span>
+        </div>
+        <div className="ux-spec-item">
+          <strong>Word-level</strong>
+          <span>Animated captions</span>
+        </div>
+        <div className="ux-spec-item">
+          <strong>₹0</strong>
+          <span>Open-source workflow</span>
+        </div>
+      </section>
+
+      <section className="ux-process section-anchor" id="pipeline" aria-labelledby="pipeline-title">
+        <div className="ux-section-heading">
+          <div className="ux-section-index"><span>01</span><span className="ux-index-line" /><span>THE WORKFLOW</span></div>
+          <div className="ux-section-heading-row">
+            <div>
+              <h2 className="ux-section-title" id="pipeline-title">From full-length to <span>feed-ready.</span></h2>
+              <p className="ux-section-description">
+                A clear pipeline. No mystery editing steps. Keep control over
+                the model, framing, captions, and final export.
+              </p>
+            </div>
+            <a className="ux-text-link" href="#studio">Start with a source <span aria-hidden="true">↘</span></a>
+          </div>
+        </div>
+
+        <div className="ux-process-grid">
+          {PIPELINE_STAGES.map((stage, index) => (
+            <article className="ux-process-card" key={stage.id}>
+              <div className="ux-process-card-top">
+                <span className="ux-process-number">0{index + 1}</span>
+                <span className="ux-process-symbol" aria-hidden="true">
+                  {["⇩", "≋", "⌕", "◉", "✂", "▣", "≡", "↗"][index] ?? "↗"}
+                </span>
+              </div>
+              <h3>{stage.label}</h3>
+              <p>{PROCESS_DETAILS[index] ?? "Move through the clipping workflow with control over each step."}</p>
+              <div className="ux-process-rule" aria-hidden="true"><span /></div>
+            </article>
           ))}
         </div>
       </section>
 
-      <Ticker items={TICKER_BOTTOM} reverse className="ticker ticker--bottom" />
+      <section className="ux-studio section-anchor" id="studio" aria-labelledby="studio-title">
+        <div className="ux-section-index"><span>02</span><span className="ux-index-line" /><span>THE EDIT BAY</span></div>
 
-      <section id="studio" className="studio-section">
-        <div className="studio-heading">
-          <SectionIndex number="01" label="INPUT / OUTPUT" />
-          <div className="studio-heading-grid">
-            <div>
-              <h2 className="section-title">WELCOME TO<br /><span>THE EDIT BAY.</span></h2>
-              <p className="section-intro">Drop a long video. Pull out the parts people actually watch. Try not to name the exported files “final_FINAL_v7”.</p>
-            </div>
-            <div className="bay-status">
-              <div className="bay-status-head"><span className="eyebrow-dot" /> READY FOR SOURCE</div>
-              <SignalBars />
-              <div className="bay-status-foot"><span>INPUT SIGNAL</span><span>AWAITING FILE / URL</span></div>
-            </div>
+        <div className="ux-studio-heading">
+          <div>
+            <h2 className="ux-section-title" id="studio-title">Start with <span>your source.</span></h2>
+            <p className="ux-section-description">
+              Paste a video URL or choose a local file. Set your options,
+              launch the pipeline, and review the results in your library.
+            </p>
+          </div>
+          <div className="ux-studio-state">
+            <span className="ux-state-light" aria-hidden="true" />
+            <span><small>WORKSPACE STATUS</small><strong>Ready for input</strong></span>
           </div>
         </div>
 
-        <div className="studio-layout">
-          <div className="tool-console">
-            <div className="console-header">
-              <div><span className="console-square" /> INGEST CONSOLE</div>
-              <span className="console-id">UNIT 001 — SOURCE</span>
+        <div className="ux-studio-layout">
+          <div className="ux-source-panel">
+            <div className="ux-panel-heading">
+              <div>
+                <span className="ux-panel-eyebrow">SOURCE INPUT / 001</span>
+                <h3>Ingest media</h3>
+              </div>
+              <span className="ux-panel-tag">URL or upload</span>
             </div>
-            <div className="console-body">
+            <div className="ux-source-form">
               <CutForm />
             </div>
-            <div className="console-footer"><span>SUPPORTED VIBE: PODCASTS / LECTURES / STREAMS</span><span>NO WATERMARK OUTPUT</span></div>
+            <div className="ux-panel-foot">
+              <span>SUPPORTED: VIDEO URLS / LOCAL FILES</span>
+              <span>NO WATERMARK OUTPUT</span>
+            </div>
           </div>
 
-          <aside className="systems-column" aria-label="How the clipper works">
-            <article className="system-card system-card--dark">
-              <div className="system-card-top"><span>SYS. 01</span><span className="system-status">LOCAL / CLOUD</span></div>
-              <div className="system-card-title-row"><span className="system-glyph">⌘</span><h3>Choose your engine.</h3></div>
-              <p>Run transcription locally to keep audio on your machine, or use Groq for a faster route with rate limits. Same pipeline. Different trade-offs.</p>
-              <div className="mode-tags"><span>LOCAL = PRIVACY</span><span>GROQ = SPEED*</span></div>
-              <small>*Speed is not immunity from rate limits. Sad but true.</small>
+          <aside className="ux-studio-aside" aria-label="What happens next">
+            <div className="ux-aside-heading">
+              <span className="ux-panel-eyebrow">AFTER YOU START</span>
+              <h3>Built for the whole workflow.</h3>
+            </div>
+            <article className="ux-benefit">
+              <span className="ux-benefit-number">A</span>
+              <div><h4>Choose your engine</h4><p>Use a local model for privacy or a supported cloud provider for speed.</p></div>
             </article>
-
-            <article className="system-card system-card--lime">
-              <div className="system-card-top"><span>SYS. 02</span><span className="system-status">FRAME / LOCK</span></div>
-              <div className="system-card-title-row"><span className="system-glyph">⊹</span><h3>Keep the human in frame.</h3></div>
-              <p>Vertical reframing follows the subject, so your speaker doesn’t become a tiny philosopher lost in a wide rectangle.</p>
-              <div className="mini-frame" aria-hidden="true"><span /><span /><i /></div>
+            <article className="ux-benefit">
+              <span className="ux-benefit-number">B</span>
+              <div><h4>Review each cut</h4><p>Fine-tune timing, framing, titles, and caption styles before exporting.</p></div>
             </article>
-
-            <article className="system-card system-card--paper">
-              <div className="system-card-top"><span>SYS. 03</span><span className="system-status">WORD / SYNC</span></div>
-              <div className="system-card-title-row"><span className="system-glyph">≋</span><h3>Captions with timing.</h3></div>
-              <p>Burn in word-timed subtitles and keep export metadata alongside the output. Because “trust me bro” is not a file format.</p>
-              <div className="caption-demo" aria-label="Example animated caption"><span>THAT&apos;S</span><strong>THE</strong><em>WHOLE POINT.</em></div>
+            <article className="ux-benefit">
+              <span className="ux-benefit-number">C</span>
+              <div><h4>Export and publish</h4><p>Download the clip and metadata, or use the publishing tools when connected.</p></div>
             </article>
+            <div className="ux-privacy-note">
+              <span className="ux-privacy-icon" aria-hidden="true">⌑</span>
+              <p><strong>Your workflow, your choice.</strong><br />Provider options and credentials stay under your control.</p>
+            </div>
+            <Link className="ux-library-link" href="/library">Open your clip library <span aria-hidden="true">↗</span></Link>
           </aside>
         </div>
       </section>
 
-      <section className="closing-strip">
-        <div className="closing-index"><span>END OF TRANSMISSION</span><span>CLIPPER / OPEN TOOLING</span></div>
-        <p className="closing-title">LESS TIMELINE.<br /><span>MORE TIMING.</span></p>
-        <figure className="founder-quote">
-          <div className="founder-quote-mark" aria-hidden="true">“</div>
-          <blockquote>I wasn’t built to wait for a seat at the table. I’m building the room.</blockquote>
-          <figcaption><span className="founder-quote-line" /> FIELD NOTE / 001 — THE BUILDING PHASE</figcaption>
-          <span className="founder-quote-coordinate" aria-hidden="true">NO PERMISSION REQUIRED</span>
-        </figure>
-        <div className="closing-footer"><span>BUILT FOR THE SCROLL, NOT FOR A TED TALK ABOUT THE SCROLL.</span><a href="#studio">RUN IT BACK ↗</a></div>
+      <section className="ux-principles" aria-labelledby="principles-title">
+        <div className="ux-principles-heading">
+          <div className="ux-section-index"><span>03</span><span className="ux-index-line" /><span>THE PRINCIPLES</span></div>
+          <h2 className="ux-section-title" id="principles-title">Less busywork.<br /><span>More useful output.</span></h2>
+        </div>
+        <div className="ux-principles-grid">
+          <article className="ux-principle-card">
+            <span className="ux-principle-mark" aria-hidden="true">01 /</span>
+            <h3>Keep the subject in frame.</h3>
+            <p>Face-aware vertical reframing keeps speakers visible instead of shrinking them into a wide shot.</p>
+          </article>
+          <article className="ux-principle-card ux-principle-card-accent">
+            <span className="ux-principle-mark" aria-hidden="true">02 /</span>
+            <h3>Captions that keep pace.</h3>
+            <p>Word-timed caption styles turn speech into readable, social-ready clips.</p>
+          </article>
+          <article className="ux-principle-card">
+            <span className="ux-principle-mark" aria-hidden="true">03 /</span>
+            <h3>Control the final cut.</h3>
+            <p>Review titles, choose variants, adjust timing, and keep export metadata with your work.</p>
+          </article>
+        </div>
       </section>
 
-      <footer className="site-footer">
-        <a href="#top" className="footer-mark"><span className="wordmark-symbol">C<span>/</span></span> CLIPPER</a>
-        <span>OPEN SOURCE · LOCAL-FIRST OPTIONS · ZERO WATERMARK NONSENSE</span>
-        <span className="footer-coordinate">BROADCAST COMPLETE / 001</span>
+      <footer className="ux-footer">
+        <Link href="/" className="ux-footer-brand" aria-label="Clipper home"><span>C/</span> CLIPPER</Link>
+        <p>Open-source tooling for creators who have better things to do than scrub timelines.</p>
+        <div className="ux-footer-links"><a href="#top">Back to top ↑</a><Link href="/library">Library ↗</Link></div>
+        <div className="ux-footer-meta"><span>LOCAL-FIRST OPTIONS</span><span>NO WATERMARK</span><span>BUILT FOR SHORT FORM</span></div>
       </footer>
     </main>
   );
