@@ -114,6 +114,8 @@ export type Job = {
   hookOverlay?: boolean;
   progressBar?: boolean;
   loudnorm?: boolean;
+  soundtrackPath?: string;
+  soundtrackVolume?: number;
   createdAt: number;
   startedAt: number;
   status: JobStatus;
