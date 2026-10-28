@@ -51,10 +51,18 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     if (!isRunning) return;
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, 1000);
-    return () => window.clearInterval(timer);
+
+    // Poll less aggressively and stop background-tab traffic. Refresh immediately
+    // when the tab becomes visible again so progress does not feel stale.
+    const pollWhenVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const timer = window.setInterval(pollWhenVisible, 2000);
+    document.addEventListener("visibilitychange", pollWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", pollWhenVisible);
+    };
   }, [isRunning, refresh]);
 
   useEffect(() => {
@@ -74,15 +82,24 @@ export function JobStudio({ jobId }: { jobId: string }) {
     }
 
     void loadLogs();
-    if (!isRunning && !showLogs) return;
+    if (!isRunning && !showLogs) {
+      return () => {
+        ignore = true;
+      };
+    }
 
-    const timer = window.setInterval(() => {
-      void loadLogs();
-    }, 2000);
+    // Logs are less time-sensitive than stage progress. Fetch them at a lower
+    // cadence and do not keep reading them while the document is hidden.
+    const pollLogsWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadLogs();
+    };
+    const timer = window.setInterval(pollLogsWhenVisible, 4000);
+    document.addEventListener("visibilitychange", pollLogsWhenVisible);
 
     return () => {
       ignore = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", pollLogsWhenVisible);
     };
   }, [jobId, isRunning, showLogs]);
 
