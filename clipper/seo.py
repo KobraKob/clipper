@@ -22,8 +22,8 @@ IG_HASHTAGS_MAX = 5
 
 # These are broad distribution / format tags, deliberately separate from topical tags.
 GLOBAL_HASHTAGS = [
-    "YouTubeShorts", "Reels", "ShortFormVideo", "ViralVideo", "TrendingNow",
-    "MustWatch", "DailyContent", "CreatorCommunity", "Discover", "ShareThis",
+    "Shorts", "YouTubeShorts", "Reels", "ShortFormVideo", "ViralVideo",
+    "TrendingNow", "MustWatch", "DailyContent", "CreatorCommunity", "Discover",
 ]
 
 SEO_PROMPT = """You are a meticulous short-form video SEO editor. Generate metadata for THIS exact clip.
@@ -287,13 +287,17 @@ def generate_metadata(
             return []
         return [str(item).strip() for item in value if str(item).strip()]
 
-    keywords = _unique_tags(
-        candidate_list("keywords") + fallback["keywords"],
-        reference,
-        15,
-    )
-    if not keywords:
-        keywords = _top_keywords(text, 12)
+    keywords: List[str] = []
+    seen_keywords: set[str] = set()
+    for value in candidate_list("keywords") + [str(item) for item in fallback["keywords"]] + _top_keywords(text, 20):
+        keyword = " ".join(str(value).replace("#", "").split()).lower().strip()
+        key = keyword.casefold()
+        if not keyword or key in seen_keywords or not _is_relevant(keyword, reference):
+            continue
+        seen_keywords.add(key)
+        keywords.append(keyword)
+        if len(keywords) >= 15:
+            break
 
     candidate_title = str(raw.get("youtube_title") or "")
     if candidate_title and _is_relevant(candidate_title, reference):
