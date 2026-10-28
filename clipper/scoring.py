@@ -116,6 +116,17 @@ def _relevant(candidate: str, reference: str) -> bool:
     # One generic shared word should not validate an unrelated title or hook.
     return len(overlap) >= 2 or any(len(word) >= 7 for word in overlap)
 
+def _ordered_tokens(text: str) -> List[str]:
+    """Preserve transcript order for deterministic fallback titles."""
+    result: List[str] = []
+    seen: set[str] = set()
+    for word in re.findall(r"[A-Za-z][A-Za-z\u0027]{2,}", text or ""):
+        normalized = word.lower()
+        if normalized not in _STOP and normalized not in seen:
+            result.append(normalized)
+            seen.add(normalized)
+    return result
+
 
 def heuristic_quality_score(cand: Dict[str, Any]) -> tuple[int, Dict[str, int]]:
     """Score observable quality signals without an LLM; returns 0–100 and breakdown."""
@@ -337,7 +348,7 @@ def stage2(
         if raw_title and _relevant(raw_title, f"{cand['hook']} {text}"):
             cand["title"] = raw_title[:100]
         else:
-            topical_words = list(_tokens(first_text or text))
+            topical_words = _ordered_tokens(first_text or text)
             if topical_words:
                 cand["title"] = " ".join(word.title() for word in topical_words[:5])
             else:
