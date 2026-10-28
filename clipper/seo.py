@@ -231,7 +231,7 @@ def fallback_metadata(clip: Dict[str, Any], text: str) -> Dict[str, Any]:
     variants = [
         {"id": "direct", "title": _truncate(main_title, 70), "angle": "Direct Impact"},
         {"id": "curiosity", "title": _truncate(f"What {main_title.rstrip('?!.')} Means", 70), "angle": "Curiosity Gap"},
-        {"id": "question", "title": _truncate(f"Why {main_title.rstrip('?!.')} Matters", 70), "angle": "Specific Question"},
+        {"id": "question", "title": _truncate(f"Why {main_title.rstrip('?!.')} Matters", 70), "angle": "Bold Question"},
     ]
     reference = " ".join([str(clip.get("title", "")), hook, text])
     relevant = _relevant_hashtags([], keywords, clip, text, limit=20)
