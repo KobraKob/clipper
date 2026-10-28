@@ -11,6 +11,7 @@ import {
   selectTitleVariant,
 } from "@/lib/api";
 import type { Clip, ClipAnalytics, ClipSchedule, Platform, TitleVariant } from "@/lib/types";
+import { normalizeTitleVariants } from "@/lib/titleVariants";
 
 export function ClipCard({
   jobId,
@@ -45,13 +46,17 @@ export function ClipCard({
   const [rerenderMessage, setRerenderMessage] = useState("");
   const [videoKey, setVideoKey] = useState(0);
 
-  // A/B Title Variants state
-  const [titleVariants, setTitleVariants] = useState<TitleVariant[]>(
-    clip.titleVariants || clip.seo?.title_variants || [],
+  // Normalize old job records before using variant IDs as React keys or selection values.
+  const initialTitleVariants = normalizeTitleVariants(
+    clip.titleVariants?.length ? clip.titleVariants : clip.seo?.title_variants || [],
   );
-  const [selectedVariantId, setSelectedVariantId] = useState(
-    clip.selectedTitleVariant || clip.seo?.selected_title_variant || "direct",
-  );
+  const [titleVariants, setTitleVariants] = useState<TitleVariant[]>(initialTitleVariants);
+  const [selectedVariantId, setSelectedVariantId] = useState(() => {
+    const requested = clip.selectedTitleVariant || clip.seo?.selected_title_variant || "direct";
+    return initialTitleVariants.some((variant) => variant.id === requested)
+      ? requested
+      : initialTitleVariants[0]?.id || requested;
+  });
   const [activeTitle, setActiveTitle] = useState(clip.title);
   const [savingTitle, setSavingTitle] = useState(false);
 
@@ -93,11 +98,17 @@ export function ClipCard({
       setHasCover(true);
     }
     setActiveTitle(clip.title);
-    if (clip.titleVariants && clip.titleVariants.length > 0) {
-      setTitleVariants(clip.titleVariants);
-    }
-    if (clip.selectedTitleVariant) {
-      setSelectedVariantId(clip.selectedTitleVariant);
+    const incomingVariants = normalizeTitleVariants(
+      clip.titleVariants?.length ? clip.titleVariants : clip.seo?.title_variants || [],
+    );
+    if (incomingVariants.length > 0) {
+      setTitleVariants(incomingVariants);
+      const requestedSelection = clip.selectedTitleVariant || clip.seo?.selected_title_variant;
+      setSelectedVariantId(
+        requestedSelection && incomingVariants.some((variant) => variant.id === requestedSelection)
+          ? requestedSelection
+          : incomingVariants[0].id,
+      );
     }
   }
 
