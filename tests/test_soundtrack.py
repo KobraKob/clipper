@@ -41,6 +41,18 @@ class TestSoundtrackAnalysis(unittest.TestCase):
             "bpm": None,
         }
         self.assertEqual(select_soundtrack_offset(profile, clip_duration=10.0), 0.0)
+    def test_music_section_selection_matches_clip_energy_target(self):
+        envelope = np.full(300, 0.25, dtype=np.float32)
+        envelope[30:90] = 0.15
+        envelope[150:210] = 0.95
+        profile = {"energy": envelope, "frame_seconds": 0.1, "bpm": None}
+        calm_offset = select_soundtrack_offset(profile, clip_duration=2.0, target_energy=0.15)
+        energetic_offset = select_soundtrack_offset(profile, clip_duration=2.0, target_energy=0.95)
+        self.assertGreaterEqual(calm_offset, 2.5)
+        self.assertLessEqual(calm_offset, 9.0)
+        self.assertGreaterEqual(energetic_offset, 14.5)
+        self.assertLessEqual(energetic_offset, 21.0)
+        self.assertGreater(energetic_offset, calm_offset + 5)
 
 
 if __name__ == "__main__":
