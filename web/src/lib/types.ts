@@ -18,6 +18,11 @@ export type ClipSeo = {
   title_variants?: TitleVariant[];
   selected_title_variant?: string;
   generated_by?: string;
+  hashtag_groups?: { relevant: string[]; global: string[]; trending: string[] };
+  trend_source?: string | null;
+  trend_region?: string;
+  trend_checked_at?: string | null;
+  trend_status?: "matched" | "partial" | "no-relevant-current-trends" | string;
 };
 
 export type PublishResult = {
@@ -79,6 +84,16 @@ export type Clip = {
   hook: string;
   reason: string;
   score: number;
+  scoreBreakdown?: Record<string, number | null>;
+  soundtrack?: {
+    file: string;
+    name: string;
+    offset_seconds: number;
+    bpm?: number | null;
+    volume: number;
+    voice_ducking: boolean;
+    selection: string;
+  };
   start: number;
   end: number;
   text: string;
