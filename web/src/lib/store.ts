@@ -201,7 +201,7 @@ function isAllowedLocalVideoPath(filePath: string): boolean {
 function mapManifestClips(manifest: any): Clip[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (manifest.clips || []).map((c: any) => {
-    const titleVariants = normalizeTitleVariants(c.title_variants || c.seo?.title_variants || []);
+    const titleVariants = normalizeTitleVariants(c.title_variants?.length ? c.title_variants : c.seo?.title_variants || []);
     const requestedSelection = c.selected_title_variant || c.seo?.selected_title_variant || "direct";
     const selectedTitleVariant = titleVariants.some((variant) => variant.id === requestedSelection)
       ? requestedSelection
