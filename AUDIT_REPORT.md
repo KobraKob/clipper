@@ -80,3 +80,28 @@ The custom byte-range parser supports single ranges and suffix ranges, but does 
 4. Remove `web/.git-backup/` and audit its reachable history.
 5. Add CI and route-level tests for upload limits, process failures, and byte ranges.
 6. Run the complete Python/frontend test suites and production build on the fix branch before merging.
+
+## Repository performance and hygiene audit — 2026-10-28
+
+This follow-up audit focuses on the current main branch after the frontend and bulk-upload changes. Changes are isolated on audit/performance-cleanup-ci.
+
+### Changes prepared for review
+
+- **Bounded log reads:** job status routes now read at most the last 64 KiB of a log and return the requested tail lines. This avoids rereading and splitting an ever-growing log file on every status refresh. Added tests for short logs and large-log truncation.
+- **Lower polling overhead:** job progress refresh changes from 1-second polling to 2 seconds and skips refreshes while the tab is hidden. Log refresh changes from 2 seconds to 4 seconds and also pauses while hidden; returning to the tab triggers a refresh.
+- **Faster library hydration:** independent jobs are hydrated concurrently with Promise.all, so slow metadata/progress reads no longer block every later card in the library.
+- **Prevent stale-store overwrite during recovery:** the metadata self-healing write now merges recovered clips into the latest store snapshot under the mutex, rather than writing a potentially stale snapshot captured before filesystem reads.
+- **Remove unused CSS:** removed legacy page-specific styles from the superseded homepage. web/src/app/globals.css shrinks from 51,921 to 32,883 characters (19,038 characters, about 36.7%). Shared navigation and reusable design tokens are retained.
+- **Remove checked-in Git internals:** web/.git-backup/ contains 73 tracked files/tree entries and 96,429 bytes of objects, refs, logs, configuration, and sample hooks. The directory is removed from the current tree and ignored to prevent recurrence. This does not erase the objects from prior public Git history.
+- **Automated checks:** added a GitHub Actions workflow for Python tests, frontend tests, ESLint, TypeScript checking, and a Next.js production build.
+
+### Remaining risks / items for deployment
+
+- The API routes still have no visible authentication. Do not expose the studio to untrusted networks without adding authentication/authorization and protecting publishing, upload, and delete routes.
+- The upload route still parses multipart input with request.formData() before its file-size check. For reliable multi-gigabyte uploads, use a streaming multipart parser or direct-to-disk/object-storage upload and enforce proxy/deployment request limits.
+- Local path checks still use a denylist. If remote clients can submit local paths, replace it with an explicit allowed-root policy and symlink-aware boundary checks.
+- Byte-range video delivery still needs dedicated route tests for malformed/multiple ranges, zero-length suffix ranges, empty files, end clamping, and unsatisfiable ranges.
+
+### Verification boundary
+
+Source-level changes and regression-test cases were reviewed. The code could not be cloned or executed locally because this environment cannot resolve GitHub. The new CI workflow is intended to run the full test, lint, type-check, and production-build checks on the review branch. Merge only after those jobs pass.
