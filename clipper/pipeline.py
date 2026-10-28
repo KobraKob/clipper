@@ -521,7 +521,7 @@ def run_pipeline(
                 "enabled": resolved_soundtrack is not None,
                 "file": str(resolved_soundtrack) if resolved_soundtrack else None,
                 "volume": max(0.05, min(0.4, float(soundtrack_volume))),
-                "matching": "energy-and-beat" if soundtrack_profile is not None else None,
+                "matching": "speech-energy-and-tempo-grid" if soundtrack_profile is not None else None,
                 "bpm": soundtrack_profile.get("bpm") if soundtrack_profile else None,
             },
             "clips": exported_clips,
