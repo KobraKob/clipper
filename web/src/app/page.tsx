@@ -27,6 +27,19 @@ export default function Home() {
         </div>
       </div>
 
+      <div className="ux-motion-ticker" aria-label="Clipper workflow in motion">
+        <div className="ux-motion-track">
+          <span>FIND THE HOOK <b>✳</b></span>
+          <span>KEEP THE SUBJECT IN FRAME <b>↗</b></span>
+          <span>WORD-SYNC CAPTIONS <b>✳</b></span>
+          <span>EXPORT WITHOUT WATERMARKS <b>↗</b></span>
+          <span>FIND THE HOOK <b>✳</b></span>
+          <span>KEEP THE SUBJECT IN FRAME <b>↗</b></span>
+          <span>WORD-SYNC CAPTIONS <b>✳</b></span>
+          <span>EXPORT WITHOUT WATERMARKS <b>↗</b></span>
+        </div>
+      </div>
+
       <section className="ux-hero" aria-labelledby="hero-title">
         <div className="ux-hero-copy">
           <div className="ux-kicker">
