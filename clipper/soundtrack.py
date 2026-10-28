@@ -53,6 +53,39 @@ def _energy_envelope(samples: np.ndarray, samples_per_frame: int) -> np.ndarray:
     return rms.astype(np.float32)
 
 
+def analyze_clip_audio(video_path: pathlib.Path | str) -> Dict[str, Any]:
+    """Estimate speech density and pacing from original clip audio without an API."""
+    video = pathlib.Path(video_path).expanduser().resolve()
+    duration = _probe_duration(video)
+    result = subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-i", str(video),
+            "-t", str(min(duration, MAX_ANALYSIS_SECONDS)),
+            "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE),
+            "-f", "s16le", "pipe:1",
+        ],
+        check=True, capture_output=True, timeout=90,
+    )
+    samples = np.frombuffer(result.stdout, dtype=np.int16)
+    envelope = _energy_envelope(samples, max(1, int(round(SAMPLE_RATE / ENVELOPE_HZ))))
+    if envelope.size == 0:
+        return {"has_audio": False, "duration": duration, "speech_activity": 0.0,
+                "mean_energy": 0.0, "target_music_energy": None}
+
+    speech_activity = float(np.mean(envelope > 0.18))
+    mean_energy = float(np.mean(envelope))
+    energy_variability = float(np.std(envelope))
+    # Density/variation are only proxies for pace, not a semantic mood classifier.
+    target_music_energy = min(0.88, max(0.18, 0.22 + 0.48 * speech_activity + 0.18 * energy_variability))
+    return {
+        "has_audio": True,
+        "duration": duration,
+        "speech_activity": round(speech_activity, 3),
+        "mean_energy": round(mean_energy, 3),
+        "energy_variability": round(energy_variability, 3),
+        "target_music_energy": round(target_music_energy, 3),
+    }
+
 def _estimate_bpm(envelope: np.ndarray) -> Optional[float]:
     """Estimate a plausible tempo from periodic increases in short-window energy."""
     if envelope.size < 80 or float(np.std(envelope)) < 1e-4:
@@ -123,6 +156,7 @@ def select_soundtrack_offset(
     profile: Dict[str, Any],
     clip_duration: float,
     clip_rank: int = 1,
+    target_energy: Optional[float] = None,
 ) -> float:
     """Choose a high-energy passage; snap candidate starts to estimated beat boundaries."""
     energy = np.asarray(profile.get("energy", []), dtype=np.float32)
@@ -161,7 +195,14 @@ def select_soundtrack_offset(
         peak = float(np.percentile(segment, 85))
         dynamics = min(float(np.std(segment)) * 2.0, 1.0)
         variety = max(0.0, 1.0 - abs(float(offset) - preferred) / max(max_offset, 1.0))
-        score = 0.34 * opening + 0.34 * average + 0.16 * peak + 0.08 * dynamics + 0.08 * variety
+        if target_energy is None:
+            score = 0.34 * opening + 0.34 * average + 0.16 * peak + 0.08 * dynamics + 0.08 * variety
+        else:
+            energy_match = 1.0 - min(abs(average - min(1.0, max(0.0, float(target_energy)))), 1.0)
+            score = (
+                0.26 * opening + 0.18 * average + 0.12 * peak + 0.08 * dynamics
+                + 0.28 * energy_match + 0.08 * variety
+            )
         if score > best_score:
             best_score = score
             best_offset = float(offset)
@@ -200,13 +241,18 @@ def mix_soundtrack(
 
     duration = max(1.0, float(clip_duration))
     volume = min(0.4, max(0.05, float(volume)))
-    offset = select_soundtrack_offset(profile, duration, clip_rank)
+    has_original_audio = _video_has_audio(video)
+    clip_audio_profile = analyze_clip_audio(video) if has_original_audio else {
+        "has_audio": False, "target_music_energy": None, "speech_activity": 0.0,
+        "mean_energy": 0.0, "energy_variability": 0.0,
+    }
+    target_energy = clip_audio_profile.get("target_music_energy")
+    offset = select_soundtrack_offset(profile, duration, clip_rank, target_energy=target_energy)
     fade_duration = min(1.0, duration)
     fade_start = max(0.0, duration - fade_duration)
     temp = video.with_name(f"{video.stem}.soundtrack-tmp{video.suffix}")
     temp.unlink(missing_ok=True)
 
-    has_original_audio = _video_has_audio(video)
     music_filter = (
         f"[1:a]atrim=start={offset:.3f}:duration={duration:.3f},"
         f"asetpts=PTS-STARTPTS,volume={volume:.3f},"
@@ -248,6 +294,8 @@ def mix_soundtrack(
         "offset_seconds": offset,
         "bpm": profile.get("bpm"),
         "volume": volume,
-        "voice_ducking": True,
-        "selection": "energy-and-beat-match",
+        "voice_ducking": has_original_audio,
+        "selection": "speech-energy-and-beat-match" if target_energy is not None else "energy-and-beat-match",
+        "source_audio_profile": clip_audio_profile,
+        "target_music_energy": target_energy,
     }
