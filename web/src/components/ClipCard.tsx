@@ -11,6 +11,7 @@ import {
   selectTitleVariant,
 } from "@/lib/api";
 import type { Clip, ClipAnalytics, ClipSchedule, Platform, TitleVariant } from "@/lib/types";
+import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 import { normalizeTitleVariants } from "@/lib/titleVariants";
 
 export function ClipCard({
@@ -20,13 +21,15 @@ export function ClipCard({
   onKeep,
   onTimes,
   onRerender,
+  captionsEnabled = true,
 }: {
   jobId: string;
   clip: Clip;
   busy?: boolean;
   onKeep: (kept: boolean) => void;
   onTimes: (start: number, end: number) => void;
-  onRerender?: (start: number, end: number) => Promise<void>;
+  onRerender?: (start: number, end: number, captionStyle?: string) => Promise<void>;
+  captionsEnabled?: boolean;
 }) {
   const [start, setStart] = useState(clip.start);
   const [end, setEnd] = useState(clip.end);
@@ -34,6 +37,7 @@ export function ClipCard({
   const [hasVideo, setHasVideo] = useState(Boolean(clip.file));
   const [hasCover, setHasCover] = useState(Boolean(clip.coverImage || clip.file));
   const [previewTab, setPreviewTab] = useState<"video" | "cover">("video");
+  const [captionStyle, setCaptionStyle] = useState(clip.captionStyle || "bold_pop");
 
   const [publishing, setPublishing] = useState<Platform | "both" | null>(null);
   const [publishProgress, setPublishProgress] = useState(0);
@@ -81,15 +85,20 @@ export function ClipCard({
     end: clip.end,
     file: clip.file,
     title: clip.title,
+    captionStyle: clip.captionStyle,
   });
 
   if (
     prevClip.start !== clip.start ||
     prevClip.end !== clip.end ||
     prevClip.file !== clip.file ||
-    prevClip.title !== clip.title
+    prevClip.title !== clip.title ||
+    prevClip.captionStyle !== clip.captionStyle
   ) {
-    setPrevClip({ start: clip.start, end: clip.end, file: clip.file, title: clip.title });
+    if (prevClip.captionStyle !== clip.captionStyle) {
+      setCaptionStyle(clip.captionStyle || "bold_pop");
+    }
+    setPrevClip({ start: clip.start, end: clip.end, file: clip.file, title: clip.title, captionStyle: clip.captionStyle });
     setStart(clip.start);
     setEnd(clip.end);
     setTimeError("");
@@ -131,9 +140,9 @@ export function ClipCard({
     setRerenderMessage("Re-rendering clip (audio trim + reframe + caption burns)…");
     try {
       if (onRerender) {
-        await onRerender(start, end);
+        await onRerender(start, end, captionStyle);
       } else {
-        await rerenderClip(jobId, clip.id, start, end);
+        await rerenderClip(jobId, clip.id, start, end, captionStyle);
       }
       setRerenderMessage("Re-render complete!");
       setVideoKey((k) => k + 1);
@@ -268,6 +277,7 @@ export function ClipCard({
   const videoSrc = `/api/jobs/${jobId}/clips/${clip.id}?v=${videoKey}`;
   const coverSrc = `/api/jobs/${jobId}/clips/${clip.id}?cover=1&v=${videoKey}`;
   const isYouTubePublished = publishState.youtube?.status === "published";
+  const selectedCaptionOption = CAPTION_STYLE_OPTIONS.find((option) => option.key === captionStyle) || CAPTION_STYLE_OPTIONS[0];
 
   return (
     <article className={`border border-white/15 bg-panel rounded-xl overflow-hidden stamp-sm transition ${clip.kept ? "" : "opacity-60"}`}>
@@ -424,6 +434,50 @@ export function ClipCard({
             </label>
           </div>
 
+          {captionsEnabled ? (
+            <div className="grid gap-3 rounded-lg border border-white/10 bg-panel-inset/50 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+              <label className="flex flex-col gap-2 text-xs font-bold uppercase tracking-wider text-muted">
+                Caption style
+                <select
+                  value={captionStyle}
+                  disabled={rerendering || busy}
+                  onChange={(event) => setCaptionStyle(event.target.value)}
+                  className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-semibold normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
+                >
+                  {CAPTION_STYLE_OPTIONS.map((option) => (
+                    <option key={option.key} value={option.key}>{option.label}</option>
+                  ))}
+                </select>
+                <span className="font-normal normal-case tracking-normal text-muted">{selectedCaptionOption.description}</span>
+              </label>
+              <div className="flex min-h-24 flex-col justify-center rounded-lg border border-white/10 bg-[#07090e] px-3 py-2.5">
+                <span className="text-[9px] font-bold uppercase tracking-[.15em] text-muted">Style preview</span>
+                <div className="mt-2 flex min-h-8 flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+                  {(captionStyle === "one_word" ? ["THIS"] : ["MAKE", "IT", "COUNT"]).map((word, index) => {
+                    const active = index === (captionStyle === "one_word" ? 0 : 1);
+                    return (
+                      <span
+                        key={word}
+                        style={{
+                          font: selectedCaptionOption.font,
+                          color: active ? selectedCaptionOption.active : selectedCaptionOption.base,
+                          background: active ? selectedCaptionOption.activeBg : undefined,
+                          padding: active && selectedCaptionOption.activeBg ? "1px 4px" : undefined,
+                          borderRadius: 3,
+                          WebkitTextStroke: `0.7px ${selectedCaptionOption.stroke}`,
+                          textShadow: selectedCaptionOption.glow ? `0 0 7px ${selectedCaptionOption.glow}` : undefined,
+                        }}
+                      >
+                        {selectedCaptionOption.upper ? word : word.toLowerCase()}
+                      </span>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-center text-[10px] text-muted">Preview is illustrative; the rendered clip uses word timestamps.</p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
@@ -431,7 +485,7 @@ export function ClipCard({
               onClick={handleRerenderClick}
               className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-bold text-ink rounded hover:bg-volt hover:text-[#101016] hover:border-volt transition disabled:opacity-60 cursor-pointer"
             >
-              {rerendering ? "Re-rendering…" : "Re-render Video"}
+              {rerendering ? "Re-rendering…" : clip.captionStyle !== captionStyle ? "Apply style & re-render" : "Re-render Video"}
             </button>
             {rerenderMessage ? (
               <span className="text-xs font-semibold text-volt">{rerenderMessage}</span>
