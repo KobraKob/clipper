@@ -21,7 +21,9 @@ export type ClipSeo = {
 };
 
 export type PublishResult = {
-  status: "published" | "error";
+  status: "uploading" | "published" | "error";
+  /** Fractional upload progress is persisted as a percentage (0–100). */
+  progress?: number;
   url?: string | null;
   id?: string;
   error?: string;

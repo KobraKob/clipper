@@ -3,6 +3,7 @@ import { openSync, closeSync, promises as fs } from "fs";
 import path from "path";
 import { hydrateJob } from "./pipeline";
 import type { Clip, CreateJobInput, Job, JobView, Platform, ProgressInfo } from "./types";
+import { readLogTail } from "./logTail";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), ".data");
 const DATA_FILE = path.join(DATA_DIR, "jobs.json");
@@ -138,9 +139,7 @@ export async function getJobLogs(jobId: string, maxLines = 100): Promise<string>
   try {
     const workDir = await resolveWorkDir(jobId);
     const logPath = path.join(workDir, "clipper.log");
-    const raw = await fs.readFile(/*turbopackIgnore: true*/ logPath, "utf8");
-    const lines = raw.split("\n");
-    return lines.slice(-maxLines).join("\n");
+    return await readLogTail(logPath, maxLines);
   } catch {
     return "";
   }
@@ -355,41 +354,64 @@ async function spawnClipperProcess(job: Job): Promise<void> {
 
 export async function listJobs(): Promise<JobView[]> {
   const jobs = await readJobs();
-  const views: JobView[] = [];
-  let updatedAny = false;
 
-  for (const job of jobs) {
-    // Self-heal: If metadata.json exists on disk with clips, rehydrate and mark as done
-    if (job.status !== "done" || !job.clips || job.clips.length === 0) {
-      try {
-        const outDir = await resolveOutDir(job.id);
-        const raw = await fs.readFile(path.join(outDir, "metadata.json"), "utf8");
-        const manifest = JSON.parse(raw);
-        if (manifest && Array.isArray(manifest.clips) && manifest.clips.length > 0) {
-          job.status = "done";
-          job.clips = mapManifestClips(manifest);
-          delete job.error;
-          updatedAny = true;
+  // Jobs are independent. Resolve disk metadata and progress concurrently instead
+  // of serially waiting on every file for every library refresh.
+  const results = await Promise.all(
+    jobs.map(async (job) => {
+      let recoveredClips: Clip[] | undefined;
+
+      // Self-heal: Recover completed clips when the job record is incomplete.
+      if (job.status !== "done" || !job.clips || job.clips.length === 0) {
+        try {
+          const outDir = await resolveOutDir(job.id);
+          const raw = await fs.readFile(path.join(outDir, "metadata.json"), "utf8");
+          const manifest = JSON.parse(raw);
+          if (manifest && Array.isArray(manifest.clips) && manifest.clips.length > 0) {
+            recoveredClips = mapManifestClips(manifest);
+            job.status = "done";
+            job.clips = recoveredClips;
+            delete job.error;
+          }
+        } catch {
+          // No metadata.json on disk
         }
-      } catch {
-        // No metadata.json on disk
       }
-    }
 
-    if (job.status === "running") {
-      const p = await readProgress(job.id);
-      if (p) job.progressInfo = p;
-    }
-    views.push(hydrateJob(job));
-  }
+      if (job.status === "running") {
+        const progress = await readProgress(job.id);
+        if (progress) job.progressInfo = progress;
+      }
 
-  if (updatedAny) {
-    void storeMutex.runExclusive(async () => {
-      await writeJobs(jobs);
+      return { jobId: job.id, view: hydrateJob(job), recoveredClips };
+    }),
+  );
+
+  const recoveries = results.filter((result) => result.recoveredClips);
+  if (recoveries.length > 0) {
+    // Merge self-healing changes into the latest store snapshot while holding the
+    // mutex. Writing the stale snapshot captured above could otherwise overwrite
+    // a job created or updated during the filesystem reads.
+    await storeMutex.runExclusive(async () => {
+      const latestJobs = await readJobs();
+      const recoveredById = new Map<string, Clip[]>();
+      for (const result of recoveries) {
+        if (result.recoveredClips) recoveredById.set(result.jobId, result.recoveredClips);
+      }
+
+      const mergedJobs = latestJobs.map((current) => {
+        const clips = recoveredById.get(current.id);
+        if (!clips || (current.status === "done" && current.clips?.length)) return current;
+
+        const recovered: Job = { ...current, status: "done", clips };
+        delete recovered.error;
+        return recovered;
+      });
+      await writeJobs(mergedJobs);
     });
   }
 
-  return views.sort((a, b) => b.createdAt - a.createdAt);
+  return results.map((result) => result.view).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function getJob(id: string): Promise<JobView | null> {

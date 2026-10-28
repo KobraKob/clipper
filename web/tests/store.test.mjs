@@ -5,6 +5,33 @@ import path from "node:path";
 import os from "node:os";
 import { createJob, deleteJob, getJob, listJobs, patchClip, setJobClips } from "../src/lib/store.ts";
 import { formatTimecode, hydrateJob } from "../src/lib/pipeline.ts";
+import { readLogTail } from "../src/lib/logTail.ts";
+
+test("readLogTail returns the requested final lines from a small log", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "clipper-log-tail-"));
+  const logFile = path.join(directory, "clipper.log");
+  try {
+    fs.writeFileSync(logFile, "first\nsecond\nthird\nfourth\n", "utf8");
+    assert.equal(await readLogTail(logFile, 2), "third\nfourth");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("readLogTail bounds large log reads and marks omitted history", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "clipper-large-log-"));
+  const logFile = path.join(directory, "clipper.log");
+  const lines = Array.from({ length: 20_000 }, (_, index) => `line-${String(index).padStart(5, "0")}`);
+  try {
+    fs.writeFileSync(logFile, lines.join("\n") + "\n", "utf8");
+    const tail = await readLogTail(logFile, 4);
+    assert.ok(tail.startsWith("[... earlier log output omitted ...]\n"));
+    assert.equal(tail.split("\n").slice(-4).join("\n"), "line-19996\nline-19997\nline-19998\nline-19999");
+    assert.ok(!tail.includes("line-00000"));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("formatTimecode formats seconds correctly", () => {
   assert.equal(formatTimecode(0), "0:00");

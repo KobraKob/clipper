@@ -141,8 +141,9 @@ export function ClipCard({
     setSavingTitle(true);
     try {
       const res = await selectTitleVariant(jobId, clip.id, variantId);
-      setActiveTitle(res.title);
-      setSelectedVariantId(res.selectedVariant);
+      const updatedClip = res.clips.find((item) => item.id === clip.id);
+      setActiveTitle(updatedClip?.title ?? clip.title);
+      setSelectedVariantId(updatedClip?.selectedTitleVariant ?? variantId);
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "Failed to select title variant.");
     } finally {
@@ -157,14 +158,9 @@ export function ClipCard({
     setScheduleMsg("Scheduling clip…");
     try {
       const scheduledUtc = new Date(scheduleTime).toISOString();
-      const res = await scheduleClip(
-        jobId,
-        clip.id,
-        scheduledUtc,
-        schedulePlatform,
-        publishPrivacy,
-      );
-      setScheduleState(res.schedule);
+      const res = await scheduleClip(jobId, clip.id, schedulePlatform, scheduledUtc);
+      const updatedClip = res.clips.find((item) => item.id === clip.id);
+      setScheduleState(updatedClip?.schedule);
       setScheduleMsg("Scheduled successfully!");
       setShowScheduleForm(false);
       setTimeout(() => setScheduleMsg(""), 4000);
@@ -218,7 +214,7 @@ export function ClipCard({
           setPublishState(c.publish);
           const pKey = target === "both" ? "youtube" : target;
           const platState = c.publish[pKey];
-          if (platState?.progress) {
+          if (typeof platState?.progress === "number") {
             setPublishProgress(platState.progress);
             if (platState.status === "uploading") {
               setPublishStatusText(`Uploading video chunks: ${platState.progress}%`);

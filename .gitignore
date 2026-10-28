@@ -10,3 +10,6 @@ credentials/
 workdir/
 web/.data/
 *.patch
+
+# Never commit a nested Git checkout or its internal objects
+**/.git-backup/
