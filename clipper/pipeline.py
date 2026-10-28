@@ -322,11 +322,13 @@ def run_pipeline(
         if seo_on:
             try:
                 topics = fetch_trending_topics(getattr(s, "seo_trend_region", "IN"))
-                trend_topics = topics or None
+                trend_topics = topics
                 if trend_topics:
                     logger.info("[seo] Loaded %d current trend candidates for region %s.", len(trend_topics), getattr(s, "seo_trend_region", "IN"))
+                elif trend_topics is not None:
+                    logger.info("[seo] Live trend feed returned no topics; not fabricating trend tags.")
                 else:
-                    logger.info("[seo] Live trend feed unavailable/empty; using only clip-relevant SEO.")
+                    logger.info("[seo] Live trend feed unavailable; using only clip-relevant SEO.")
             except Exception as exc:
                 logger.info("[seo] Live trend lookup skipped: %s", exc)
                 trend_topics = None
