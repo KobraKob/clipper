@@ -107,6 +107,7 @@ class Settings:
     # ---- Metadata / SEO ----
     seo_enabled: bool = _env_bool("SEO_ENABLED", True)
     seo_language: str = _env("SEO_LANGUAGE", "English")
+    seo_trend_region: str = _env("SEO_TREND_REGION", "IN")
     seo_credit_source: bool = _env_bool("SEO_CREDIT_SOURCE", True)
 
     # ---- Publishing ----
