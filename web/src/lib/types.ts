@@ -143,5 +143,7 @@ export type CreateJobInput = {
   hookOverlay?: boolean;
   progressBar?: boolean;
   loudnorm?: boolean;
+  soundtrackPath?: string;
+  soundtrackVolume?: number;
 };
 
