@@ -10,16 +10,17 @@ Cost: **₹0 / $0**. Supports local open models (faster-whisper + Ollama) and ho
 
 - **Ingestion**: Download directly from URLs via `yt-dlp` or process local video files.
 - **Speech-to-Text**: Word-level timestamps via `faster-whisper` (local) or chunked Groq Whisper (cloud).
-- **Candidate Discovery**: Sentence-snapped sliding windows (20–60 s) pre-filtered with speech rate, hook heuristics, and PySceneDetect visual cut proximity.
-- **Two-Stage LLM Scoring**:
-  - *Stage 1 (Fast LLM)*: Batched screening across all candidates to conserve tokens and API rate limits.
-  - *Stage 2 (Strong LLM)*: Detailed scoring, hook extraction, punchy title generation, and editorial reasoning.
-  - *Temporal Deduplication*: IoU filtering prevents redundant overlapping clips.
-- **Frame-Accurate Cutting**: Re-encoded cuts with padding to ensure pristine word starts and payoffs.
+- **Candidate Discovery**: Sentence-aligned sliding windows (20–60 s) pre-filtered with speech-rate, hook, payoff, clarity, and visual-scene signals.
+- **Rubric-Based Two-Stage Scoring**:
+  - *Stage 1*: Batched LLM scores are blended with deterministic quality signals; partial/invalid responses fall back safely.
+  - *Stage 2*: A weighted rubric evaluates hook, standalone context, payoff, emotion, specificity, clarity, pacing, and originality.
+  - *Relevance Validation*: Hooks and titles must overlap the candidate transcript; final candidates are capped at 10 and de-duplicated by temporal overlap.
+- **Optional Matched Soundtracks**: Upload MP3/WAV/M4A/AAC/OGG/FLAC (max 100 MB). FFmpeg + NumPy estimate audio energy and tempo, choose a strong beat-aligned segment for each cut, mix it under original audio with speech ducking, and record the selected offset in metadata. No paid AI key is required.
+- **Frame-Accurate Cutting**: Re-encoded cuts with padding to preserve word starts and payoffs; supports 1–10 cuts per video.
 - **Face-Tracked 9:16 Reframing**: YuNet (OpenCV DNN) face detection with exponential smoothing and dead-zone filtering to eliminate camera jitter, with instant snapping at scene cuts.
 - **Animated Captions**: 7 selectable social-media styles (Bold Pop, Beast, One Word, Highlight Box, Neon, Karaoke, Clean) with per-word pop/colour animation, burned in the same encode as the 1080x1920 reframe.
 - **High-quality source**: downloads at least 1080p (configurable) and records the real resolution obtained.
-- **SEO + Publishing**: generates title, description, hashtags per clip and uploads to YouTube Shorts / Instagram Reels (`publish` command or UI buttons). See `amendment.md`.
+- **Transcript-Grounded SEO + Publishing**: generates distinct titles/keywords from each clip, validates metadata against its transcript, builds 20 topical tags and 10 global tags, and adds up to 10 relevant current Google Trends tags. It will not fabricate trending topics to fill a quota if the live feed has too few relevant matches. YouTube description metadata stays within platform limits; Instagram captions use at most five hashtags. Publish through the CLI or UI. See `amendment.md`.
 - **Caching**: Full cache pipeline (`audio.wav`, `transcript.json`, `candidates.json`) prevents re-transcription and saves API quota.
 
 ---
@@ -83,6 +84,7 @@ OLLAMA_STRONG_MODEL=qwen2.5:7b-instruct
 SHORTLIST=10
 MIN_CLIP_DURATION=20
 MAX_CLIP_DURATION=60
+SEO_TREND_REGION=IN
 ```
 
 ---
@@ -95,7 +97,10 @@ Run on a local video or YouTube URL:
 
 ```bash
 # Using default provider from .env
-python -m clipper.cli run input.mp4 --clips 5
+python -m clipper.cli run input.mp4 --clips 10
+
+# Optional uploaded soundtrack; choose a 5–40% music level
+python -m clipper.cli run input.mp4 --clips 10 --soundtrack workdir/soundtracks/music.mp3 --soundtrack-volume 0.18
 
 # Override provider from CLI
 python -m clipper.cli run "https://www.youtube.com/watch?v=..." --provider groq --clips 3
