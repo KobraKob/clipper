@@ -372,8 +372,12 @@ def generate_metadata(
     hashtags = relevant_tags + global_tags + trend_tags
 
     # Use a clear, truthful note in metadata when live trends are missing or irrelevant.
-    trend_status = "matched" if len(trend_tags) >= 10 else (
-        "partial" if trend_tags else "no-relevant-current-trends"
+    trend_status = "unavailable" if trending_topics is None else (
+        "empty-feed" if len(trending_topics) == 0 else (
+            "matched" if len(trend_tags) >= 10 else (
+                "partial" if trend_tags else "no-relevant-current-trends"
+            )
+        )
     )
     trend_checked_at = datetime.now(timezone.utc).isoformat() if trending_topics is not None else None
 
