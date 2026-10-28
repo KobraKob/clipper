@@ -223,7 +223,7 @@ def _trending_hashtags(
     for item in trending_topics or []:
         title = str(item.get("title", "")) if isinstance(item, dict) else str(item)
         tag = _slug_tag(title)
-        overlap = _tokens(title).intersection(reference_tokens)
+        overlap = set(_tokens(title)).intersection(reference_tokens)
         # A shared long-tail term can be meaningful on its own; common one-word overlaps are weak.
         strong_overlap = len(overlap) >= 2 or any(len(word) >= 9 for word in overlap)
         if tag and strong_overlap and tag.casefold() not in excluded_keys:
