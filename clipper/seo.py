@@ -105,6 +105,11 @@ def _is_relevant(candidate: str, reference: str) -> bool:
     reference_tokens = _expanded_tokens(reference)
     return bool(candidate_tokens and candidate_tokens.intersection(reference_tokens))
 
+def _is_content_specific(candidate: str, reference: str) -> bool:
+    """Reject a generic metadata string backed by only a weak, single-word overlap."""
+    overlap = _expanded_tokens(candidate).intersection(_expanded_tokens(reference))
+    return len(overlap) >= 2 or any(len(word) >= 7 for word in overlap)
+
 
 def _slug_tag(value: str) -> str:
     words = re.findall(r"[A-Za-z0-9]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", value or ""))
@@ -320,7 +325,7 @@ def generate_metadata(
             break
 
     candidate_title = str(raw.get("youtube_title") or "")
-    if candidate_title and _is_relevant(candidate_title, reference):
+    if candidate_title and _is_content_specific(candidate_title, reference):
         title = _truncate(candidate_title, 70)
     else:
         title = _truncate(fallback["youtube_title"], 70)
@@ -332,7 +337,7 @@ def generate_metadata(
             if not isinstance(value, dict):
                 continue
             variant_title = str(value.get("title") or "").strip()
-            if not variant_title or not _is_relevant(variant_title, reference):
+            if not variant_title or not _is_content_specific(variant_title, reference):
                 continue
             variants.append({
                 "id": str(value.get("id") or f"variant_{index}"),
@@ -348,7 +353,7 @@ def generate_metadata(
     variants = variants[:3]
 
     description = str(raw.get("youtube_description") or "")
-    if not description or not _is_relevant(description, reference):
+    if not description or not _is_content_specific(description, reference):
         description = str(fallback["youtube_description"])
     # Avoid repetitive, keyword-stuffed descriptions while preserving the core topic.
     description = description.strip()
@@ -414,7 +419,7 @@ def generate_metadata(
         if len(instagram_tags) >= IG_HASHTAGS_MAX:
             break
     instagram_caption = str(raw.get("instagram_caption") or "")
-    if not instagram_caption or not _is_relevant(instagram_caption, reference):
+    if not instagram_caption or not _is_content_specific(instagram_caption, reference):
         instagram_caption = str(fallback["instagram_caption"])
     instagram_caption = _truncate(instagram_caption, IG_CAPTION_MAX - 120)
     instagram_caption += "\n\n" + " ".join("#" + tag for tag in instagram_tags)
