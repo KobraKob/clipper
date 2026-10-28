@@ -380,11 +380,9 @@ export function CutForm() {
 
         {captions ? (
           <fieldset className="flex flex-col gap-3 border border-white/12 bg-panel-inset/40 p-4 md:p-5 rounded-xl">
+            <legend className="font-semibold text-ink">Caption style</legend>
             <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <legend className="font-semibold text-ink">Caption style</legend>
-                <p className="mt-1 text-xs text-muted">Choose a look. Preview changes instantly; the selected style is burned into the export.</p>
-              </div>
+              <p className="mt-1 text-xs text-muted">Choose a look. Preview changes instantly; the selected style is burned into the export.</p>
               <span className="font-mono text-[10px] uppercase tracking-wider text-ice">{CAPTION_STYLE_OPTIONS.length} styles</span>
             </div>
 
