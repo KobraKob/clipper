@@ -363,7 +363,7 @@ def transcribe(
 @app.command()
 def score_only(
     transcript_file: str = typer.Argument(..., help="Path to existing transcript.json."),
-    clips: int = typer.Option(5, "--clips", "-n", help="Number of clips to select."),
+    clips: int = typer.Option(5, "--clips", "-n", min=1, max=10, help="Number of clips to select (1–10)."),
     provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM Provider ('local', 'groq', or 'openrouter')."),
 ) -> None:
     """Score candidates from an existing transcript.json without video re-encoding."""
