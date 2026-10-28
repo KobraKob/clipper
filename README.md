@@ -20,7 +20,7 @@ Cost: **₹0 / $0**. Supports local open models (faster-whisper + Ollama) and ho
 - **Face-Tracked 9:16 Reframing**: YuNet (OpenCV DNN) face detection with exponential smoothing and dead-zone filtering to eliminate camera jitter, with instant snapping at scene cuts.
 - **Animated Captions**: 7 selectable social-media styles (Bold Pop, Beast, One Word, Highlight Box, Neon, Karaoke, Clean) with per-word pop/colour animation, burned in the same encode as the 1080x1920 reframe.
 - **High-quality source**: downloads at least 1080p (configurable) and records the real resolution obtained.
-- **Transcript-Grounded SEO + Publishing**: generates distinct titles/keywords from each clip, validates metadata against its transcript, builds 20 topical tags and 10 global tags, and adds up to 10 relevant current Google Trends tags. It will not fabricate trending topics to fill a quota if the live feed has too few relevant matches. YouTube description metadata stays within platform limits; Instagram captions use at most five hashtags. Publish through the CLI or UI. See `amendment.md`.
+- **Transcript-Grounded SEO + Publishing**: generates distinct titles/keywords from each clip, validates metadata against its transcript, builds 20 topical tags and 10 global tags, and adds up to 10 relevant current Google Trends tags. A complete bank contains up to 40 hashtags; fewer are emitted when the live feed lacks ten relevant trend topics rather than fabricating trends. YouTube description metadata stays within platform limits; Instagram captions use at most five hashtags. Publish through the CLI or UI. See `amendment.md`.
 - **Caching**: Full cache pipeline (`audio.wav`, `transcript.json`, `candidates.json`) prevents re-transcription and saves API quota.
 
 ---
@@ -136,7 +136,7 @@ Run the full automated test suite:
 python -m pytest tests/ -v
 ```
 
-All 24 unit and integration tests run offline without consuming external API quota using synthetic video fixtures and mock providers.
+The unit and integration tests use synthetic fixtures and mock providers. Live trend lookup is best-effort and degrades cleanly when the RSS feed is unavailable.
 
 ---
 
