@@ -75,17 +75,17 @@ Score each dimension 0-10:
 - originality: non-obvious angle or distinctive explanation
 
 Return ONLY valid JSON:
-{
+{{
  "score": 0-100,
- "dimension_scores": {
+ "dimension_scores": {{
   "hook_strength": 0-10, "standalone_context": 0-10, "payoff": 0-10,
   "emotional_resonance": 0-10, "specificity": 0-10, "clarity": 0-10,
   "pacing": 0-10, "originality": 0-10
- },
+ }},
  "hook": "a hook grounded in the first lines",
  "title": "a specific, relevant title of 3-8 words",
  "reason": "one evidence-based sentence explaining the score"
-}
+}}
 
 Candidate title (may be empty): {title}
 Opening sentence: {first_text}
@@ -268,7 +268,7 @@ def stage2(
     """Deep-rank one candidate using a rubric and reject titles/hooks unrelated to its text."""
     text = " ".join(str(cand.get("text") or "").split())
     first_text = str(cand.get("first_text") or text).strip()
-    duration = float(cand.get("duration") or max(0.0, float(cand.get("end", 0)) - float(cand.get("start", 0)))
+    duration = float(cand.get("duration") or max(0.0, float(cand.get("end", 0)) - float(cand.get("start", 0))))
     word_count = int(cand.get("word_count") or len(text.split()))
     local_score, local_components = heuristic_quality_score(cand)
     fast_score = _clamp_score(cand.get("fast_score"), local_score)
