@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     "Turn long videos into vertical clips. Find standout moments, reframe, caption, and export with a local-first open-source clipping studio.",
   applicationName: "Clipper",
   openGraph: {
-    title: "Clipper — The Open-Source Clip Lab",
+    title: "Clipper — Cut the noise. Keep the moment.",
     description:
       "Turn long videos into short-form clips with transcription, face-aware reframing, and word-timed captions.",
     type: "website",
