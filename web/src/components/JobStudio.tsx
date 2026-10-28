@@ -119,10 +119,10 @@ export function JobStudio({ jobId }: { jobId: string }) {
     }
   }
 
-  async function handleRerender(clipId: string, start: number, end: number) {
+  async function handleRerender(clipId: string, start: number, end: number, captionStyle?: string) {
     setBusy(true);
     try {
-      const next = await rerenderClip(jobId, clipId, start, end);
+      const next = await rerenderClip(jobId, clipId, start, end, captionStyle);
       setJob(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not re-render clip.");
@@ -422,9 +422,10 @@ export function JobStudio({ jobId }: { jobId: string }) {
                   jobId={jobId}
                   clip={clip}
                   busy={busy}
+                  captionsEnabled={job.captions}
                   onKeep={(keptNext) => void updateClip(clip.id, { kept: keptNext })}
                   onTimes={(start, end) => void updateClip(clip.id, { start, end })}
-                  onRerender={(start, end) => handleRerender(clip.id, start, end)}
+                  onRerender={(start, end, captionStyle) => handleRerender(clip.id, start, end, captionStyle)}
                 />
               ))}
             </div>
