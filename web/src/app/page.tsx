@@ -4,10 +4,14 @@ import { PhoneStack } from "@/components/PhoneStack";
 import { PIPELINE_STAGES } from "@/lib/types";
 
 const PROCESS_DETAILS = [
-  "Turn speech into searchable, timestamped words.",
-  "Rank promising moments by hooks, pacing, and context.",
-  "Cut precisely, reframe for vertical, and sync captions.",
-  "Export ready-to-post clips with useful metadata.",
+  "Accept a video URL or a local source file.",
+  "Create word-level timestamps from speech.",
+  "Scan long footage for promising moments.",
+  "Rank hooks and remove overlapping candidates.",
+  "Cut precise segments around selected moments.",
+  "Keep the speaker framed for vertical viewing.",
+  "Burn in timed captions with your chosen style.",
+  "Export clips and accompanying metadata.",
 ];
 
 export default function Home() {
@@ -140,7 +144,7 @@ export default function Home() {
               <div className="ux-process-card-top">
                 <span className="ux-process-number">0{index + 1}</span>
                 <span className="ux-process-symbol" aria-hidden="true">
-                  {["⌁", "◉", "↗", "▣"][index] ?? "↗"}
+                  {["⇩", "≋", "⌕", "◉", "✂", "▣", "≡", "↗"][index] ?? "↗"}
                 </span>
               </div>
               <h3>{stage.label}</h3>
