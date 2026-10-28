@@ -71,10 +71,14 @@ class Settings:
     max_clip_duration: int = int(_env("MAX_CLIP_DURATION", "60"))
 
     # ---- Source download quality (yt-dlp) ----
-    min_source_height: int = int(_env("MIN_SOURCE_HEIGHT", "1080"))
-    max_source_height: int = int(_env("MAX_SOURCE_HEIGHT", "2160"))
+    min_source_height: int = int(_env("MIN_SOURCE_HEIGHT", "720"))
+    max_source_height: int = int(_env("MAX_SOURCE_HEIGHT", "1080"))
     ytdlp_cookies_from_browser: str = _env("YTDLP_COOKIES_FROM_BROWSER", "")
     ytdlp_cookies_file: str = _env("YTDLP_COOKIES_FILE", "")
+    ytdlp_force_ipv4: bool = _env_bool("YTDLP_FORCE_IPV4", False)
+    ytdlp_proxy: str = _env("YTDLP_PROXY", "")
+    ytdlp_socket_timeout: int = int(_env("YTDLP_SOCKET_TIMEOUT", "30"))
+    ytdlp_retries: int = int(_env("YTDLP_RETRIES", "5"))
 
     # ---- Output / render ----
     out_width: int = int(_env("OUT_WIDTH", "1080"))

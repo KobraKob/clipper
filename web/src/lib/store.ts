@@ -92,19 +92,57 @@ async function writeJobs(jobs: Job[]): Promise<void> {
 }
 
 async function readProgress(jobId: string): Promise<ProgressInfo | undefined> {
+  const workDir = await resolveWorkDir(jobId);
+  const outDir = await resolveOutDir(jobId);
+
+  const candidatePaths: string[] = [
+    path.join(workDir, "progress.json"),
+    path.join(outDir, "progress.json"),
+  ];
+
+  try {
+    const entries = await fs.readdir(/*turbopackIgnore: true*/ workDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name.startsWith("job_")) {
+        candidatePaths.push(path.join(workDir, entry.name, "progress.json"));
+      }
+    }
+  } catch {
+    // workDir might not exist yet
+  }
+
+  for (const p of candidatePaths) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await fs.readFile(/*turbopackIgnore: true*/ p, "utf8");
+        return JSON.parse(raw) as ProgressInfo;
+      } catch (err: unknown) {
+        if (
+          attempt === 0 &&
+          err &&
+          typeof err === "object" &&
+          "code" in err &&
+          ((err as NodeJS.ErrnoException).code === "EBUSY" || (err as NodeJS.ErrnoException).code === "EPERM")
+        ) {
+          await new Promise((r) => setTimeout(r, 40));
+          continue;
+        }
+        break;
+      }
+    }
+  }
+  return undefined;
+}
+
+export async function getJobLogs(jobId: string, maxLines = 100): Promise<string> {
   try {
     const workDir = await resolveWorkDir(jobId);
-    const progressPath = path.join(workDir, "progress.json");
-    const raw = await fs.readFile(progressPath, "utf8");
-    return JSON.parse(raw) as ProgressInfo;
+    const logPath = path.join(workDir, "clipper.log");
+    const raw = await fs.readFile(/*turbopackIgnore: true*/ logPath, "utf8");
+    const lines = raw.split("\n");
+    return lines.slice(-maxLines).join("\n");
   } catch {
-    try {
-      const outDir = await resolveOutDir(jobId);
-      const raw = await fs.readFile(path.join(outDir, "progress.json"), "utf8");
-      return JSON.parse(raw) as ProgressInfo;
-    } catch {
-      return undefined;
-    }
+    return "";
   }
 }
 

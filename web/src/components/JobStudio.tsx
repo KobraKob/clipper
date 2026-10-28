@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { deleteJob, fetchJob, patchClip, rerenderClip } from "@/lib/api";
+import { deleteJob, fetchJob, fetchJobLogs, patchClip, rerenderClip } from "@/lib/api";
 import { formatTimecode } from "@/lib/pipeline";
 import type { JobView } from "@/lib/types";
 import { ClipCard } from "./ClipCard";
@@ -15,6 +15,8 @@ export function JobStudio({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<JobView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [logs, setLogs] = useState<string>("");
+  const [showLogs, setShowLogs] = useState<boolean>(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -54,6 +56,35 @@ export function JobStudio({ jobId }: { jobId: string }) {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [isRunning, refresh]);
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadLogs() {
+      try {
+        const res = await fetchJobLogs(jobId);
+        if (!ignore) {
+          setLogs(res.logs || "");
+          if (res.status === "error") {
+            setShowLogs(true);
+          }
+        }
+      } catch {
+        // Logs endpoint unavailable or job deleted
+      }
+    }
+
+    void loadLogs();
+    if (!isRunning && !showLogs) return;
+
+    const timer = window.setInterval(() => {
+      void loadLogs();
+    }, 2000);
+
+    return () => {
+      ignore = true;
+      window.clearInterval(timer);
+    };
+  }, [jobId, isRunning, showLogs]);
 
   async function updateClip(clipId: string, patch: { kept?: boolean; start?: number; end?: number }) {
     setBusy(true);
@@ -183,6 +214,53 @@ export function JobStudio({ jobId }: { jobId: string }) {
           </p>
         </div>
       ) : null}
+
+      {/* Live Pipeline Terminal & Console Logs */}
+      <div className="border border-white/15 bg-panel rounded-xl overflow-hidden stamp-sm">
+        <button
+          type="button"
+          onClick={() => setShowLogs((prev) => !prev)}
+          className="w-full flex items-center justify-between p-4 bg-panel-raised hover:bg-panel border-b border-white/10 text-left transition cursor-pointer"
+        >
+          <div className="flex items-center gap-2.5">
+            <span
+              className={`inline-block w-2.5 h-2.5 rounded-full ${
+                running
+                  ? "bg-volt animate-ping"
+                  : job.status === "error"
+                  ? "bg-punch"
+                  : "bg-ice"
+              }`}
+            />
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-ink">
+              Live Pipeline Console & Logs
+            </span>
+          </div>
+          <span className="font-mono text-xs text-muted hover:text-ink">
+            {showLogs ? "Hide Console ▲" : "Show Console ▼"}
+          </span>
+        </button>
+
+        {showLogs ? (
+          <div className="p-4 bg-[#0a0a0e] text-xs font-mono flex flex-col gap-2">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2 text-[11px] text-muted">
+              <span>Tail of workdir/{jobId}/clipper.log</span>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(logs);
+                }}
+                className="hover:text-volt transition cursor-pointer font-bold"
+              >
+                Copy Logs
+              </button>
+            </div>
+            <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-all text-gray-300 leading-relaxed font-mono select-text bg-[#0e0e14] p-3 rounded-lg border border-white/5">
+              {logs || "Connecting to live process output..."}
+            </pre>
+          </div>
+        ) : null}
+      </div>
 
       {job.status === "error" ? (
         <div role="alert" className="border border-punch/60 bg-punch/10 p-6 flex flex-col gap-4 rounded-xl stamp-sm">

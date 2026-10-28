@@ -169,7 +169,7 @@ class FakeDownloads:
         self.probe_calls += 1
         return mock.Mock(returncode=0, stdout=json.dumps(self.info), stderr="")
 
-    def run_streaming(self, cmd):
+    def run_streaming(self, cmd, *args, **kwargs):
         self.commands.append(cmd)
         code = self.outcomes.pop(0) if self.outcomes else 0
         if code == 0:
@@ -361,6 +361,58 @@ class TestDownloadFlow(unittest.TestCase):
         self.assertTrue(
             "YTDLP_COOKIES_FROM_BROWSER" in hint or "cookies" in hint.lower() or "runtime" in hint.lower()
         )
+
+    def test_getaddrinfo_error_diagnosis(self):
+        err_msg = (
+            "ERROR: [youtube] aEUNrQRQnhk: Unable to download API page: "
+            "HTTPSConnection(host='www.youtube.com', port=443): Failed to resolve 'www.youtube.com' "
+            "([Errno 11001] getaddrinfo failed)"
+        )
+        hint = ingest._hint_for_error(err_msg)
+        self.assertIn("YTDLP_FORCE_IPV4", hint)
+        self.assertIn("getaddrinfo", hint.lower())
+
+    def test_download_passes_ipv4_and_proxy_args(self):
+        info = {"formats": LADDER_1080}
+        with tempfile.TemporaryDirectory() as tmp, FakeDownloads(tmp, info) as fake:
+            ingest.download(
+                "https://youtu.be/x",
+                pathlib.Path(tmp),
+                min_height=1080,
+                force_ipv4=True,
+                proxy="http://127.0.0.1:8080",
+                socket_timeout=45,
+            )
+            cmd = fake.commands[0]
+            self.assertIn("--force-ipv4", cmd)
+            self.assertIn("--proxy", cmd)
+            self.assertEqual(cmd[cmd.index("--proxy") + 1], "http://127.0.0.1:8080")
+            self.assertIn("--socket-timeout", cmd)
+            self.assertEqual(cmd[cmd.index("--socket-timeout") + 1], "45")
+
+    def test_probe_auto_retries_with_force_ipv4_on_getaddrinfo_failure(self):
+        calls = []
+
+        def mock_capture(cmd, timeout=None):
+            calls.append(list(cmd))
+            if "--force-ipv4" in cmd:
+                return mock.Mock(returncode=0, stdout=json.dumps({"formats": []}), stderr="")
+            return mock.Mock(
+                returncode=1,
+                stdout="",
+                stderr="Failed to resolve 'www.youtube.com' ([Errno 11001] getaddrinfo failed)",
+            )
+
+        with mock.patch.object(ingest, "_run_capture", side_effect=mock_capture), mock.patch.object(
+            ingest, "_get_ytdlp_cmd", lambda: ["yt-dlp"]
+        ):
+            base_args = ["--socket-timeout", "30"]
+            res = ingest._probe_url_info("https://youtu.be/x", [], base_args)
+            self.assertEqual(res, {"formats": []})
+            self.assertEqual(len(calls), 2)
+            self.assertNotIn("--force-ipv4", calls[0])
+            self.assertIn("--force-ipv4", calls[1])
+            self.assertIn("--force-ipv4", base_args)
 
 
 if __name__ == "__main__":

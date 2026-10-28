@@ -147,3 +147,18 @@ export async function deleteJob(id: string): Promise<void> {
   if (!res.ok) throw new Error(await parseError(res));
 }
 
+export async function fetchJobLogs(id: string): Promise<{
+  id: string;
+  status: string;
+  stageId: string;
+  progress: number;
+  progressMessage?: string;
+  error?: string;
+  logs: string;
+}> {
+  const res = await fetch(`/api/jobs/${id}/logs`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+

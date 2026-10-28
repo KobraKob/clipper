@@ -75,12 +75,20 @@ def write_progress(
         },
         indent=2,
     )
-    try:
-        (job_dir / "progress.json").write_text(payload, encoding="utf-8")
-        if out_dir is not None:
-            (out_dir / "progress.json").write_text(payload, encoding="utf-8")
-    except Exception as exc:
-        logger.debug("[pipeline] Could not write progress.json: %s", exc)
+    targets = [job_dir / "progress.json"]
+    if job_dir.parent and job_dir.parent.name.startswith("job-"):
+        targets.append(job_dir.parent / "progress.json")
+    if out_dir is not None:
+        targets.append(out_dir / "progress.json")
+
+    for target in targets:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(".tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            tmp.replace(target)
+        except Exception as exc:
+            logger.debug("[pipeline] Could not write %s: %s", target, exc)
 
 
 def get_transcript(
@@ -155,6 +163,15 @@ def run_pipeline(
     try:
         # 1. Ingestion
         stage_started = time.perf_counter()
+
+        def on_download_progress(pct: float, status_str: str) -> None:
+            # Scale yt-dlp download (0-100%) to ingest stage percent (5% - 15%)
+            pipe_pct = 5 + int((pct / 100.0) * 10)
+            clean_status = status_str
+            if "[download]" in clean_status:
+                clean_status = clean_status.replace("[download]", "Downloading:").strip()
+            write_progress(job_dir, "ingest", pipe_pct, clean_status, base_out_dir)
+
         write_progress(job_dir, "ingest", 5, f"Ingesting source: {source}", base_out_dir)
         logger.info("[pipeline] Ingesting source: %s", source)
         if is_url(source):
@@ -165,6 +182,11 @@ def run_pipeline(
                 max_height=s.max_source_height,
                 cookies_from_browser=s.ytdlp_cookies_from_browser or None,
                 cookies_file=s.ytdlp_cookies_file or None,
+                progress_callback=on_download_progress,
+                force_ipv4=s.ytdlp_force_ipv4,
+                proxy=s.ytdlp_proxy or None,
+                socket_timeout=s.ytdlp_socket_timeout,
+                retries=s.ytdlp_retries,
             )
         else:
             video_path = pathlib.Path(source)

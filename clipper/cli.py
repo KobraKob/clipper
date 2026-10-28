@@ -98,6 +98,12 @@ def run(
     cover: bool = typer.Option(
         True, "--cover/--no-cover", help="Extract sharpest thumbnail cover frame."
     ),
+    force_ipv4: Optional[bool] = typer.Option(
+        None, "--force-ipv4/--no-force-ipv4", help="Force IPv4 connection in yt-dlp to bypass IPv6 DNS resolution issues."
+    ),
+    proxy: Optional[str] = typer.Option(
+        None, "--proxy", help="Proxy URL for yt-dlp downloads (e.g. http://127.0.0.1:7890)."
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug logging."),
 ) -> None:
     """Run full automated clipping pipeline."""
@@ -120,6 +126,8 @@ def run(
         caption_position=caption_position,
         min_source_height=min_height,
         video_encoder=encoder,
+        ytdlp_force_ipv4=force_ipv4,
+        ytdlp_proxy=proxy,
     )
 
     try:

@@ -56,16 +56,22 @@ def score_hook(text: str) -> float:
     return score
 
 
-def detect_scene_cuts(video_path: pathlib.Path, max_duration: Optional[float] = None) -> List[float]:
-    """Detect visual scene cuts using PySceneDetect."""
+def detect_scene_cuts(
+    video_path: pathlib.Path,
+    max_duration: Optional[float] = None,
+    frame_skip: int = 4,
+) -> List[float]:
+    """Detect visual scene cuts using PySceneDetect with frame-skipping and duration safety."""
     try:
         from scenedetect import open_video, SceneManager
         from scenedetect.detectors import ContentDetector
 
         video = open_video(str(video_path))
+        # Cap duration to first 10 minutes (600s) to avoid multi-minute hangs on long podcasts/streams
+        duration = max_duration if max_duration is not None else 600.0
         scene_manager = SceneManager()
         scene_manager.add_detector(ContentDetector(threshold=27.0))
-        scene_manager.detect_scenes(video=video, duration=max_duration)
+        scene_manager.detect_scenes(video=video, duration=duration, frame_skip=frame_skip)
         scene_list = scene_manager.get_scene_list()
         cut_times = [scene[0].get_seconds() for scene in scene_list if scene[0].get_seconds() > 0]
         return cut_times

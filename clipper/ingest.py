@@ -27,8 +27,9 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -110,9 +111,12 @@ def _run_capture(cmd: List[str], timeout: Optional[float] = None) -> subprocess.
 _PCT_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 
 
-def _run_streaming(cmd: List[str]) -> Tuple[int, str]:
+def _run_streaming(
+    cmd: List[str],
+    on_progress: Optional[Callable[[float, str], None]] = None,
+) -> Tuple[int, str]:
     """
-    Run a command and stream its output into the log (throttled to ~10% steps for downloads),
+    Run a command and stream its output into the log (throttled to ~5% steps for downloads),
     so long downloads show visible progress in clipper.log / the web studio.
     Returns (returncode, tail_of_output).
     """
@@ -136,10 +140,16 @@ def _run_streaming(cmd: List[str]) -> Tuple[int, str]:
             tail.pop(0)
         m = _PCT_RE.search(line)
         if m:
-            bucket = int(float(m.group(1)) // 10)
+            pct = float(m.group(1))
+            bucket = int(pct // 5)
             if bucket != last_bucket:
                 last_bucket = bucket
                 logger.info("[ingest] %s", line)
+                if on_progress:
+                    try:
+                        on_progress(pct, line)
+                    except Exception:
+                        pass
         elif not line.startswith("[download]"):
             logger.debug("[ingest] %s", line)
     proc.wait()
@@ -396,20 +406,69 @@ def _find_source_file(out_dir: pathlib.Path) -> Optional[pathlib.Path]:
     return max(cands, key=lambda p: p.stat().st_mtime)
 
 
+def _is_dns_or_connection_error(text: str) -> bool:
+    low = text.lower()
+    return any(
+        err in low
+        for err in (
+            "getaddrinfo failed",
+            "errno 11001",
+            "failed to resolve",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "connection refused",
+            "network is unreachable",
+            "timed out",
+        )
+    )
+
+
 def _probe_url_info(
     url: str,
     profile_args: List[str],
     base_args: List[str],
+    retries: int = 3,
+    socket_timeout: int = 30,
 ) -> Dict[str, Any]:
-    cmd = _get_ytdlp_cmd() + base_args + profile_args + ["-J", "--no-playlist", "--no-warnings", url]
+    net_args = [
+        "--retries",
+        str(retries),
+        "--extractor-retries",
+        str(retries),
+        "--socket-timeout",
+        str(socket_timeout),
+    ]
+    cmd = _get_ytdlp_cmd() + base_args + net_args + profile_args + ["-J", "--no-playlist", "--no-warnings", url]
     res = _run_capture(cmd, timeout=180)
     if res.returncode != 0:
-        raise RuntimeError((res.stderr or res.stdout or "yt-dlp probe failed").strip()[-800:])
+        err_text = (res.stderr or res.stdout or "yt-dlp probe failed").strip()
+        # Auto-retry with forced IPv4 if getaddrinfo / DNS resolution failed and -4 wasn't already passed
+        if "--force-ipv4" not in cmd and "-4" not in cmd and _is_dns_or_connection_error(err_text):
+            logger.info("[ingest] Probe hit network/DNS resolution issue; retrying with IPv4 forced (--force-ipv4)...")
+            ipv4_cmd = _get_ytdlp_cmd() + base_args + ["--force-ipv4"] + net_args + profile_args + ["-J", "--no-playlist", "--no-warnings", url]
+            res_retry = _run_capture(ipv4_cmd, timeout=180)
+            if res_retry.returncode == 0:
+                if "--force-ipv4" not in base_args and "-4" not in base_args:
+                    base_args.append("--force-ipv4")
+                return json.loads(res_retry.stdout)
+            err_text = (res_retry.stderr or res_retry.stdout or err_text).strip()
+        raise RuntimeError(err_text[-800:])
     return json.loads(res.stdout)
 
 
 def _hint_for_error(text: str) -> str:
     low = text.lower()
+    if "getaddrinfo failed" in low or "errno 11001" in low or "failed to resolve" in low or "temporary failure in name resolution" in low:
+        return (
+            " Hint: DNS / network resolution failed ([Errno 11001] getaddrinfo failed). Check your internet connection "
+            "and DNS settings. If your network/ISP has IPv6 routing issues, enable IPv4 mode by setting "
+            "YTDLP_FORCE_IPV4=true in .env or passing --force-ipv4."
+        )
+    if "connection refused" in low or "network is unreachable" in low or "proxy" in low:
+        return (
+            " Hint: Network connection failed. If you require a proxy to access YouTube, configure "
+            "YTDLP_PROXY=http://your-proxy:port in .env."
+        )
     if "sign in to confirm" in low or "not a bot" in low or "cookies" in low:
         return (
             " Hint: YouTube is asking for a signed-in session. Set YTDLP_COOKIES_FROM_BROWSER=chrome "
@@ -471,6 +530,11 @@ def download(
     cookies_from_browser: Optional[str] = None,
     cookies_file: Optional[str] = None,
     allow_remote_components: Optional[bool] = None,
+    progress_callback: Optional[Callable[[float, str], None]] = None,
+    force_ipv4: Optional[bool] = None,
+    proxy: Optional[str] = None,
+    socket_timeout: Optional[int] = None,
+    retries: Optional[int] = None,
 ) -> pathlib.Path:
     """
     Download ``url`` into ``out_dir`` as ``source.<ext>`` at the best available quality.
@@ -486,6 +550,21 @@ def download(
     cookies_file = cookies_file or os.getenv("YTDLP_COOKIES_FILE") or None
     if allow_remote_components is None:
         allow_remote_components = os.getenv("YTDLP_ALLOW_REMOTE_COMPONENTS", "").lower() in ("1", "true", "yes")
+
+    if force_ipv4 is None:
+        force_ipv4 = os.getenv("YTDLP_FORCE_IPV4", "").lower() in ("1", "true", "yes", "on")
+    if proxy is None:
+        proxy = os.getenv("YTDLP_PROXY", "").strip() or None
+    if socket_timeout is None:
+        try:
+            socket_timeout = int(os.getenv("YTDLP_SOCKET_TIMEOUT", "30"))
+        except (ValueError, TypeError):
+            socket_timeout = 30
+    if retries is None:
+        try:
+            retries = int(os.getenv("YTDLP_RETRIES", "5"))
+        except (ValueError, TypeError):
+            retries = 5
 
     # ---- Reuse a cached download only if it already meets the quality target ----
     existing = _find_source_file(out_dir)
@@ -512,6 +591,11 @@ def download(
     base_args = _get_js_runtime_args() + _auth_args(cookies_from_browser, cookies_file)
     if allow_remote_components:
         base_args += ["--remote-components", "ejs:github"]
+    if force_ipv4:
+        base_args += ["--force-ipv4"]
+    if proxy:
+        base_args += ["--proxy", proxy]
+    base_args += ["--socket-timeout", str(socket_timeout)]
 
     profiles = CLIENT_PROFILES if is_youtube_url(url) else CLIENT_PROFILES[:1]
     plans: List[Tuple[str, List[str], DownloadPlan, Dict[str, Any]]] = []
@@ -519,11 +603,19 @@ def download(
 
     for label, profile_args in profiles:
         try:
+            if progress_callback:
+                try:
+                    progress_callback(0.0, f"Probing available formats ({label})...")
+                except Exception:
+                    pass
             logger.info("[ingest] Probing available formats (%s)...", label)
-            info = _probe_url_info(url, profile_args, base_args)
+            info = _probe_url_info(url, profile_args, base_args, retries=retries, socket_timeout=socket_timeout)
         except Exception as exc:
-            probe_errors.append(f"{label}: {exc}")
-            logger.warning("[ingest] Probe via %s failed: %s", label, str(exc)[:300])
+            err_msg = str(exc)
+            probe_errors.append(f"{label}: {err_msg}")
+            logger.warning("[ingest] Probe via %s failed: %s", label, err_msg[:300])
+            if _is_dns_or_connection_error(err_msg):
+                time.sleep(1.0)
             continue
         plan = select_formats(info, min_height=min_height, max_height=max_height)
         logger.info(
@@ -549,7 +641,7 @@ def download(
         "--newline",
         "--no-mtime",
         "--retries",
-        "5",
+        str(retries),
         "--fragment-retries",
         "10",
         "-N",
@@ -560,13 +652,24 @@ def download(
 
     def _try(label: str, profile_args: List[str], attempt: Attempt) -> bool:
         nonlocal last_error
+        if progress_callback:
+            try:
+                progress_callback(1.0, f"Starting download: {attempt.label}...")
+            except Exception:
+                pass
         cmd = _get_ytdlp_cmd() + base_args + profile_args + ["-f", attempt.expr]
         if attempt.merge_format:
             cmd += ["--merge-output-format", attempt.merge_format]
         cmd += common + [url]
         logger.info("[ingest] Downloading %s via %s ...", attempt.label, label)
         try:
-            code, tail = _run_streaming(cmd)
+            if progress_callback is not None:
+                try:
+                    code, tail = _run_streaming(cmd, on_progress=progress_callback)
+                except TypeError:
+                    code, tail = _run_streaming(cmd)
+            else:
+                code, tail = _run_streaming(cmd)
         except FileNotFoundError as exc:
             raise RuntimeError("Neither the yt-dlp executable nor `python -m yt_dlp` could be run.") from exc
         if code == 0 and _find_source_file(out_dir) is not None:
