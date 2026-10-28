@@ -112,7 +112,9 @@ def _tokens(text: str) -> set[str]:
 
 
 def _relevant(candidate: str, reference: str) -> bool:
-    return bool(_tokens(candidate).intersection(_tokens(reference)))
+    overlap = _tokens(candidate).intersection(_tokens(reference))
+    # One generic shared word should not validate an unrelated title or hook.
+    return len(overlap) >= 2 or any(len(word) >= 7 for word in overlap)
 
 
 def heuristic_quality_score(cand: Dict[str, Any]) -> tuple[int, Dict[str, int]]:
