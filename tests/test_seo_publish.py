@@ -48,13 +48,19 @@ class TestSeo(unittest.TestCase):
         ]
         meta = generate_metadata(CLIP, TEXT, llm=None, trending_topics=trends, trend_region="IN")
         groups = meta["hashtag_groups"]
-        self.assertGreaterEqual(len(groups["relevant"]), 10)
+        self.assertEqual(len(groups["relevant"]), 20)
         self.assertEqual(len(groups["global"]), 10)
         self.assertIn("SavingsAndInflationAnalysis", groups["trending"])
         self.assertNotIn("FootballChampionshipFinal", groups["trending"])
         self.assertLessEqual(len(meta["hashtags"]), 40)
         self.assertEqual(len(meta["hashtags"]), len(set(tag.casefold() for tag in meta["hashtags"])))
         self.assertLessEqual(meta["instagram"]["caption"].count("#"), 5)
+
+    def test_missing_live_trends_are_reported_as_unavailable(self):
+        meta = generate_metadata(CLIP, TEXT, llm=None)
+        self.assertEqual(meta["trend_status"], "unavailable")
+        self.assertIsNone(meta["trend_source"])
+        self.assertEqual(meta["hashtag_groups"]["trending"], [])
 
     def test_unrelated_llm_seo_suggestions_are_rejected(self):
         llm = FakeLLM({
