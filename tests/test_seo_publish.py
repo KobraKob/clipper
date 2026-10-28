@@ -41,6 +41,24 @@ class TestSeo(unittest.TestCase):
         self.assertEqual(m["generated_by"], "heuristic")
         self.assertTrue(m["youtube"]["title"])
         self.assertIn("savings", m["keywords"])
+    def test_title_variant_ids_stay_unique_when_direct_title_is_inserted(self):
+        llm = FakeLLM({
+            "youtube_title": "Inflation Drains Savings Faster Than You Think",
+            "title_variants": [
+                {"id": "direct", "title": "Why Inflation Hurts Your Savings Account", "angle": "Direct"},
+                {"id": "curiosity", "title": "The Savings Habit Inflation Quietly Punishes", "angle": "Curiosity"},
+                {"id": "question", "title": "How Inflation Shrinks Savings Over Time", "angle": "Question"},
+            ],
+        })
+
+        metadata = generate_metadata(CLIP, TEXT, llm=llm)
+        variants = metadata["title_variants"]
+        ids = [variant["id"] for variant in variants]
+
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(ids[0], "direct")
+        self.assertEqual(metadata["selected_title_variant"], ids[0])
+
     def test_metadata_has_structured_relevant_global_and_trend_groups(self):
         trends = [
             {"title": "Savings and inflation analysis"},
