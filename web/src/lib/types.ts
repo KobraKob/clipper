@@ -22,7 +22,7 @@ export type ClipSeo = {
   trend_source?: string | null;
   trend_region?: string;
   trend_checked_at?: string | null;
-  trend_status?: "matched" | "partial" | "no-relevant-current-trends" | string;
+  trend_status?: "matched" | "partial" | "no-relevant-current-trends" | "empty-feed" | "unavailable" | string;
 };
 
 export type PublishResult = {
