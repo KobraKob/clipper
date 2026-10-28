@@ -52,7 +52,7 @@ def _setup_logging(verbose: bool) -> None:
 @app.command()
 def run(
     source: str = typer.Argument(..., help="Path to local video file or URL (YouTube, etc.)."),
-    clips: int = typer.Option(5, "--clips", "-n", help="Number of top clips to export."),
+    clips: int = typer.Option(5, "--clips", "-n", min=1, max=10, help="Number of top clips to export (1–10)."),
     provider: Optional[str] = typer.Option(
         None, "--provider", "-p", help="Provider switch ('local', 'groq', or 'openrouter'). Overrides .env."
     ),
@@ -94,6 +94,12 @@ def run(
     ),
     loudnorm: bool = typer.Option(
         True, "--loudnorm/--no-loudnorm", help="Normalize audio loudness to -14 LUFS."
+    ),
+    soundtrack: Optional[str] = typer.Option(
+        None, "--soundtrack", help="Optional uploaded music file. Clipper analyzes tempo/energy and chooses a section per clip."
+    ),
+    soundtrack_volume: float = typer.Option(
+        0.18, "--soundtrack-volume", min=0.05, max=0.4, help="Soundtrack mix level (0.05–0.40); voice is automatically ducked."
     ),
     cover: bool = typer.Option(
         True, "--cover/--no-cover", help="Extract sharpest thumbnail cover frame."
@@ -148,6 +154,8 @@ def run(
             progress_bar=progress_bar,
             loudnorm=loudnorm,
             cover_frame=cover,
+            soundtrack_path=pathlib.Path(soundtrack) if soundtrack else None,
+            soundtrack_volume=soundtrack_volume,
         )
 
         try:
