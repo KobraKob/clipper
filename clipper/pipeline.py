@@ -30,6 +30,8 @@ from .retention import (
 )
 from .scoring import rank
 from .seo import generate_metadata
+from .soundtrack import analyze_soundtrack, mix_soundtrack
+from .trends import fetch_trending_topics
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,8 @@ def run_pipeline(
     progress_bar: bool = False,
     loudnorm: bool = True,
     cover_frame: bool = True,
+    soundtrack_path: Optional[pathlib.Path] = None,
+    soundtrack_volume: float = 0.18,
 ) -> Dict[str, Any]:
     """
     Execute full automated video clipping pipeline with real stage progress tracking,
@@ -300,6 +304,33 @@ def run_pipeline(
         pad_offset = 0.15
         source_info = load_source_info(job_dir) if is_url(source) else {}
 
+        soundtrack_profile: Optional[Dict[str, Any]] = None
+        resolved_soundtrack: Optional[pathlib.Path] = None
+        if soundtrack_path is not None:
+            resolved_soundtrack = pathlib.Path(soundtrack_path).expanduser().resolve()
+            soundtrack_profile = analyze_soundtrack(resolved_soundtrack)
+            bpm = soundtrack_profile.get("bpm")
+            bpm_note = f", estimated tempo {bpm:.1f} BPM" if bpm else ""
+            logger.info(
+                "[soundtrack] Analysed %s (%.1fs%s); matching sections and ducking beneath speech.",
+                resolved_soundtrack.name,
+                soundtrack_profile["duration"],
+                bpm_note,
+            )
+
+        trend_topics = None
+        if seo_on:
+            try:
+                topics = fetch_trending_topics(getattr(s, "seo_trend_region", "IN"))
+                trend_topics = topics or None
+                if trend_topics:
+                    logger.info("[seo] Loaded %d current trend candidates for region %s.", len(trend_topics), getattr(s, "seo_trend_region", "IN"))
+                else:
+                    logger.info("[seo] Live trend feed unavailable/empty; using only clip-relevant SEO.")
+            except Exception as exc:
+                logger.info("[seo] Live trend lookup skipped: %s", exc)
+                trend_topics = None
+
         for idx, clip in enumerate(ranked_clips, start=1):
             clip_started = time.perf_counter()
             clip_title = clip.get("title", f"Clip {idx}")
@@ -413,10 +444,29 @@ def run_pipeline(
             else:
                 shutil.copy(raw_clip, final_clip_path)
 
+            soundtrack_record: Optional[Dict[str, Any]] = None
+            if resolved_soundtrack is not None and soundtrack_profile is not None:
+                soundtrack_record = mix_soundtrack(
+                    final_clip_path,
+                    resolved_soundtrack,
+                    soundtrack_profile,
+                    clip_duration=clip_duration,
+                    volume=soundtrack_volume,
+                    clip_rank=idx,
+                )
+                logger.info(
+                    "[soundtrack] Clip %d matched to %.2fs%s at %.0f%% music level.",
+                    idx,
+                    soundtrack_record["offset_seconds"],
+                    f" near {soundtrack_record['bpm']:.1f} BPM" if soundtrack_record.get("bpm") else "",
+                    soundtrack_record["volume"] * 100,
+                )
+
             clip_record: Dict[str, Any] = {
                 "rank": idx,
                 "title": clip_title,
                 "score": clip.get("score", 0),
+                "score_breakdown": clip.get("score_breakdown", {}),
                 "hook": clip.get("hook", ""),
                 "reason": clip.get("reason", ""),
                 "start": start_time,
@@ -435,6 +485,8 @@ def run_pipeline(
             }
             if clip_record_cover:
                 clip_record["cover_image"] = clip_record_cover
+            if soundtrack_record:
+                clip_record["soundtrack"] = soundtrack_record
 
             if seo_on:
                 logger.info("  -> Generating Title A/B variants & descriptions...")
@@ -445,6 +497,8 @@ def run_pipeline(
                     language=s.seo_language,
                     source_url=source if is_url(source) else None,
                     credit_source=s.seo_credit_source,
+                    trending_topics=trend_topics,
+                    trend_region=getattr(s, "seo_trend_region", "IN"),
                 )
                 clip_record["title_variants"] = clip_record["seo"].get("title_variants", [])
                 clip_record["selected_title_variant"] = clip_record["seo"].get("selected_title_variant", "direct")
@@ -461,6 +515,13 @@ def run_pipeline(
             "clips_exported": len(exported_clips),
             "tokens_used": tokens_used,
             "source_quality": source_info,
+            "soundtrack": {
+                "enabled": resolved_soundtrack is not None,
+                "file": str(resolved_soundtrack) if resolved_soundtrack else None,
+                "volume": max(0.05, min(0.4, float(soundtrack_volume))),
+                "matching": "energy-and-beat" if soundtrack_profile is not None else None,
+                "bpm": soundtrack_profile.get("bpm") if soundtrack_profile else None,
+            },
             "clips": exported_clips,
         }
         metadata_path.write_text(json.dumps(metadata_manifest, indent=2), encoding="utf-8")
@@ -650,6 +711,21 @@ def rerender_clip(
         burn_captions(raw_clip, ass_file, final_clip_path)
     else:
         shutil.copy(raw_clip, final_clip_path)
+
+    # Reapply a previously selected soundtrack when a clip is manually re-rendered.
+    previous_soundtrack = clip.get("soundtrack")
+    if isinstance(previous_soundtrack, dict) and previous_soundtrack.get("file"):
+        soundtrack_file = pathlib.Path(str(previous_soundtrack["file"]))
+        if soundtrack_file.is_file():
+            soundtrack_profile = analyze_soundtrack(soundtrack_file)
+            clip["soundtrack"] = mix_soundtrack(
+                final_clip_path,
+                soundtrack_file,
+                soundtrack_profile,
+                clip_duration=clip_duration,
+                volume=float(previous_soundtrack.get("volume", 0.18)),
+                clip_rank=rank,
+            )
 
     # 3. Update metadata
     clip["start"] = start_time
