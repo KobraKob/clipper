@@ -20,14 +20,14 @@ export default function Home() {
       <div className="ux-announce">
         <div className="ux-announce-inner">
           <span className="ux-live-dot" aria-hidden="true" />
-          <span>OPEN-SOURCE CREATOR TOOLING</span>
+          <span>INDEPENDENT VIDEO WORKSHOP</span>
           <span className="ux-announce-separator">/</span>
-          <span>LOCAL-FIRST BY DESIGN</span>
+          <span>NO TEMPLATE-FACTORY ENERGY</span>
           <span className="ux-announce-status"><span aria-hidden="true" /> SYSTEM READY</span>
         </div>
       </div>
 
-      <div className="ux-motion-ticker" aria-label="Clipper workflow in motion">
+      <div className="ux-motion-ticker" aria-label="Chop Shop workflow in motion">
         <div className="ux-motion-track">
           <span>FIND THE HOOK <b>✳</b></span>
           <span>KEEP THE SUBJECT IN FRAME <b>↗</b></span>
@@ -44,20 +44,20 @@ export default function Home() {
         <div className="ux-hero-copy">
           <div className="ux-kicker">
             <span className="ux-kicker-mark" aria-hidden="true">C/</span>
-            <span>THE OPEN-SOURCE CLIP STUDIO</span>
+            <span>CHOP SHOP / CUT ROOM</span>
           </div>
 
           <h1 className="ux-title" id="hero-title">
-            Long video.
+            Raw footage.
             <br />
-            <span className="ux-title-secondary">Short attention.</span>
+            <span className="ux-title-secondary">No wasted frames.</span>
             <br />
-            <span className="ux-title-accent">Keep the moment.</span>
+            <span className="ux-title-accent">Make the cut.</span>
           </h1>
 
           <p className="ux-lede">
-            Find the moments worth sharing. Clipper turns podcasts, streams,
-            lectures, and interviews into focused vertical clips—without the
+            Find the moments worth sharing. Chop Shop tears through podcasts, streams,
+            lectures, and interviews to find the moments worth keeping—without
             hours of scrubbing.
           </p>
 
@@ -113,7 +113,7 @@ export default function Home() {
               <span>1080 × 1920 <b>·</b> MP4</span>
             </div>
           </div>
-          <div className="ux-side-note"><span>01</span> ONE SOURCE. MULTIPLE CUTS.</div>
+          <div className="ux-side-note"><span>01</span> ONE SOURCE. THE GOOD PARTS.</div>
         </div>
       </section>
 
