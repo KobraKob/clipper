@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { createJob, uploadSoundtrack, uploadVideo } from "@/lib/api";
 import type { Provider } from "@/lib/types";
+import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 
 type BulkCutUploaderProps = {
   onCreated: () => Promise<void> | void;
@@ -35,6 +36,7 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
   const [clipCount, setClipCount] = useState(5);
   const [vertical, setVertical] = useState(true);
   const [captions, setCaptions] = useState(true);
+  const [captionStyle, setCaptionStyle] = useState("bold_pop");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ index: 0, total: 0, percent: 0, label: "" });
   const [selectionError, setSelectionError] = useState("");
@@ -118,7 +120,7 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
           provider,
           vertical,
           captions,
-          captionStyle: "bold_pop",
+          captionStyle,
           layout: "fill",
           videoEncoder: "auto",
           trimSilence: false,
@@ -273,6 +275,15 @@ export function BulkCutUploader({ onCreated }: BulkCutUploaderProps) {
               <option value="groq">Groq / cloud</option>
               <option value="openrouter">OpenRouter</option>
             </select>
+          </label>
+          <label className="ux-batch-option">
+            <span>CAPTION STYLE</span>
+            <select value={captionStyle} disabled={busy || !captions} onChange={(event) => setCaptionStyle(event.target.value)}>
+              {CAPTION_STYLE_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>{option.label}</option>
+              ))}
+            </select>
+            <small>{CAPTION_STYLE_OPTIONS.find((option) => option.key === captionStyle)?.description}</small>
           </label>
           <div className="ux-batch-toggles">
             <label><input type="checkbox" checked={vertical} disabled={busy} onChange={(event) => setVertical(event.target.checked)} /> Vertical 9:16</label>

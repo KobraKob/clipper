@@ -8,7 +8,7 @@ Unit tests for Retention module:
 """
 
 import unittest
-from clipper.captions import build_ass, get_keyword_emphasis, get_style
+from clipper.captions import CAPTION_STYLES, build_ass, get_keyword_emphasis, get_style
 from clipper.retention import (
     build_progress_bar_filter,
     detect_keep_intervals,
@@ -91,6 +91,23 @@ class TestRetention(unittest.TestCase):
         self.assertIn("STOP MAKING THIS BANKING MISTAKE", ass_text)
         self.assertIn(r"\fad(120,400)", ass_text)
         self.assertIn("Dialogue: 1,", ass_text)
+
+    def test_new_caption_presets_are_registered_and_renderable(self):
+        expected = {"mint_pop", "creator_block", "retro_wave", "editorial", "typewriter", "sunset"}
+        self.assertTrue(expected.issubset(CAPTION_STYLES))
+
+        words = [
+            {"w": "make", "start": 0.0, "end": 0.3},
+            {"w": "it", "start": 0.3, "end": 0.5},
+            {"w": "count", "start": 0.5, "end": 0.9},
+        ]
+        for key in sorted(expected):
+            with self.subTest(style=key):
+                style = get_style(key)
+                self.assertEqual(style.key, key)
+                subtitle = build_ass(words, clip_start=0.0, style=key)
+                self.assertIn(f"Style: Default,{style.font},", subtitle)
+                self.assertIn("Dialogue:", subtitle)
 
     def test_keyword_emphasis_and_emoji(self):
         money_res = get_keyword_emphasis("money")

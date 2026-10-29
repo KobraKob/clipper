@@ -14,6 +14,10 @@ const PYTHON = process.env.PYTHON || (process.platform === "win32" ? "python" : 
 
 const ALLOWED_VIDEO_EXTS = new Set([".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv"]);
 const ALLOWED_SOUNDTRACK_EXTS = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"]);
+const ALLOWED_CAPTION_STYLES = new Set([
+  "bold_pop", "beast", "one_word", "highlight_box", "neon", "karaoke", "clean",
+  "mint_pop", "creator_block", "retro_wave", "editorial", "typewriter", "sunset",
+]);
 
 /** Mutex ensuring all reads and mutations of jobs.json are atomic and strictly serialized. */
 class Mutex {
@@ -636,6 +640,7 @@ export async function rerenderClip(
   clipId: string,
   start: number,
   end: number,
+  captionStyle?: string,
 ): Promise<JobView> {
   return storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
@@ -644,6 +649,9 @@ export async function rerenderClip(
     const job = jobs[index];
     const rank = Number(clipId.replace("clip-", ""));
     if (!Number.isInteger(rank)) throw new Error("Invalid clip id.");
+    if (captionStyle && !ALLOWED_CAPTION_STYLES.has(captionStyle)) {
+      throw new Error("Choose a supported caption style.");
+    }
 
     const rootDir = await resolveRootDir();
     const outDir = await resolveOutDir(jobId);
@@ -664,6 +672,9 @@ export async function rerenderClip(
       "--end",
       String(end),
     ];
+    if (captionStyle) {
+      rerenderArgs.push("--caption-style", captionStyle);
+    }
     if (job.videoEncoder && job.videoEncoder !== "auto") {
       rerenderArgs.push("--encoder", job.videoEncoder);
     }

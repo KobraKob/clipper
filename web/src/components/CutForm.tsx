@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createJob, providerNote, uploadSoundtrack, uploadVideo } from "@/lib/api";
-import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
+import { CAPTION_STYLE_OPTIONS, type CaptionCategory } from "@/lib/captionStyles";
 import type { Layout, Provider, VideoEncoder } from "@/lib/types";
 
 export function CutForm() {
@@ -14,6 +14,7 @@ export function CutForm() {
   const [vertical, setVertical] = useState(true);
   const [captions, setCaptions] = useState(true);
   const [captionStyle, setCaptionStyle] = useState("bold_pop");
+  const [captionCategory, setCaptionCategory] = useState<"all" | CaptionCategory>("all");
   const [layout, setLayout] = useState<Layout>("fill");
   const [videoEncoder, setVideoEncoder] = useState<VideoEncoder>("auto");
   const [hookOverlay, setHookOverlay] = useState(true);
@@ -28,6 +29,7 @@ export function CutForm() {
   const [soundtrackName, setSoundtrackName] = useState("");
   const [soundtrackVolume, setSoundtrackVolume] = useState(0.18);
   const [uploadingSoundtrack, setUploadingSoundtrack] = useState(false);
+  const selectedCaptionOption = CAPTION_STYLE_OPTIONS.find((option) => option.key === captionStyle) || CAPTION_STYLE_OPTIONS[0];
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -377,52 +379,115 @@ export function CutForm() {
         </fieldset>
 
         {captions ? (
-          <fieldset className="flex flex-col gap-2">
+          <fieldset className="flex flex-col gap-3 border border-white/12 bg-panel-inset/40 p-4 md:p-5 rounded-xl">
             <legend className="font-semibold text-ink">Caption style</legend>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {CAPTION_STYLE_OPTIONS.map((opt) => {
-                const words = opt.key === "one_word" ? ["THIS"] : ["THIS", "IS", "WILD"];
-                const fmt = (w: string) => (opt.upper ? w : w.toLowerCase());
-                return (
-                  <label
-                    key={opt.key}
-                    className={`cursor-pointer border-2 p-2.5 rounded-lg transition ${
-                      captionStyle === opt.key ? "border-volt bg-volt/10" : "border-white/12 bg-panel-raised hover:border-white/25"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="captionStyle"
-                      value={opt.key}
-                      checked={captionStyle === opt.key}
-                      onChange={() => setCaptionStyle(opt.key)}
-                      className="sr-only"
-                    />
-                    <span className="flex h-16 items-center justify-center gap-1 bg-[#09090e] rounded-md px-1 border border-white/10" style={{ font: opt.font }}>
-                      {words.map((w, i) => (
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <p className="mt-1 text-xs text-muted">Choose a look. Preview changes instantly; the selected style is burned into the export.</p>
+              <span className="font-mono text-[10px] uppercase tracking-wider text-ice">{CAPTION_STYLE_OPTIONS.length} styles</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] items-stretch">
+              <div className="flex min-h-24 flex-col justify-center rounded-lg border border-white/10 bg-[#080b11] px-4 py-3">
+                <span className="text-[9px] font-bold uppercase tracking-[.16em] text-muted">Live preview · {selectedCaptionOption.label}</span>
+                <div className="mt-3 flex min-h-9 flex-wrap items-center justify-center gap-x-2 gap-y-1" aria-label={`Preview of ${selectedCaptionOption.label} captions`}>
+                  {(captionStyle === "one_word" ? ["THIS"] : ["MAKE", "IT", "COUNT"]).map((word, index) => {
+                    const active = index === (captionStyle === "one_word" ? 0 : 1);
+                    const displayWord = selectedCaptionOption.upper ? word : word.toLowerCase();
+                    return (
+                      <span
+                        key={word}
+                        style={{
+                          font: selectedCaptionOption.font,
+                          color: active ? selectedCaptionOption.active : selectedCaptionOption.base,
+                          background: active ? selectedCaptionOption.activeBg : undefined,
+                          padding: active && selectedCaptionOption.activeBg ? "2px 5px" : undefined,
+                          borderRadius: 4,
+                          WebkitTextStroke: `0.7px ${selectedCaptionOption.stroke}`,
+                          textShadow: selectedCaptionOption.glow ? `0 0 8px ${selectedCaptionOption.glow}` : undefined,
+                        }}
+                      >
+                        {displayWord}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex flex-col justify-center gap-1 rounded-lg border border-volt/25 bg-volt/5 px-4 py-3 sm:max-w-56">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-volt">Selected look</span>
+                <strong className="text-sm text-ink">{selectedCaptionOption.label}</strong>
+                <span className="text-xs leading-relaxed text-muted">{selectedCaptionOption.description}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Filter caption styles">
+              {([
+                ["all", `All styles · ${CAPTION_STYLE_OPTIONS.length}`],
+                ["bold", "Bold & punchy"],
+                ["minimal", "Clean & minimal"],
+                ["creative", "Creative"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={captionCategory === value}
+                  onClick={() => setCaptionCategory(value)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${captionCategory === value ? "border-volt bg-volt text-[#101016]" : "border-white/15 bg-panel-raised text-muted hover:border-white/30 hover:text-ink"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+              {CAPTION_STYLE_OPTIONS.filter((opt) => captionCategory === "all" || opt.category === captionCategory).map((opt) => (
+                <label
+                  key={opt.key}
+                  className={`group cursor-pointer rounded-xl border p-3 transition ${captionStyle === opt.key ? "border-volt bg-volt/8 shadow-[0_0_0_1px_rgba(201,255,63,.12)]" : "border-white/12 bg-panel-raised/70 hover:border-white/30"}`}
+                >
+                  <input
+                    type="radio"
+                    name="captionStyle"
+                    value={opt.key}
+                    checked={captionStyle === opt.key}
+                    onChange={() => setCaptionStyle(opt.key)}
+                    className="sr-only"
+                  />
+                  <span className={`flex h-16 items-center justify-center gap-1 overflow-hidden rounded-lg border px-1 ${captionStyle === opt.key ? "border-volt/30 bg-[#07090e]" : "border-white/10 bg-[#09090e]"}`}>
+                    {(opt.key === "one_word" ? ["THIS"] : ["MAKE", "IT", "COUNT"]).map((word, index) => {
+                      const active = index === (opt.key === "one_word" ? 0 : 1);
+                      return (
                         <span
-                          key={w}
+                          key={word}
                           style={{
-                            color: i === 0 ? opt.active : opt.base,
-                            background: i === 0 ? opt.activeBg : undefined,
-                            padding: i === 0 && opt.activeBg ? "0 4px" : undefined,
+                            font: opt.font,
+                            color: active ? opt.active : opt.base,
+                            background: active ? opt.activeBg : undefined,
+                            padding: active && opt.activeBg ? "0 4px" : undefined,
                             borderRadius: 4,
-                            WebkitTextStroke: `1px ${opt.stroke}`,
-                            textShadow: opt.key === "neon" ? "0 0 8px #00e5ff" : undefined,
+                            WebkitTextStroke: `0.7px ${opt.stroke}`,
+                            textShadow: opt.glow ? `0 0 8px ${opt.glow}` : undefined,
                           }}
                         >
-                          {fmt(w)}
+                          {opt.upper ? word : word.toLowerCase()}
                         </span>
-                      ))}
-                    </span>
-                    <span className="mt-2 block text-sm font-semibold text-ink">{opt.label}</span>
-                    <span className="block text-xs text-muted leading-relaxed">{opt.description}</span>
-                  </label>
-                );
-              })}
+                      );
+                    })}
+                  </span>
+                  <span className="mt-3 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-ink">{opt.label}</span>
+                    {captionStyle === opt.key ? <span className="text-[9px] font-bold uppercase tracking-wide text-volt">Selected</span> : null}
+                  </span>
+                  <span className="mt-1 block min-h-10 text-xs leading-relaxed text-muted">{opt.description}</span>
+                </label>
+              ))}
             </div>
           </fieldset>
-        ) : null}
+        ) : (
+          <div className="rounded-lg border border-dashed border-white/15 bg-panel-inset/50 p-4">
+            <p className="text-sm font-semibold text-ink">Captions are off</p>
+            <p className="mt-1 text-xs text-muted">Turn on animated captions above to choose one of {CAPTION_STYLE_OPTIONS.length} styles.</p>
+          </div>
+        )}
 
         {error ? (
           <p role="alert" className="border border-punch/60 bg-punch/15 text-punch px-3 py-2.5 font-semibold rounded-lg text-sm">

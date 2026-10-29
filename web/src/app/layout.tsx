@@ -22,14 +22,14 @@ const barlow = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Clipper — Cut the noise. Keep the moment.",
+  title: "Chop Shop — Make the cut.",
   description:
-    "Turn long videos into vertical clips. Find standout moments, reframe, caption, and export with a local-first open-source clipping studio.",
-  applicationName: "Clipper",
+    "A no-nonsense video cut room for finding standout moments, reframing, captioning, and exporting vertical clips.",
+  applicationName: "Chop Shop",
   openGraph: {
-    title: "Clipper — Cut the noise. Keep the moment.",
+    title: "Chop Shop — Make the cut.",
     description:
-      "Turn long videos into short-form clips with transcription, face-aware reframing, and word-timed captions.",
+      "Find the good parts in long footage. Reframe, caption, and export without template-factory clutter.",
     type: "website",
   },
 };

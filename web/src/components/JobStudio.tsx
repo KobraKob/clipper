@@ -17,6 +17,10 @@ export function JobStudio({ jobId }: { jobId: string }) {
   const [busy, setBusy] = useState(false);
   const [logs, setLogs] = useState<string>("");
   const [showLogs, setShowLogs] = useState<boolean>(false);
+  const [clipSearch, setClipSearch] = useState("");
+  const [clipFilter, setClipFilter] = useState<"all" | "kept" | "dropped">("all");
+  const [clipSort, setClipSort] = useState<"score" | "start" | "duration">("score");
+  const [clipView, setClipView] = useState<"grid" | "list">("grid");
 
   const refresh = useCallback(async () => {
     try {
@@ -115,10 +119,10 @@ export function JobStudio({ jobId }: { jobId: string }) {
     }
   }
 
-  async function handleRerender(clipId: string, start: number, end: number) {
+  async function handleRerender(clipId: string, start: number, end: number, captionStyle?: string) {
     setBusy(true);
     try {
-      const next = await rerenderClip(jobId, clipId, start, end);
+      const next = await rerenderClip(jobId, clipId, start, end, captionStyle);
       setJob(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not re-render clip.");
@@ -161,6 +165,21 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
   const running = job.status === "running";
   const kept = job.clips.filter((clip) => clip.kept);
+  const dropped = job.clips.length - kept.length;
+  const visibleClips = [...job.clips]
+    .filter((clip) => {
+      if (clipFilter === "kept" && !clip.kept) return false;
+      if (clipFilter === "dropped" && clip.kept) return false;
+      const query = clipSearch.trim().toLowerCase();
+      if (!query) return true;
+      return [clip.title, clip.hook, clip.reason, clip.text, clip.id]
+        .some((value) => String(value || "").toLowerCase().includes(query));
+    })
+    .sort((a, b) => {
+      if (clipSort === "start") return a.start - b.start;
+      if (clipSort === "duration") return (b.end - b.start) - (a.end - a.start);
+      return b.score - a.score;
+    });
 
   return (
     <div className="flex flex-col gap-8">
@@ -321,26 +340,102 @@ export function JobStudio({ jobId }: { jobId: string }) {
       ) : null}
 
       {job.status === "done" && job.clips.length > 0 ? (
-        <section className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="display text-4xl md:text-5xl text-ink">Ranked clips</h2>
-            <p className="font-semibold text-muted">
-              {kept.length} kept · {kept.reduce((sum, clip) => sum + (clip.end - clip.start), 0) | 0}s total runtime
-            </p>
+        <section className="flex flex-col gap-4" aria-labelledby="clip-review-title">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.16em] text-ice">REVIEW WORKSPACE</p>
+              <h2 id="clip-review-title" className="display mt-2 text-4xl text-ink md:text-5xl">Your clips<span className="text-volt">.</span></h2>
+              <p className="mt-2 text-sm text-muted">Search, sort and keep the strongest moments. Changes save to this project.</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-lg border border-volt/25 bg-volt/10 px-3 py-2 font-bold text-volt">{kept.length} kept</span>
+              <span className="rounded-lg border border-white/12 bg-panel px-3 py-2 font-bold text-muted">{dropped} dropped</span>
+              <span className="rounded-lg border border-white/12 bg-panel px-3 py-2 font-mono font-bold text-ink">{Math.round(kept.reduce((sum, clip) => sum + (clip.end - clip.start), 0))}s runtime</span>
+            </div>
           </div>
-          <div className="grid gap-6 md:grid-cols-2">
-            {job.clips.map((clip) => (
-              <ClipCard
-                key={clip.id}
-                jobId={jobId}
-                clip={clip}
-                busy={busy}
-                onKeep={(keptNext) => void updateClip(clip.id, { kept: keptNext })}
-                onTimes={(start, end) => void updateClip(clip.id, { start, end })}
-                onRerender={(start, end) => handleRerender(clip.id, start, end)}
+
+          <div className="flex flex-col gap-3 rounded-xl border border-white/10 bg-panel p-3 md:p-4">
+            <label className="relative block">
+              <span className="sr-only">Search clips</span>
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted" aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                value={clipSearch}
+                onChange={(event) => setClipSearch(event.target.value)}
+                placeholder="Search by title, hook, reason, or transcript…"
+                className="min-h-11 w-full rounded-lg border border-white/12 bg-panel-inset py-2 pl-9 pr-3 text-sm text-ink placeholder:text-muted/60 focus:border-ice focus:outline-none"
               />
-            ))}
+            </label>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Filter clips">
+                {([
+                  ["all", `All clips · ${job.clips.length}`],
+                  ["kept", `Kept · ${kept.length}`],
+                  ["dropped", `Dropped · ${dropped}`],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={clipFilter === value}
+                    onClick={() => setClipFilter(value)}
+                    className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${clipFilter === value ? "border-volt bg-volt text-[#080b10]" : "border-white/12 bg-panel-raised text-muted hover:border-white/25 hover:text-ink"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 xl:justify-end">
+                <label className="flex items-center gap-2 text-xs text-muted">
+                  <span>Sort by</span>
+                  <select
+                    value={clipSort}
+                    onChange={(event) => setClipSort(event.target.value as "score" | "start" | "duration")}
+                    className="min-h-9 rounded-lg border border-white/12 bg-panel-inset px-2.5 text-xs font-semibold text-ink"
+                  >
+                    <option value="score">Highest score</option>
+                    <option value="start">Timeline order</option>
+                    <option value="duration">Longest first</option>
+                  </select>
+                </label>
+                <div className="flex rounded-lg border border-white/12 bg-panel-inset p-1" role="group" aria-label="Clip layout">
+                  {(["grid", "list"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={clipView === mode}
+                      onClick={() => setClipView(mode)}
+                      className={`rounded-md px-3 py-1.5 text-xs font-bold capitalize transition ${clipView === mode ? "bg-panel-raised text-volt" : "text-muted hover:text-ink"}`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
+
+          {visibleClips.length > 0 ? (
+            <div className={clipView === "grid" ? "grid gap-5 md:grid-cols-2 2xl:grid-cols-3" : "flex flex-col gap-4"}>
+              {visibleClips.map((clip) => (
+                <ClipCard
+                  key={clip.id}
+                  jobId={jobId}
+                  clip={clip}
+                  busy={busy}
+                  captionsEnabled={job.captions}
+                  onKeep={(keptNext) => void updateClip(clip.id, { kept: keptNext })}
+                  onTimes={(start, end) => void updateClip(clip.id, { start, end })}
+                  onRerender={(start, end, captionStyle) => handleRerender(clip.id, start, end, captionStyle)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/15 bg-panel p-8 text-center">
+              <h3 className="display text-3xl text-ink">No matching clips</h3>
+              <p className="mt-2 text-sm text-muted">Try another search or switch the keep/drop filter.</p>
+              <button type="button" onClick={() => { setClipSearch(""); setClipFilter("all"); }} className="mt-4 rounded-lg border border-white/15 px-4 py-2 text-xs font-bold text-ink hover:border-ice/50">Reset clip filters</button>
+            </div>
+          )}
         </section>
       ) : null}
 

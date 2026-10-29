@@ -76,11 +76,12 @@ export async function rerenderClip(
   clipId: string,
   start: number,
   end: number,
+  captionStyle?: string,
 ): Promise<JobView> {
   const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/rerender`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ start, end }),
+    body: JSON.stringify({ start, end, captionStyle }),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();

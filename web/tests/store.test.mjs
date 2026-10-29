@@ -6,6 +6,7 @@ import os from "node:os";
 import { createJob, deleteJob, getJob, listJobs, patchClip, setJobClips } from "../src/lib/store.ts";
 import { formatTimecode, hydrateJob } from "../src/lib/pipeline.ts";
 import { readLogTail } from "../src/lib/logTail.ts";
+import { CAPTION_STYLE_OPTIONS } from "../src/lib/captionStyles.ts";
 import { normalizeTitleVariants } from "../src/lib/titleVariants.ts";
 
 test("normalizeTitleVariants repairs duplicate or missing IDs deterministically", () => {
@@ -23,6 +24,17 @@ test("normalizeTitleVariants repairs duplicate or missing IDs deterministically"
     "variant_4",
   ]);
   assert.equal(new Set(variants.map((variant) => variant.id)).size, variants.length);
+});
+
+test("caption picker exposes unique presets for every style category", () => {
+  const ids = CAPTION_STYLE_OPTIONS.map((option) => option.key);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const key of ["mint_pop", "creator_block", "retro_wave", "editorial", "typewriter", "sunset"]) {
+    assert.ok(ids.includes(key), `missing caption style ${key}`);
+  }
+  assert.ok(CAPTION_STYLE_OPTIONS.some((option) => option.category === "bold"));
+  assert.ok(CAPTION_STYLE_OPTIONS.some((option) => option.category === "minimal"));
+  assert.ok(CAPTION_STYLE_OPTIONS.some((option) => option.category === "creative"));
 });
 
 test("readLogTail returns the requested final lines from a small log", async () => {
