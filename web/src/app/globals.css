@@ -34,6 +34,90 @@
   --font-display: var(--font-barlow);
 }
 
+
+/* CHOP SHOP identity: print-shop brutalism, cut marks, paper labels. No gradients. */
+:root {
+  --paper: #0a0a09;
+  --ink: #f4f0e6;
+  --muted: #aaa69a;
+  --panel: #141411;
+  --panel-raised: #1d1d18;
+  --panel-inset: #0e0e0c;
+  --court: #1d1d18;
+  --volt: #e9ff38;
+  --punch: #f04d2f;
+  --ice: #e9ff38;
+  --line: rgba(244, 240, 230, .14);
+  --line-strong: rgba(244, 240, 230, .28);
+}
+::selection { color: #0a0a09; background: var(--volt); }
+body {
+  background-color: var(--paper);
+  background-image: radial-gradient(circle, rgba(244,240,230,.12) .7px, transparent .8px);
+  background-size: 5px 5px;
+}
+.site-frame-header {
+  background: #0a0a09;
+  border-bottom: 2px solid var(--ink);
+  backdrop-filter: none;
+}
+.site-frame-brand {
+  font-family: var(--font-display);
+  font-size: 28px;
+  letter-spacing: -.06em;
+  text-transform: uppercase;
+}
+.site-frame-brand-mark {
+  width: 40px; height: 40px;
+  border-radius: 0;
+  background: var(--volt);
+  color: #0a0a09;
+  font-family: var(--font-display);
+  font-size: 22px;
+  transform: rotate(-3deg);
+}
+.site-frame-live { color: var(--muted); }
+.site-frame-live-dot {
+  border-radius: 0;
+  background: var(--punch);
+  box-shadow: none;
+  transform: rotate(45deg);
+}
+.site-frame-nav a { border-radius: 0; text-transform: uppercase; }
+.site-frame-nav .nav-library-link {
+  color: #0a0a09;
+  background: var(--volt);
+  border-color: var(--volt);
+}
+.site-frame-nav .nav-library-link:hover { background: var(--ink); border-color: var(--ink); }
+.ux-page { background: transparent; }
+.ux-announce { background: var(--punch); color: #0a0a09; border-bottom: 2px solid #0a0a09; }
+.ux-announce .ux-announce-status { color: #0a0a09; }
+.ux-announce .ux-live-dot, .ux-announce .ux-announce-status span { background: #0a0a09; box-shadow: none; }
+.ux-motion-ticker { background: var(--volt); color: #0a0a09; border-bottom: 2px solid #0a0a09; }
+.ux-motion-track { animation-duration: 34s; }
+.ux-motion-track b { color: var(--punch); }
+.ux-hero { border-bottom: 2px solid var(--ink); }
+.ux-kicker-mark { border-radius: 0 !important; background: var(--punch) !important; color: #0a0a09 !important; transform: rotate(-3deg); }
+.ux-title { text-transform: uppercase; letter-spacing: -.075em !important; }
+.ux-title-secondary { color: var(--muted) !important; }
+.ux-title-accent { color: var(--volt) !important; }
+.ux-button { border-radius: 0 !important; text-transform: uppercase; letter-spacing: .04em; }
+.ux-button-primary { background: var(--volt) !important; color: #0a0a09 !important; box-shadow: 5px 5px 0 var(--punch); }
+.ux-button-primary:hover { transform: translate(2px,2px); box-shadow: 3px 3px 0 var(--punch); }
+.ux-button-secondary { border-radius: 0 !important; border: 1px solid var(--ink) !important; }
+.ux-preview-card, .ux-float-label { border-radius: 0 !important; box-shadow: 7px 7px 0 var(--punch); }
+.ux-preview-head, .ux-preview-foot { border-radius: 0 !important; }
+.ux-live-badge { border-radius: 0 !important; }
+.ux-preview-stage { background-color: #12120f !important; background-image: repeating-linear-gradient(0deg, transparent 0 23px, rgba(244,240,230,.055) 24px), repeating-linear-gradient(90deg, transparent 0 23px, rgba(244,240,230,.055) 24px) !important; }
+.ux-float-label { border: 1px solid var(--ink) !important; }
+.ux-side-note { font-family: var(--font-display); letter-spacing: .12em; }
+.display { text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) {
+  .ux-motion-track { animation: none !important; }
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+
 /* Backward-compatible utility adapters ensuring complete legibility across components */
 .text-court { color: var(--ink) !important; }
 .border-court { border-color: var(--line) !important; }
