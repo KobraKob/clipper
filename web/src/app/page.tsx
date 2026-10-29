@@ -169,7 +169,7 @@ export default function Home() {
       </section>
 
       <section className="ux-studio section-anchor" id="studio" aria-labelledby="studio-title">
-        <div className="ux-section-index"><span>02</span><span className="ux-index-line" /><span>THE EDIT BAY</span></div>
+        <div className="ux-section-index"><span>02</span><span className="ux-index-line" /><span>THE CUT ROOM</span></div>
 
         <div className="ux-studio-heading">
           <div>
@@ -254,10 +254,10 @@ export default function Home() {
       </section>
 
       <footer className="ux-footer">
-        <Link href="/" className="ux-footer-brand" aria-label="Clipper home"><span>C/</span> CLIPPER</Link>
-        <p>Open-source tooling for creators who have better things to do than scrub timelines.</p>
+        <Link href="/" className="ux-footer-brand" aria-label="Chop Shop home"><span>CS/</span> CHOP SHOP</Link>
+        <p>A cut room for people who know the good part when they see it.</p>
         <div className="ux-footer-links"><a href="#top">Back to top ↑</a><Link href="/library">Library ↗</Link></div>
-        <div className="ux-footer-meta"><span>LOCAL-FIRST OPTIONS</span><span>NO WATERMARK</span><span>BUILT FOR SHORT FORM</span></div>
+        <div className="ux-footer-meta"><span>NO-NONSENSE WORKFLOW</span><span>NO WATERMARK</span><span>BUILT FOR SHORT FORM</span></div>
       </footer>
     </main>
   );
