@@ -63,6 +63,13 @@ export function ClipCard({
   });
   const [activeTitle, setActiveTitle] = useState(clip.title);
   const [savingTitle, setSavingTitle] = useState(false);
+  const [showMetadataEditor, setShowMetadataEditor] = useState(false);
+  const [metadataTitle, setMetadataTitle] = useState(clip.seo?.youtube?.title || clip.title);
+  const [metadataDescription, setMetadataDescription] = useState(clip.seo?.youtube?.description || "");
+  const [metadataCaption, setMetadataCaption] = useState(clip.seo?.instagram?.caption || "");
+  const [metadataHashtags, setMetadataHashtags] = useState((clip.seo?.hashtags || []).join(" "));
+  const [savingMetadata, setSavingMetadata] = useState(false);
+  const [metadataMessage, setMetadataMessage] = useState("");
 
   // Scheduling state
   const [showScheduleForm, setShowScheduleForm] = useState(false);
@@ -163,11 +170,39 @@ export function ClipCard({
       const res = await selectTitleVariant(jobId, clip.id, variantId);
       const updatedClip = res.clips.find((item) => item.id === clip.id);
       setActiveTitle(updatedClip?.title ?? clip.title);
+      setMetadataTitle(updatedClip?.title ?? clip.title);
       setSelectedVariantId(updatedClip?.selectedTitleVariant ?? variantId);
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "Failed to select title variant.");
     } finally {
       setSavingTitle(false);
+    }
+  }
+
+  async function handleSaveMetadata(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingMetadata(true);
+    setMetadataMessage("");
+    const hashtags = metadataHashtags
+      .split(/[\\s,]+/)
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .map((tag) => tag.startsWith("#") ? tag : `#${tag}`);
+    try {
+      await patchClip(jobId, clip.id, {
+        title: metadataTitle.trim(),
+        description: metadataDescription,
+        caption: metadataCaption,
+        hashtags,
+      });
+      setActiveTitle(metadataTitle.trim());
+      setMetadataHashtags(hashtags.join(" "));
+      setMetadataMessage("Changes saved to this clip.");
+      setShowMetadataEditor(false);
+    } catch (err) {
+      setMetadataMessage(err instanceof Error ? err.message : "Could not save clip details.");
+    } finally {
+      setSavingMetadata(false);
     }
   }
 
@@ -545,32 +580,59 @@ export function ClipCard({
           </div>
         ) : null}
 
-        {/* SEO Metadata and Copy Buttons */}
-        {clip.seo ? (
-          <div className="flex flex-col gap-2.5 border border-white/10 bg-panel-raised/40 p-3.5 rounded-lg text-sm">
-            <p className="font-bold text-ink">Title, description &amp; hashtags</p>
-            <p className="font-semibold text-volt">{clip.seo.youtube.title}</p>
-            <p className="whitespace-pre-line text-muted text-xs leading-relaxed">{clip.seo.youtube.description}</p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink rounded hover:bg-volt hover:text-[#101016] hover:border-volt transition cursor-pointer"
-                onClick={() =>
-                  copy("yt", `${clip.seo!.youtube.title}\n\n${clip.seo!.youtube.description}`)
-                }
-              >
-                {copied === "yt" ? "Copied" : "Copy YouTube text"}
-              </button>
-              <button
-                type="button"
-                className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink rounded hover:bg-volt hover:text-[#101016] hover:border-volt transition cursor-pointer"
-                onClick={() => copy("ig", clip.seo!.instagram.caption)}
-              >
-                {copied === "ig" ? "Copied" : "Copy Instagram caption"}
-              </button>
+        {/* Editable publishing copy */}
+        <section className="flex flex-col gap-3 border border-white/10 bg-panel-raised/40 p-3.5 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-bold text-ink">Publishing copy</p>
+              <p className="text-xs text-muted">Title, description, caption and hashtags for this clip</p>
             </div>
+            <button type="button" onClick={() => setShowMetadataEditor((open) => !open)} className="border border-volt bg-volt px-3 py-2 text-xs font-black uppercase tracking-wide text-[#101016] hover:bg-[#f6f0df] transition cursor-pointer">
+              {showMetadataEditor ? "Close editor" : "Edit details"}
+            </button>
           </div>
-        ) : null}
+          <p className="font-semibold text-volt">{metadataTitle || "No title set"}</p>
+          {metadataDescription ? <p className="whitespace-pre-line text-muted text-xs leading-relaxed">{metadataDescription}</p> : null}
+          {metadataCaption ? <p className="whitespace-pre-line text-ink/80 text-xs leading-relaxed">{metadataCaption}</p> : null}
+          {metadataHashtags ? <p className="text-xs text-volt break-words">{metadataHashtags}</p> : null}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button type="button" disabled={!metadataTitle.trim() && !metadataDescription.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-[#101016] transition cursor-pointer disabled:opacity-40" onClick={() => copy("yt", `${metadataTitle}\\n\\n${metadataDescription}`)}>
+              {copied === "yt" ? "Copied" : "Copy YouTube text"}
+            </button>
+            <button type="button" disabled={!metadataCaption.trim() && !metadataHashtags.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-[#101016] transition cursor-pointer disabled:opacity-40" onClick={() => copy("ig", [metadataCaption, metadataHashtags].filter(Boolean).join("\\n\\n"))}>
+              {copied === "ig" ? "Copied" : "Copy Instagram caption"}
+            </button>
+          </div>
+          {showMetadataEditor ? (
+            <form onSubmit={handleSaveMetadata} className="grid gap-3 border-t border-white/10 pt-3">
+              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
+                Clip title <span className="font-normal normal-case tracking-normal">Up to 100 characters</span>
+                <input value={metadataTitle} maxLength={100} onChange={(event) => setMetadataTitle(event.target.value)} className="min-h-10 border border-white/20 bg-panel-inset px-3 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
+              </label>
+              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
+                Description
+                <textarea value={metadataDescription} maxLength={5000} rows={4} onChange={(event) => setMetadataDescription(event.target.value)} placeholder="Write a YouTube description…" className="border border-white/20 bg-panel-inset px-3 py-2 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
+              </label>
+              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
+                Caption
+                <textarea value={metadataCaption} maxLength={2200} rows={4} onChange={(event) => setMetadataCaption(event.target.value)} placeholder="Write an Instagram or Reels caption…" className="border border-white/20 bg-panel-inset px-3 py-2 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
+              </label>
+              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
+                Hashtags
+                <textarea value={metadataHashtags} rows={2} onChange={(event) => setMetadataHashtags(event.target.value)} placeholder="#creator #shorts #reels" className="border border-white/20 bg-panel-inset px-3 py-2 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
+                <span className="font-normal normal-case tracking-normal">Separate hashtags with spaces, commas or new lines. The # is added automatically.</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="submit" disabled={savingMetadata} className="bg-volt px-4 py-2 text-xs font-black uppercase tracking-wide text-[#101016] hover:bg-[#f6f0df] disabled:opacity-50 cursor-pointer">
+                  {savingMetadata ? "Saving…" : "Save clip details"}
+                </button>
+                <button type="button" onClick={() => setShowMetadataEditor(false)} className="px-3 py-2 text-xs font-bold text-muted hover:text-ink cursor-pointer">Cancel</button>
+                <span aria-live="polite" className="text-xs text-muted">{metadataMessage}</span>
+              </div>
+            </form>
+          ) : null}
+          {metadataMessage && !showMetadataEditor ? <p role="status" className="text-xs text-volt">{metadataMessage}</p> : null}
+        </section>
 
         {/* Publish & Distribution Hub */}
         {hasVideo && clip.seo ? (
