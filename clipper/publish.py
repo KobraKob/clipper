@@ -40,7 +40,7 @@ def _append_hashtags(text: str, hashtags: List[str], limit: int) -> str:
         seen.add(tag.casefold())
         additions.append(tag)
     if additions:
-        caption = f"{caption}\\n\\n{' '.join(additions)}".strip()
+        caption = f"{caption}\n\n{' '.join(additions)}".strip()
     return caption[:limit]
 
 
