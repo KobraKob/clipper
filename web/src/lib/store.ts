@@ -601,7 +601,7 @@ export async function setJobClips(jobId: string, clips: Clip[]): Promise<JobView
 export async function patchClip(
   jobId: string,
   clipId: string,
-  patch: Partial<Pick<Clip, "kept" | "start" | "end">>,
+  patch: Partial<Pick<Clip, "kept" | "start" | "end">> & { title?: string; description?: string; caption?: string; hashtags?: string[] },
 ): Promise<JobView> {
   return storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
@@ -616,20 +616,71 @@ export async function patchClip(
       throw new Error(`Clip ${clipId} not found.`);
     }
 
-    const nextPatch = { ...target, ...patch };
+    if (patch.title !== undefined && patch.title.length > 100) throw new Error("Title must be 100 characters or fewer.");
+    if (patch.description !== undefined && patch.description.length > 5000) throw new Error("Description must be 5,000 characters or fewer.");
+    if (patch.caption !== undefined && patch.caption.length > 2200) throw new Error("Caption must be 2,200 characters or fewer.");
+    if (patch.hashtags !== undefined && (patch.hashtags.length > 30 || patch.hashtags.some((tag) => tag.length > 100))) {
+      throw new Error("Use up to 30 hashtags, each 100 characters or fewer.");
+    }
+
+    const nextSeo = target.seo ? {
+      ...target.seo,
+      youtube: {
+        ...target.seo.youtube,
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+      },
+      instagram: {
+        ...target.seo.instagram,
+        ...(patch.caption !== undefined ? { caption: patch.caption } : {}),
+      },
+      ...(patch.hashtags !== undefined ? { hashtags: patch.hashtags } : {}),
+    } : undefined;
+    const nextPatch = {
+      ...target,
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(nextSeo ? { seo: nextSeo } : {}),
+    };
     if (nextPatch.end <= nextPatch.start) {
       throw new Error("End timestamp must be strictly greater than start timestamp.");
     }
 
-    const clips = job.clips.map((clip) => {
-      if (clip.id !== clipId) return clip;
-      return nextPatch;
-    });
+    const clips = job.clips.map((clip) => clip.id === clipId ? nextPatch : clip);
+    jobs[index] = { ...jobs[index], clips };
 
-    jobs[index] = {
-      ...jobs[index],
-      clips,
-    };
+    // Keep exported metadata in sync for subsequent publish and schedule actions.
+    try {
+      const manifestPath = path.join(await resolveOutDir(jobId), "metadata.json");
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      const rank = Number(clipId.replace("clip-", ""));
+      const item = Array.isArray(manifest.clips)
+        ? manifest.clips.find((entry: { rank?: number }) => Number(entry.rank) === rank)
+        : undefined;
+      if (item) {
+        if (patch.title !== undefined) {
+          item.title = patch.title;
+          item.seo = item.seo || {};
+          item.seo.youtube = item.seo.youtube || {};
+          item.seo.youtube.title = patch.title;
+        }
+        if (patch.description !== undefined || patch.caption !== undefined || patch.hashtags !== undefined) {
+          item.seo = item.seo || {};
+          if (patch.description !== undefined) {
+            item.seo.youtube = item.seo.youtube || {};
+            item.seo.youtube.description = patch.description;
+          }
+          if (patch.caption !== undefined) {
+            item.seo.instagram = item.seo.instagram || {};
+            item.seo.instagram.caption = patch.caption;
+          }
+          if (patch.hashtags !== undefined) item.seo.hashtags = patch.hashtags;
+        }
+        await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
     await writeJobs(jobs);
     return hydrateJob(jobs[index]);
   });
