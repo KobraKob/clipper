@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from clipper.config import Settings
-from clipper.publish import PublishError, build_youtube_body, publish_clip, upload_instagram
+from clipper.publish import PublishError, _append_hashtags, build_youtube_body, publish_clip, upload_instagram
 from clipper.seo import generate_metadata
 
 
@@ -137,6 +137,10 @@ class TestPublish(unittest.TestCase):
         body = build_youtube_body(self.meta, Settings(), privacy="unlisted")
         self.assertEqual(body["status"]["privacyStatus"], "unlisted")
         self.assertIn("#shorts", body["snippet"]["description"].lower())
+
+    def test_custom_hashtags_are_appended_without_duplicates(self):
+        caption = _append_hashtags("My caption #One", ["#one", "Two Tag", "#Three"], 2200)
+        self.assertEqual(caption, "My caption #One\n\n#TwoTag #Three")
 
     def test_youtube_body_default_privacy_is_private(self):
         # Private is the safest default for publishing generated content.
