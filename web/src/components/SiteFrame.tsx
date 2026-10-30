@@ -16,6 +16,7 @@ export function SiteFrame({ children }: { children: ReactNode }) {
         <nav className="site-frame-nav" aria-label="Main navigation">
           <Link href="/#studio" className="nav-create-link">Create</Link>
           <Link href="/#pipeline" className="hidden lg:inline-block">Workflow</Link>
+          <Link href="/calendar" className="hidden md:inline-block">Calendar</Link>
           <Link href="/library" className="nav-library-link">Library <span aria-hidden="true">↗</span></Link>
         </nav>
       </header>
