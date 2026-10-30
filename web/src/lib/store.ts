@@ -660,9 +660,9 @@ export async function patchClip(
     jobs[index] = { ...jobs[index], clips };
 
     // Keep exported metadata in sync for subsequent publish and schedule actions.
-    try {
-      if (!editingMetadata) throw Object.assign(new Error("No metadata changes."), { code: "ENOENT" });
-      const manifestPath = path.join(await resolveOutDir(jobId), "metadata.json");
+    if (editingMetadata) {
+      try {
+        const manifestPath = path.join(await resolveOutDir(jobId), "metadata.json");
       const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
       const rank = Number(clipId.replace("clip-", ""));
       const item = Array.isArray(manifest.clips)
@@ -689,8 +689,9 @@ export async function patchClip(
         }
         await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
 
     await writeJobs(jobs);
