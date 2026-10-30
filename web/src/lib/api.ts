@@ -60,7 +60,7 @@ export async function fetchJobs(): Promise<JobView[]> {
 export async function patchClip(
   jobId: string,
   clipId: string,
-  patch: { kept?: boolean; start?: number; end?: number },
+  patch: { kept?: boolean; start?: number; end?: number; title?: string; description?: string; caption?: string; hashtags?: string[] },
 ): Promise<JobView> {
   const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}`, {
     method: "PATCH",
