@@ -6,6 +6,7 @@ import {
   fetchClipAnalytics,
   fetchJob,
   publishClip,
+  patchClip,
   rerenderClip,
   scheduleClip,
   selectTitleVariant,
