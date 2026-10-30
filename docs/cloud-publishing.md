@@ -41,7 +41,6 @@ When `CLOUD_PUBLISHING_ENABLED` is unset or false, the existing local scheduling
 
 In Supabase Dashboard → Edge Functions → Secrets, configure:
 
-- `CHOP_SHOP_CRON_SECRET`: a long random secret (at least 32 bytes).
 - `YOUTUBE_CLIENT_ID`: Google OAuth client ID.
 - `YOUTUBE_CLIENT_SECRET`: Google OAuth client secret.
 - `YOUTUBE_REFRESH_TOKEN`: refresh token for the YouTube channel to publish to.
@@ -52,14 +51,11 @@ In Supabase Dashboard → Edge Functions → Secrets, configure:
 
 The YouTube OAuth app must have YouTube Data API v3 enabled and the refresh token must include `youtube.upload`. Instagram requires an eligible Professional account and the appropriate Meta publishing permissions. These provider credentials are not created by this code.
 
-## Enable the minute scheduler
+## Minute scheduler
 
-1. In Supabase Dashboard → Database → Vault, create:
-   - `chop_shop_project_url` = `https://mhqcisqhiovhqalyhtkb.supabase.co`
-   - `chop_shop_cron_secret` = the exact same value configured as the `CHOP_SHOP_CRON_SECRET` Edge Function secret.
-2. In SQL Editor, run `supabase/scheduler.sql` from this repository.
-3. Confirm the `chop-shop-publishing-minute` job appears in Database → Cron.
-4. Check Edge Function logs after a test invocation.
+The applied database migration provisions a random scheduler secret in Supabase Vault, stores the project URL, and registers `chop-shop-publishing-minute` with pg_cron. The Edge Function verifies each invocation against that Vault secret through a service-role-only RPC. No cron secret needs to be copied into the repository or configured manually.
+
+Confirm the `chop-shop-publishing-minute` job appears in Database → Cron. Use the SQL in `supabase/scheduler.sql` to inspect cron and pg_net execution records.
 
 ## Behaviour and limits
 
