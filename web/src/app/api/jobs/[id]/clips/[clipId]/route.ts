@@ -173,6 +173,10 @@ export async function PATCH(
       kept?: boolean;
       start?: number;
       end?: number;
+      title?: string;
+      description?: string;
+      caption?: string;
+      hashtags?: string[];
     };
     const job = await patchClip(id, clipId, body);
     return NextResponse.json(job);
