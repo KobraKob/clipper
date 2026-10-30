@@ -48,6 +48,7 @@ In Supabase Dashboard → Edge Functions → Secrets, configure:
 - `INSTAGRAM_ACCESS_TOKEN`: Meta/Instagram access token.
 - `INSTAGRAM_USER_ID`: Instagram professional account ID.
 - `INSTAGRAM_GRAPH_VERSION`: optional; defaults to `v22.0`.
+- `INSTAGRAM_FLAVOR`: optional; use `facebook` for Facebook Login or `instagram` for Instagram Login.
 
 The YouTube OAuth app must have YouTube Data API v3 enabled and the refresh token must include `youtube.upload`. Instagram requires an eligible Professional account and the appropriate Meta publishing permissions. These provider credentials are not created by this code.
 
@@ -63,7 +64,7 @@ The YouTube OAuth app must have YouTube Data API v3 enabled and the refresh toke
 ## Behaviour and limits
 
 - The laptop must stay on only until the finished MP4 upload to Supabase completes. It is not needed afterwards.
-- Cloud scheduling currently accepts MP4 files up to 1 GiB.
+- The bucket is configured for MP4 files up to 1 GiB. The project's plan-level Storage upload limit may be lower; check Supabase Storage settings before scheduling larger files.
 - YouTube jobs are uploaded up to 12 hours before their publication time, then YouTube handles the scheduled release.
 - Instagram jobs are submitted at their scheduled time. Meta must be able to fetch the signed media URL.
 - Failed posts are marked `failed`; they are not blindly retried because provider retries can create duplicate posts. Retry controls and cancellation UI are follow-up work.
