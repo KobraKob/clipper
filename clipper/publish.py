@@ -28,6 +28,22 @@ YOUTUBE_SCOPES = [
 PLATFORMS = ("youtube", "instagram")
 
 
+def _append_hashtags(text: str, hashtags: List[str], limit: int) -> str:
+    caption = str(text or "").strip()
+    existing = caption.casefold()
+    additions: List[str] = []
+    seen = set()
+    for value in hashtags or []:
+        tag = "#" + "".join(str(value or "").split()).lstrip("#")
+        if tag == "#" or tag.casefold() in existing or tag.casefold() in seen:
+            continue
+        seen.add(tag.casefold())
+        additions.append(tag)
+    if additions:
+        caption = f"{caption}\\n\\n{' '.join(additions)}".strip()
+    return caption[:limit]
+
+
 class PublishError(RuntimeError):
     pass
 
@@ -260,7 +276,7 @@ def upload_instagram(
     token = s.instagram_access_token
     params: Dict[str, Any] = {
         "media_type": "REELS",
-        "caption": meta["instagram"]["caption"],
+        "caption": _append_hashtags(meta["instagram"]["caption"], meta.get("hashtags", []), 2200),
         "share_to_feed": "true",
         "access_token": token,
     }
