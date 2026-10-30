@@ -140,7 +140,7 @@ class TestPublish(unittest.TestCase):
 
     def test_custom_hashtags_are_appended_without_duplicates(self):
         caption = _append_hashtags("My caption #One", ["#one", "Two Tag", "#Three"], 2200)
-        self.assertEqual(caption, "My caption #One\\n\\n#TwoTag #Three")
+        self.assertEqual(caption, "My caption #One\n\n#TwoTag #Three")
 
     def test_youtube_body_default_privacy_is_private(self):
         # Private is the safest default for publishing generated content.
