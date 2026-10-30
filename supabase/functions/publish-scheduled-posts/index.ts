@@ -7,7 +7,6 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const cronSecret = Deno.env.get("CHOP_SHOP_CRON_SECRET")!;
 const graphVersion = Deno.env.get("INSTAGRAM_GRAPH_VERSION") || "v22.0";
 
 type ScheduledPost = {
@@ -243,13 +242,29 @@ async function updatePost(id: string, patch: Record<string, unknown>) {
   });
 }
 
+async function authorizedSchedulerRequest(req: Request): Promise<boolean> {
+  const candidate = req.headers.get("x-cron-secret");
+  if (!candidate) return false;
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/verify_chop_shop_cron_secret`, {
+    method: "POST",
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ candidate }),
+  });
+  if (!response.ok) return false;
+  return await response.json() === true;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
-  if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
+  if (!supabaseUrl || !serviceKey) return json({ error: "Supabase worker environment is incomplete." }, 500);
+  if (!(await authorizedSchedulerRequest(req))) {
     return json({ error: "Unauthorized scheduler invocation." }, 401);
   }
-  if (!supabaseUrl || !serviceKey) return json({ error: "Supabase worker environment is incomplete." }, 500);
 
   const now = new Date();
   const due = now.toISOString();
