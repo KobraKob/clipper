@@ -623,13 +623,15 @@ export async function patchClip(
       throw new Error("Use up to 30 hashtags, each 100 characters or fewer.");
     }
 
+    const editingMetadata = patch.title !== undefined || patch.description !== undefined ||
+      patch.caption !== undefined || patch.hashtags !== undefined;
     const baseSeo = target.seo || {
       youtube: { title: target.title, description: "", tags: [] },
       instagram: { caption: "" },
       hashtags: [],
       keywords: [],
     };
-    const nextSeo = {
+    const nextSeo = editingMetadata ? {
       ...baseSeo,
       youtube: {
         ...baseSeo.youtube,
@@ -641,14 +643,14 @@ export async function patchClip(
         ...(patch.caption !== undefined ? { caption: patch.caption } : {}),
       },
       ...(patch.hashtags !== undefined ? { hashtags: patch.hashtags } : {}),
-    };
+    } : target.seo;
     const nextPatch = {
       ...target,
       ...(patch.kept !== undefined ? { kept: patch.kept } : {}),
       ...(patch.start !== undefined ? { start: patch.start } : {}),
       ...(patch.end !== undefined ? { end: patch.end } : {}),
       ...(patch.title !== undefined ? { title: patch.title } : {}),
-      seo: nextSeo,
+      ...(nextSeo ? { seo: nextSeo } : {}),
     };
     if (nextPatch.end <= nextPatch.start) {
       throw new Error("End timestamp must be strictly greater than start timestamp.");
@@ -659,6 +661,7 @@ export async function patchClip(
 
     // Keep exported metadata in sync for subsequent publish and schedule actions.
     try {
+      if (!editingMetadata) throw Object.assign(new Error("No metadata changes."), { code: "ENOENT" });
       const manifestPath = path.join(await resolveOutDir(jobId), "metadata.json");
       const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
       const rank = Number(clipId.replace("clip-", ""));
