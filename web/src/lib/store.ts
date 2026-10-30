@@ -644,8 +644,11 @@ export async function patchClip(
     };
     const nextPatch = {
       ...target,
+      ...(patch.kept !== undefined ? { kept: patch.kept } : {}),
+      ...(patch.start !== undefined ? { start: patch.start } : {}),
+      ...(patch.end !== undefined ? { end: patch.end } : {}),
       ...(patch.title !== undefined ? { title: patch.title } : {}),
-      ...(nextSeo ? { seo: nextSeo } : {}),
+      seo: nextSeo,
     };
     if (nextPatch.end <= nextPatch.start) {
       throw new Error("End timestamp must be strictly greater than start timestamp.");
