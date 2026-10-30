@@ -623,19 +623,25 @@ export async function patchClip(
       throw new Error("Use up to 30 hashtags, each 100 characters or fewer.");
     }
 
-    const nextSeo = target.seo ? {
-      ...target.seo,
+    const baseSeo = target.seo || {
+      youtube: { title: target.title, description: "", tags: [] },
+      instagram: { caption: "" },
+      hashtags: [],
+      keywords: [],
+    };
+    const nextSeo = {
+      ...baseSeo,
       youtube: {
-        ...target.seo.youtube,
+        ...baseSeo.youtube,
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.description !== undefined ? { description: patch.description } : {}),
       },
       instagram: {
-        ...target.seo.instagram,
+        ...baseSeo.instagram,
         ...(patch.caption !== undefined ? { caption: patch.caption } : {}),
       },
       ...(patch.hashtags !== undefined ? { hashtags: patch.hashtags } : {}),
-    } : undefined;
+    };
     const nextPatch = {
       ...target,
       ...(patch.title !== undefined ? { title: patch.title } : {}),
