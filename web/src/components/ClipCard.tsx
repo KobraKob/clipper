@@ -185,7 +185,7 @@ export function ClipCard({
     setSavingMetadata(true);
     setMetadataMessage("");
     const hashtags = metadataHashtags
-      .split(/[\\s,]+/)
+      .split(/[\s,]+/)
       .map((tag) => tag.trim())
       .filter(Boolean)
       .map((tag) => tag.startsWith("#") ? tag : `#${tag}`);
