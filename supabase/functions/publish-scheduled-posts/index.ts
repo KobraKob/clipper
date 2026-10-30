@@ -158,7 +158,8 @@ async function publishInstagram(post: ScheduledPost, videoUrl: string) {
   const tags = Array.isArray(meta.hashtags) ? meta.hashtags : [];
   const uniqueTags = [...new Set(tags.map((tag) => `#${String(tag).replace(/^#+/, "").replace(/\s+/g, "")}`))];
   const finalCaption = [caption, uniqueTags.join(" ")].filter(Boolean).join("\n\n").slice(0, 2200);
-  const base = `https://graph.facebook.com/${graphVersion}`;
+  const graphHost = Deno.env.get("INSTAGRAM_FLAVOR") === "instagram" ? "graph.instagram.com" : "graph.facebook.com";
+  const base = `https://${graphHost}/${graphVersion}`;
 
   const create = await fetch(`${base}/${encodeURIComponent(userId)}/media`, {
     method: "POST",
@@ -256,11 +257,23 @@ Deno.serve(async (req: Request) => {
   const [instagramPosts, youtubePosts, completedYoutube] = await Promise.all([
     db(`scheduled_posts?status=eq.queued&platform=eq.instagram&scheduled_at=lte.${encodeURIComponent(due)}&order=scheduled_at.asc&limit=3`),
     db(`scheduled_posts?status=eq.queued&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(youtubeWindow)}&order=scheduled_at.asc&limit=3`),
-    db(`scheduled_posts?status=eq.scheduled&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(due)}&select=id`),
+    db(`scheduled_posts?status=eq.scheduled&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(due)}&select=id,provider_post_id`),
   ]);
 
-  for (const row of completedYoutube as { id: string }[]) {
-    await updatePost(row.id, { status: "published", published_at: now.toISOString(), locked_at: null });
+  for (const row of completedYoutube as { id: string; provider_post_id: string | null }[]) {
+    if (!row.provider_post_id) continue;
+    try {
+      const token = await youtubeAccessToken();
+      const check = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(row.provider_post_id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await check.json();
+      if (check.ok && data.items?.[0]?.status?.privacyStatus === "public") {
+        await updatePost(row.id, { status: "published", published_at: now.toISOString(), locked_at: null });
+      }
+    } catch {
+      // Leave it in scheduled state; a later cron tick can verify publication.
+    }
   }
 
   const posts = [...(instagramPosts as ScheduledPost[]), ...(youtubePosts as ScheduledPost[])];
