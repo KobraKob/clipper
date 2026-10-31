@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CalendarScheduler } from "@/components/CalendarScheduler";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +86,8 @@ export default async function CalendarPage() {
           </span>
         </div>
       </header>
+
+      <CalendarScheduler />
 
       {error ? (
         <div className="rounded-xl border border-white/12 bg-panel p-5 text-sm text-muted">{error}</div>

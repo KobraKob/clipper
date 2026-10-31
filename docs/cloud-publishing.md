@@ -66,3 +66,10 @@ Confirm the `chop-shop-publishing-minute` job appears in Database → Cron. Use 
 - Failed posts are marked `failed`; they are not blindly retried because provider retries can create duplicate posts. Retry controls and cancellation UI are follow-up work.
 - The current implementation stores publishing metadata and provider IDs, not the local job's entire filesystem history.
 - Cloud rendering is deliberately out of scope. The local FFmpeg/Python pipeline remains the source of finished clips.
+
+
+## Calendar-first scheduling
+
+Open **Calendar → Schedule a video** to choose a finished, kept clip from the local library, select YouTube Shorts, Instagram Reels, or both, and set a local date/time. The app uploads the rendered MP4 to the private Supabase bucket first; it only creates queue rows after the storage upload succeeds. Keep the browser tab open until the request finishes.
+
+Apply the migration `20261031183000_allow_scheduled_post_status.sql` before using YouTube scheduling on an existing project. YouTube uses the `scheduled` database state after its private upload is accepted by YouTube; the earlier schema constraint did not allow that state, causing the worker's status update to fail.
