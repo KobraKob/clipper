@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchJobs, scheduleClip } from "@/lib/api";
+import { fetchJobs, scheduleClipWithProgress } from "@/lib/api";
+import type { ScheduleProgress } from "@/lib/api";
 import type { JobView, Platform } from "@/lib/types";
 
 function defaultScheduleTime() {
@@ -22,6 +23,7 @@ export function CalendarScheduler() {
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [progress, setProgress] = useState<ScheduleProgress | null>(null);
 
   useEffect(() => {
     if (!open || jobs.length) return;
@@ -150,7 +152,7 @@ export function CalendarScheduler() {
           <div className="flex flex-wrap items-center gap-3 md:col-span-2">
             <button type="submit" disabled={busy || loading || !options.length}
               className="min-h-11 rounded-lg bg-volt px-5 py-2 text-xs font-extrabold text-[#080b10] disabled:cursor-not-allowed disabled:opacity-50">
-              {busy ? "Uploading and scheduling…" : "Upload video & schedule"}
+              {busy ? "Uploading and scheduling…" : error ? "Retry upload & schedule" : "Upload video & schedule"}
             </button>
             <span className="text-xs text-muted">The MP4 upload completes before the queue entry is created.</span>
           </div>
