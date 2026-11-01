@@ -235,7 +235,7 @@ export async function scheduleClipWithProgress(
   };
 
   onProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: 0 });
-  let prepared: { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
+  let prepared: { uploadUrl: string; storagePath: string; size: number; fileUrl: string } | null = null;
   let lastError: unknown;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
@@ -265,6 +265,7 @@ export async function scheduleClipWithProgress(
     }
   }
   if (lastError) throw lastError;
+  if (!prepared) throw new Error("Could not prepare the cloud upload. Retry.");
 
   onProgress({ phase: "saving", percent: 100, loadedBytes: prepared.size, totalBytes: prepared.size });
   const result = await post("complete", prepared.storagePath) as JobView;
