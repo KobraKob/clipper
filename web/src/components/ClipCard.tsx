@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
 import {
   fetchClipAnalytics,
@@ -82,6 +82,7 @@ export function ClipCard({
     return d.toISOString().slice(0, 16);
   });
   const [scheduling, setScheduling] = useState(false);
+  const scheduleLock = useRef(false);
   const [scheduleState, setScheduleState] = useState<ClipSchedule | undefined>(clip.schedule);
   const [scheduleMsg, setScheduleMsg] = useState("");
   const [scheduleProgress, setScheduleProgress] = useState<ScheduleProgress | null>(null);
@@ -212,7 +213,8 @@ export function ClipCard({
   async function handleScheduleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!scheduleTime) return;
-    if (scheduling) return;
+    if (scheduleLock.current) return;
+    scheduleLock.current = true;
     setScheduling(true);
     setScheduleMsg("");
     setScheduleProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: 0 });
@@ -227,6 +229,7 @@ export function ClipCard({
     } catch (err) {
       setScheduleMsg(err instanceof Error ? err.message : "Scheduling failed. Retry.");
     } finally {
+      scheduleLock.current = false;
       setScheduling(false);
     }
   }
@@ -762,7 +765,7 @@ export function ClipCard({
                     disabled={scheduling}
                     className="bg-volt px-4 py-1.5 text-xs font-bold text-[#101016] rounded hover:bg-[#e4ff78] transition disabled:opacity-60 cursor-pointer"
                   >
-                    {scheduling ? "Scheduling…" : "Confirm Schedule"}
+                    {scheduling ? "Scheduling…" : scheduleMsg && !scheduleState ? "Retry Upload" : "Confirm Schedule"}
                   </button>
                   {scheduleMsg ? (
                     <span role="status" aria-live="polite" className={scheduleProgress?.phase === "success" ? "text-xs font-semibold text-volt" : "text-xs font-semibold text-punch"}>{scheduleMsg}</span>
