@@ -235,12 +235,19 @@ export async function scheduleClipWithProgress(
   };
 
   onProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: 0 });
-  let prepared: { uploadUrl: string; storagePath: string; size: number; fileUrl: string } | null = null;
+  const firstPreparation = await post("prepare") as { mode?: string; job?: JobView; uploadUrl?: string; storagePath?: string; size?: number; fileUrl?: string };
+  if (firstPreparation.mode === "local" && firstPreparation.job) {
+    onProgress({ phase: "saving", percent: 100, loadedBytes: 0, totalBytes: 0 });
+    onProgress({ phase: "success", percent: 100, loadedBytes: 0, totalBytes: 0 });
+    return firstPreparation.job;
+  }
+  let prepared: { uploadUrl: string; storagePath: string; size: number; fileUrl: string } | null = firstPreparation as { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
   let lastError: unknown;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
       // Obtain a fresh one-time signed URL on retry; failed uploads may invalidate the previous URL.
-      prepared = await post("prepare") as { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
+      if (attempt > 1) prepared = await post("prepare") as { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
+      if (!prepared?.uploadUrl || !prepared.fileUrl || !prepared.storagePath || !prepared.size) throw new Error("Could not prepare the cloud upload. Retry.");
       onProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: prepared.size });
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), timeoutMs);
