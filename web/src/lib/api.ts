@@ -235,11 +235,12 @@ export async function scheduleClipWithProgress(
   };
 
   onProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: 0 });
-  const prepared = await post("prepare") as { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
-
+  let prepared: { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
   let lastError: unknown;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
+      // Obtain a fresh one-time signed URL on retry; failed uploads may invalidate the previous URL.
+      prepared = await post("prepare") as { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
       onProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: prepared.size });
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), timeoutMs);
