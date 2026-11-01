@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { fetchJobs, scheduleClip } from "@/lib/api";
 import type { JobView, Platform } from "@/lib/types";
 
@@ -15,6 +15,7 @@ export function CalendarScheduler() {
   const [open, setOpen] = useState(false);
   const [jobs, setJobs] = useState<JobView[]>([]);
   const [loading, setLoading] = useState(false);
+  const [jobsLoaded, setJobsLoaded] = useState(false);
   const [jobClip, setJobClip] = useState("");
   const [platform, setPlatform] = useState<Platform | "both">("youtube");
   const [scheduledAt, setScheduledAt] = useState(defaultScheduleTime);
@@ -23,27 +24,39 @@ export function CalendarScheduler() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  useEffect(() => {
-    if (!open || jobs.length) return;
-    let active = true;
+  function toggleScheduler() {
+    if (open) {
+      setOpen(false);
+      setError("");
+      return;
+    }
+
+    setOpen(true);
+    setError("");
+    if (jobsLoaded || loading) return;
+
     setLoading(true);
     fetchJobs()
       .then((items) => {
-        if (active) {
-          setJobs(items);
-          const first = items.find((job) => job.status === "done" && job.clips.some((clip) => clip.kept && clip.file));
-          const clip = first?.clips.find((item) => item.kept && item.file);
-          if (first && clip) setJobClip(`${first.id}::${clip.id}`);
-        }
+        setJobs(items);
+        setJobsLoaded(true);
+        const first = items.find(
+          (job) =>
+            job.status === "done" &&
+            job.clips.some((clip) => clip.kept && clip.file),
+        );
+        const clip = first?.clips.find((item) => item.kept && item.file);
+        if (first && clip) setJobClip(`${first.id}::${clip.id}`);
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : "Could not load your library.");
+        setError(
+          reason instanceof Error ? reason.message : "Could not load your library.",
+        );
       })
       .finally(() => {
-        if (active) setLoading(false);
+        setLoading(false);
       });
-    return () => { active = false; };
-  }, [open, jobs.length]);
+  }
 
   const options = useMemo(() => jobs.flatMap((job) => {
     if (job.status !== "done") return [];
@@ -108,7 +121,7 @@ export function CalendarScheduler() {
           <h2 className="display mt-1 text-2xl text-ink">Schedule a video</h2>
           <p className="mt-1 text-xs text-muted">Choose a finished clip from your library. Chop Shop uploads its MP4 to cloud storage before adding it to the calendar.</p>
         </div>
-        <button type="button" onClick={() => { setOpen((value) => !value); setError(""); }} disabled={busy}
+        <button type="button" onClick={toggleScheduler} disabled={busy || loading}
           className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-volt px-4 py-2 text-xs font-extrabold text-[#080b10] transition hover:bg-[#e4ff83] disabled:opacity-50">
           {open ? "Close scheduler" : "+ Schedule a video"}
         </button>
