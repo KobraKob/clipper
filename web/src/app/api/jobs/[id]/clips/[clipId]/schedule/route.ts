@@ -96,7 +96,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (process.env.CLOUD_PUBLISHING_ENABLED !== "true" || body.action === "legacy") {
       const job = await scheduleClip(id, clipId, platform, body.scheduledAtIso);
-      return NextResponse.json(job);
+      return body.action === "prepare"
+        ? NextResponse.json({ mode: "local", job })
+        : NextResponse.json(job);
     }
     if (body.action === "prepare") return await prepare(id, clipId, platform, body.scheduledAtIso);
     if (body.action === "complete") {
