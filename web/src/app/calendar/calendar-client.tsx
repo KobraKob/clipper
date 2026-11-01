@@ -1083,7 +1083,7 @@ export default function CalendarClient({
                                     : "text-ice"
                                 }`}
                               >
-                                {post.platform} //{" "}
+                                {post.platform} {"//"}{" "}
                                 {getISTParts(post.scheduled_at).time} IST
                               </span>
                               <span
