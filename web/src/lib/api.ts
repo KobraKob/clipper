@@ -176,3 +176,106 @@ export async function fetchJobLogs(id: string): Promise<{
 }
 
 
+
+export type ScheduleProgress = {
+  phase: "preparing" | "uploading" | "saving" | "success";
+  percent: number;
+  loadedBytes: number;
+  totalBytes: number;
+};
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function xhrUpload(url: string, file: Blob, onProgress: (loaded: number, total: number) => void, timeoutMs: number) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.timeout = timeoutMs;
+    xhr.setRequestHeader("Content-Type", "video/mp4");
+    xhr.upload.onprogress = (event) => onProgress(event.loaded, event.lengthComputable ? event.total : file.size);
+    xhr.onload = () => xhr.status >= 200 && xhr.status < 300
+      ? resolve()
+      : reject(new Error(`Cloud storage upload failed (${xhr.status}): ${xhr.responseText || xhr.statusText}`));
+    xhr.onerror = () => reject(new Error("Network error during cloud upload. Check your connection and retry."));
+    xhr.ontimeout = () => reject(new Error("Cloud upload timed out after 10 minutes. Check your connection and retry."));
+    xhr.onabort = () => reject(new Error("Cloud upload was cancelled."));
+    xhr.send(file);
+  });
+}
+
+export async function scheduleClipWithProgress(
+  jobId: string,
+  clipId: string,
+  platform: Platform | "both",
+  scheduledAtIso: string,
+  onProgress: (progress: ScheduleProgress) => void,
+  timeoutMs = 10 * 60 * 1000,
+): Promise<JobView> {
+  const post = async (action: "prepare" | "complete", storagePath?: string) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/clips/${clipId}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, platform, scheduledAtIso, storagePath }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(await parseError(response));
+      return response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error("Scheduling request timed out. Retry.");
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
+  onProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: 0 });
+  const firstPreparation = await post("prepare") as { mode?: string; job?: JobView; uploadUrl?: string; storagePath?: string; size?: number; fileUrl?: string };
+  if (firstPreparation.mode === "local" && firstPreparation.job) {
+    onProgress({ phase: "saving", percent: 100, loadedBytes: 0, totalBytes: 0 });
+    onProgress({ phase: "success", percent: 100, loadedBytes: 0, totalBytes: 0 });
+    return firstPreparation.job;
+  }
+  let prepared: { uploadUrl: string; storagePath: string; size: number; fileUrl: string } | null = firstPreparation as { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      // Obtain a fresh one-time signed URL on retry; failed uploads may invalidate the previous URL.
+      if (attempt > 1) prepared = await post("prepare") as { uploadUrl: string; storagePath: string; size: number; fileUrl: string };
+      if (!prepared?.uploadUrl || !prepared.fileUrl || !prepared.storagePath || !prepared.size) throw new Error("Could not prepare the cloud upload. Retry.");
+      onProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: prepared.size });
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+      let blob: Blob;
+      try {
+        const response = await fetch(prepared.fileUrl, { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error(`Could not read rendered MP4 (${response.status}).`);
+        blob = await response.blob();
+      } finally {
+        window.clearTimeout(timer);
+      }
+      if (blob.size !== prepared.size) throw new Error("Downloaded clip size did not match the prepared file. Retry.");
+      onProgress({ phase: "uploading", percent: 0, loadedBytes: 0, totalBytes: blob.size });
+      await xhrUpload(prepared.uploadUrl, blob, (loaded, total) => {
+        onProgress({ phase: "uploading", percent: total ? Math.min(100, Math.round(loaded / total * 100)) : 0, loadedBytes: loaded, totalBytes: total });
+      }, timeoutMs);
+      lastError = undefined;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) throw error;
+    }
+  }
+  if (lastError) throw lastError;
+  if (!prepared) throw new Error("Could not prepare the cloud upload. Retry.");
+
+  onProgress({ phase: "saving", percent: 100, loadedBytes: prepared.size, totalBytes: prepared.size });
+  const result = await post("complete", prepared.storagePath) as JobView;
+  onProgress({ phase: "success", percent: 100, loadedBytes: prepared.size, totalBytes: prepared.size });
+  return result;
+}

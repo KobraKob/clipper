@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { fetchJobs, scheduleClip } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchJobs, scheduleClipWithProgress } from "@/lib/api";
+import type { ScheduleProgress } from "@/lib/api";
 import type { JobView, Platform } from "@/lib/types";
 
 function defaultScheduleTime() {
@@ -22,6 +23,8 @@ export function CalendarScheduler() {
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [progress, setProgress] = useState<ScheduleProgress | null>(null);
+  const submitLock = useRef(false);
 
   useEffect(() => {
     if (!open || jobs.length) return;
@@ -82,20 +85,25 @@ export function CalendarScheduler() {
       return;
     }
 
+    if (submitLock.current) return;
+    submitLock.current = true;
     setBusy(true);
-    setStage("Preparing the finished clip…");
+    setError("");
     try {
-      setStage("Uploading the MP4 to private cloud storage. Keep this tab open…");
-      await scheduleClip(selected.jobId, selected.clipId, platform, date.toISOString());
-      setStage("Saving the calendar entry…");
+      await scheduleClipWithProgress(selected.jobId, selected.clipId, platform, date.toISOString(), (nextProgress) => {
+        setProgress(nextProgress);
+        setStage(nextProgress.phase === "preparing" ? "Preparing video…" : nextProgress.phase === "uploading" ? `Uploading video · ${nextProgress.percent}% · ${(nextProgress.loadedBytes / 1048576).toFixed(1)} / ${(nextProgress.totalBytes / 1048576).toFixed(1)} MB` : nextProgress.phase === "saving" ? "Saving schedule…" : "Scheduled successfully.");
+      });
       setSuccess("Video uploaded and added to your publishing queue.");
       setStage("");
+      setProgress(null);
       setOpen(false);
       window.location.reload();
     } catch (reason) {
       setStage("");
-      setError(reason instanceof Error ? reason.message : "Scheduling failed.");
+      setError(reason instanceof Error ? reason.message : "Scheduling failed. Retry the upload.");
     } finally {
+      submitLock.current = false;
       setBusy(false);
     }
   }
@@ -140,17 +148,17 @@ export function CalendarScheduler() {
               className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink" />
           </label>
 
-          {busy ? (
-            <div className="flex items-center gap-3 rounded-lg border border-ice/25 bg-ice/10 p-3 text-sm text-ice md:col-span-2" role="status" aria-live="polite">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-ice/30 border-t-ice" />
-              <span>{stage || "Scheduling…"}</span>
+          {busy && progress ? (
+            <div className="grid gap-2 rounded-lg border border-ice/25 bg-ice/10 p-3 text-sm text-ice md:col-span-2" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3"><span>{stage}</span><strong>{progress.phase === "uploading" ? `${progress.percent}%` : progress.phase === "saving" ? "100%" : "…"}</strong></div>
+              <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-volt transition-all" style={{ width: `${progress.phase === "uploading" ? progress.percent : progress.phase === "saving" ? 100 : 3}%` }} /></div>
             </div>
-          ) : null}
+          ) : busy ? <p className="text-sm text-muted md:col-span-2" role="status">{stage}</p> : null}
           {error ? <p role="alert" className="rounded-lg border border-punch/40 bg-punch/10 p-3 text-sm text-punch md:col-span-2">{error}</p> : null}
           <div className="flex flex-wrap items-center gap-3 md:col-span-2">
             <button type="submit" disabled={busy || loading || !options.length}
               className="min-h-11 rounded-lg bg-volt px-5 py-2 text-xs font-extrabold text-[#080b10] disabled:cursor-not-allowed disabled:opacity-50">
-              {busy ? "Uploading and scheduling…" : "Upload video & schedule"}
+              {busy ? "Uploading and scheduling…" : error ? "Retry upload & schedule" : "Upload video & schedule"}
             </button>
             <span className="text-xs text-muted">The MP4 upload completes before the queue entry is created.</span>
           </div>
