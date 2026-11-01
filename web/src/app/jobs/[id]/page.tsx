@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { JobStudio } from "@/components/JobStudio";
 
 export default async function JobPage({
@@ -11,9 +12,9 @@ export default async function JobPage({
     <main className="app-page job-page">
       <div className="page-topline">
         <nav aria-label="Breadcrumb" className="page-breadcrumb">
-          <a href="/">Studio</a>
+          <Link href="/">Studio</Link>
           <span aria-hidden="true">/</span>
-          <a href="/library">Library</a>
+          <Link href="/library">Library</Link>
           <span aria-hidden="true">/</span>
           <span aria-current="page">Job workspace</span>
         </nav>
