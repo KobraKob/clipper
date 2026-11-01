@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchJobs, scheduleClipWithProgress } from "@/lib/api";
 import type { ScheduleProgress } from "@/lib/api";
 import type { JobView, Platform } from "@/lib/types";
@@ -24,6 +24,7 @@ export function CalendarScheduler() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [progress, setProgress] = useState<ScheduleProgress | null>(null);
+  const submitLock = useRef(false);
 
   useEffect(() => {
     if (!open || jobs.length) return;
@@ -84,7 +85,8 @@ export function CalendarScheduler() {
       return;
     }
 
-    if (busy) return;
+    if (submitLock.current) return;
+    submitLock.current = true;
     setBusy(true);
     setError("");
     try {
@@ -101,6 +103,7 @@ export function CalendarScheduler() {
       setStage("");
       setError(reason instanceof Error ? reason.message : "Scheduling failed. Retry the upload.");
     } finally {
+      submitLock.current = false;
       setBusy(false);
     }
   }
