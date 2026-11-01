@@ -1,5 +1,3 @@
-"use server";
-
 import { NextResponse } from "next/server";
 import { stat } from "fs/promises";
 import { getClipVideoFile, getJob, scheduleClip } from "@/lib/store";
