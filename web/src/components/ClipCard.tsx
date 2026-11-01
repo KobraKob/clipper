@@ -8,10 +8,11 @@ import {
   publishClip,
   patchClip,
   rerenderClip,
-  scheduleClip,
+  scheduleClipWithProgress,
   selectTitleVariant,
 } from "@/lib/api";
 import type { Clip, ClipAnalytics, ClipSchedule, Platform, TitleVariant } from "@/lib/types";
+import type { ScheduleProgress } from "@/lib/api";
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 import { normalizeTitleVariants } from "@/lib/titleVariants";
 
@@ -83,6 +84,7 @@ export function ClipCard({
   const [scheduling, setScheduling] = useState(false);
   const [scheduleState, setScheduleState] = useState<ClipSchedule | undefined>(clip.schedule);
   const [scheduleMsg, setScheduleMsg] = useState("");
+  const [scheduleProgress, setScheduleProgress] = useState<ScheduleProgress | null>(null);
 
   // Analytics state
   const [analytics, setAnalytics] = useState<ClipAnalytics | undefined>(clip.analytics);
@@ -210,18 +212,20 @@ export function ClipCard({
   async function handleScheduleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!scheduleTime) return;
+    if (scheduling) return;
     setScheduling(true);
-    setScheduleMsg("Scheduling clip…");
+    setScheduleMsg("");
+    setScheduleProgress({ phase: "preparing", percent: 0, loadedBytes: 0, totalBytes: 0 });
     try {
       const scheduledUtc = new Date(scheduleTime).toISOString();
-      const res = await scheduleClip(jobId, clip.id, schedulePlatform, scheduledUtc);
+      const res = await scheduleClipWithProgress(jobId, clip.id, schedulePlatform, scheduledUtc, setScheduleProgress);
       const updatedClip = res.clips.find((item) => item.id === clip.id);
       setScheduleState(updatedClip?.schedule);
       setScheduleMsg("Scheduled successfully!");
       setShowScheduleForm(false);
-      setTimeout(() => setScheduleMsg(""), 4000);
+      setTimeout(() => { setScheduleMsg(""); setScheduleProgress(null); }, 5000);
     } catch (err) {
-      setScheduleMsg(err instanceof Error ? err.message : "Scheduling failed.");
+      setScheduleMsg(err instanceof Error ? err.message : "Scheduling failed. Retry.");
     } finally {
       setScheduling(false);
     }
@@ -742,6 +746,16 @@ export function ClipCard({
                     />
                   </label>
                 </div>
+                {scheduling && scheduleProgress ? (
+                  <div className="grid gap-2 rounded-lg border border-white/10 bg-black/30 p-3" role="status" aria-live="polite">
+                    <div className="flex justify-between gap-3 text-xs font-semibold text-ink">
+                      <span>{scheduleProgress.phase === "preparing" ? "1. Preparing video" : scheduleProgress.phase === "uploading" ? "2. Uploading video" : scheduleProgress.phase === "saving" ? "3. Saving schedule" : "4. Scheduled successfully"}</span>
+                      <span>{scheduleProgress.phase === "uploading" ? `${scheduleProgress.percent}% · ${(scheduleProgress.loadedBytes / 1048576).toFixed(1)} / ${(scheduleProgress.totalBytes / 1048576).toFixed(1)} MB` : scheduleProgress.phase === "preparing" ? "Please wait…" : "100%"}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-volt transition-all" style={{ width: `${scheduleProgress.phase === "uploading" ? scheduleProgress.percent : scheduleProgress.phase === "saving" ? 100 : 4}%` }} /></div>
+                    <p className="text-[11px] text-muted">{scheduleProgress.phase === "preparing" ? "Checking clip and preparing secure upload…" : scheduleProgress.phase === "uploading" ? "Transferring MP4 to Supabase Storage. Keep this tab open." : "Upload complete. Creating calendar entries…"}</p>
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-2 pt-1">
                   <button
                     type="submit"
@@ -751,7 +765,7 @@ export function ClipCard({
                     {scheduling ? "Scheduling…" : "Confirm Schedule"}
                   </button>
                   {scheduleMsg ? (
-                    <span className="text-xs font-semibold text-volt">{scheduleMsg}</span>
+                    <span role="status" aria-live="polite" className={scheduleProgress?.phase === "success" ? "text-xs font-semibold text-volt" : "text-xs font-semibold text-punch"}>{scheduleMsg}</span>
                   ) : null}
                 </div>
               </form>
