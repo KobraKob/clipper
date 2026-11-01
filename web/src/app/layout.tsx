@@ -22,14 +22,14 @@ const barlow = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Chop Shop — Make the cut.",
+  title: "Chop Shop — Find the moment. Make the cut.",
   description:
-    "A no-nonsense video cut room for finding standout moments, reframing, captioning, and exporting vertical clips.",
+    "A video cut room for finding standout moments, refining vertical clips, captioning, and exporting.",
   applicationName: "Chop Shop",
   openGraph: {
-    title: "Chop Shop — Make the cut.",
+    title: "Chop Shop — Find the moment. Make the cut.",
     description:
-      "Find the good parts in long footage. Reframe, caption, and export without template-factory clutter.",
+      "Bring footage in, refine the cut, and export the moments worth sharing.",
     type: "website",
   },
 };

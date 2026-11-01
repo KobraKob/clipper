@@ -63,13 +63,13 @@ export default async function CalendarPage() {
   const { posts, error } = await loadPosts();
 
   return (
-    <>
+    <div className="calendar-route">
       <CalendarScheduler />
       <CalendarClient
         posts={posts}
         error={error}
         initialNowIso={new Date().toISOString()}
       />
-    </>
+    </div>
   );
 }
