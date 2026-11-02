@@ -342,9 +342,9 @@ export function JobStudio({ jobId }: { jobId: string }) {
   /* ---------- render ---------- */
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="job-workspace flex flex-col gap-6">
       {/* header */}
-      <header className="flex flex-col gap-4">
+      <header className="job-workspace-head flex flex-col gap-4">
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 font-mono text-xs text-muted">
           <Link href="/library" className="transition hover:text-ink">
             Library
@@ -429,7 +429,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
       ) : null}
 
       {/* pipeline */}
-      <section aria-label="Pipeline status" className="stamp-sm rounded-xl border border-white/15 bg-panel p-4 md:p-5">
+      <section aria-label="Pipeline status" className="job-pipeline stamp-sm rounded-xl border border-white/15 bg-panel p-4 md:p-5">
         <PipelineStrip stageId={job.stageId} progress={job.progress} />
         {running ? (
           <div className="mt-4 flex flex-col gap-3">
@@ -491,9 +491,9 @@ export function JobStudio({ jobId }: { jobId: string }) {
       ) : null}
 
       {/* workspace */}
-      <div className="grid items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="job-editor-layout grid items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
         {/* sidebar */}
-        <aside className="flex flex-col gap-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
+        <aside className="job-editor-sidebar flex flex-col gap-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
           <dl className="grid grid-cols-2 gap-2">
             {stats.map(([label, value]) => (
               <div key={label} className="stamp-sm rounded-lg border border-white/12 bg-panel p-3">
@@ -617,7 +617,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
         </aside>
 
         {/* clips */}
-        <main className="flex min-w-0 flex-col gap-4">
+        <main className="job-editor-main flex min-w-0 flex-col gap-4">
           {done && clips.length > 0 ? (
             <section className="flex flex-col gap-4" aria-labelledby="clip-review-title">
               <div>
@@ -629,7 +629,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
               </div>
 
               {/* toolbar */}
-              <div className="sticky top-0 z-10 flex flex-col gap-3 rounded-xl border border-white/10 bg-panel p-3 md:p-4">
+              <div className="job-editor-toolbar sticky top-0 z-10 flex flex-col gap-3 rounded-xl border border-white/10 bg-panel p-3 md:p-4">
                 <label className="relative block">
                   <span className="sr-only">Search clips</span>
                   <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted" aria-hidden="true">
