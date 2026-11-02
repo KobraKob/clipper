@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CalendarScheduler } from "@/components/CalendarScheduler";
 import type { ScheduledPost } from "./page";
 
 type ViewMode = "month" | "week" | "queue";
@@ -126,6 +127,8 @@ export default function CalendarClient({
   const [queueSort, setQueueSort] = useState<QueueSort>("asc");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const schedulerDay = `${cursorYear}-${String(cursorMonth + 1).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`;
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -1053,12 +1056,13 @@ export default function CalendarClient({
                         {selectedDayPosts.length} SCHEDULED{" "}
                         {selectedDayPosts.length === 1 ? "ITEM" : "ITEMS"}
                       </span>
-                      <Link
-                        href="/library"
+                      <button
+                        type="button"
+                        onClick={() => setSchedulerOpen(true)}
                         className="font-mono text-[11px] font-bold text-volt hover:underline"
                       >
                         + SCHEDULE CLIP
-                      </Link>
+                      </button>
                     </div>
 
                     {selectedDayPosts.length === 0 ? (
@@ -1116,6 +1120,15 @@ export default function CalendarClient({
           </div>
         </>
       )}
+      <CalendarScheduler
+        open={schedulerOpen}
+        initialDay={schedulerDay}
+        onClose={() => setSchedulerOpen(false)}
+        onScheduled={(_iso: string) => {
+          setSchedulerOpen(false);
+          router.refresh();
+        }}
+      />
     </main>
   );
 }

@@ -1,8 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchJobs, scheduleClip } from "@/lib/api";
 import type { JobView, Platform } from "@/lib/types";
+
+export type CalendarSchedulerProps = {
+  open?: boolean;
+  initialDay?: string;
+  onClose?: () => void;
+  onScheduled?: (iso: string) => void;
+};
 
 function defaultScheduleTime() {
   const value = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -11,8 +18,25 @@ function defaultScheduleTime() {
   return new Date(value.getTime() - offset * 60_000).toISOString().slice(0, 16);
 }
 
-export function CalendarScheduler() {
-  const [open, setOpen] = useState(false);
+function datetimeLocalFromDay(day?: string) {
+  if (!day) return defaultScheduleTime();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return `${day}T18:00`;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(day)) return day.slice(0, 16);
+  const value = new Date(day);
+  if (!Number.isFinite(value.getTime())) return defaultScheduleTime();
+  const offset = value.getTimezoneOffset();
+  return new Date(value.getTime() - offset * 60_000).toISOString().slice(0, 16);
+}
+
+export function CalendarScheduler({
+  open: openProp,
+  initialDay,
+  onClose,
+  onScheduled,
+}: CalendarSchedulerProps = {}) {
+  const isControlled = openProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? Boolean(openProp) : internalOpen;
   const [jobs, setJobs] = useState<JobView[]>([]);
   const [loading, setLoading] = useState(false);
   const [jobsLoaded, setJobsLoaded] = useState(false);
@@ -24,17 +48,19 @@ export function CalendarScheduler() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  function toggleScheduler() {
-    if (open) {
-      setOpen(false);
-      setError("");
-      return;
-    }
+  function setOpen(next: boolean) {
+    if (!isControlled) setInternalOpen(next);
+    if (!next) onClose?.();
+  }
 
-    setOpen(true);
+  useEffect(() => {
+    if (!open) return;
     setError("");
-    if (jobsLoaded || loading) return;
+    if (initialDay) setScheduledAt(datetimeLocalFromDay(initialDay));
+  }, [open, initialDay]);
 
+  useEffect(() => {
+    if (!open || jobsLoaded) return;
     setLoading(true);
     fetchJobs()
       .then((items) => {
@@ -56,6 +82,15 @@ export function CalendarScheduler() {
       .finally(() => {
         setLoading(false);
       });
+  }, [open, jobsLoaded]);
+
+  function toggleScheduler() {
+    if (open) {
+      setOpen(false);
+      setError("");
+      return;
+    }
+    setOpen(true);
   }
 
   const options = useMemo(() => jobs.flatMap((job) => {
@@ -103,8 +138,9 @@ export function CalendarScheduler() {
       setStage("Saving the calendar entry…");
       setSuccess("Video uploaded and added to your publishing queue.");
       setStage("");
+      onScheduled?.(date.toISOString());
       setOpen(false);
-      window.location.reload();
+      if (!onScheduled) window.location.reload();
     } catch (reason) {
       setStage("");
       setError(reason instanceof Error ? reason.message : "Scheduling failed.");
@@ -113,8 +149,52 @@ export function CalendarScheduler() {
     }
   }
 
-  return (
-    <section className="rounded-xl border border-white/12 bg-panel p-4 md:p-5">
+  if (isControlled && !open) return null;
+
+  const form = open ? (
+    <form onSubmit={submit} className="mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
+      <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted md:col-span-2">
+        Finished library clip
+        <select value={jobClip} onChange={(event) => setJobClip(event.target.value)} disabled={loading || busy || !options.length}
+          className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink">
+          <option value="">{loading ? "Loading library…" : options.length ? "Select a kept clip…" : "No finished, kept clips found"}</option>
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
+        Platform
+        <select value={platform} onChange={(event) => setPlatform(event.target.value as Platform | "both")} disabled={busy}
+          className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink">
+          <option value="youtube">YouTube Shorts</option>
+          <option value="instagram">Instagram Reels</option>
+          <option value="both">Both platforms</option>
+        </select>
+      </label>
+      <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
+        Publish date and time (local)
+        <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} disabled={busy}
+          className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink" />
+      </label>
+
+      {busy ? (
+        <div className="flex items-center gap-3 rounded-lg border border-ice/25 bg-ice/10 p-3 text-sm text-ice md:col-span-2" role="status" aria-live="polite">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-ice/30 border-t-ice" />
+          <span>{stage || "Scheduling…"}</span>
+        </div>
+      ) : null}
+      {error ? <p role="alert" className="rounded-lg border border-punch/40 bg-punch/10 p-3 text-sm text-punch md:col-span-2">{error}</p> : null}
+      <div className="flex flex-wrap items-center gap-3 md:col-span-2">
+        <button type="submit" disabled={busy || loading || !options.length}
+          className="min-h-11 rounded-lg bg-volt px-5 py-2 text-xs font-extrabold text-[#080b10] disabled:cursor-not-allowed disabled:opacity-50">
+          {busy ? "Uploading and scheduling…" : "Upload video & schedule"}
+        </button>
+        <span className="text-xs text-muted">The MP4 upload completes before the queue entry is created.</span>
+      </div>
+    </form>
+  ) : null;
+
+  const body = (
+    <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[.16em] text-ice">NEW QUEUED VIDEO</p>
@@ -126,49 +206,41 @@ export function CalendarScheduler() {
           {open ? "Close scheduler" : "+ Schedule a video"}
         </button>
       </div>
-
       {success ? <p role="status" className="mt-3 rounded-lg border border-volt/30 bg-volt/10 p-3 text-sm text-volt">{success}</p> : null}
-      {open ? (
-        <form onSubmit={submit} className="mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
-          <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted md:col-span-2">
-            Finished library clip
-            <select value={jobClip} onChange={(event) => setJobClip(event.target.value)} disabled={loading || busy || !options.length}
-              className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink">
-              <option value="">{loading ? "Loading library…" : options.length ? "Select a kept clip…" : "No finished, kept clips found"}</option>
-              {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-            Platform
-            <select value={platform} onChange={(event) => setPlatform(event.target.value as Platform | "both")} disabled={busy}
-              className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink">
-              <option value="youtube">YouTube Shorts</option>
-              <option value="instagram">Instagram Reels</option>
-              <option value="both">Both platforms</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-            Publish date and time (local)
-            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} disabled={busy}
-              className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink" />
-          </label>
+      {form}
+    </>
+  );
 
-          {busy ? (
-            <div className="flex items-center gap-3 rounded-lg border border-ice/25 bg-ice/10 p-3 text-sm text-ice md:col-span-2" role="status" aria-live="polite">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-ice/30 border-t-ice" />
-              <span>{stage || "Scheduling…"}</span>
+  if (isControlled) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-4 md:items-center"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="calendar-scheduler-title"
+      >
+        <section className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/12 bg-panel p-4 md:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-ice">NEW QUEUED VIDEO</p>
+              <h2 id="calendar-scheduler-title" className="display mt-1 text-2xl text-ink">Schedule a video</h2>
+              <p className="mt-1 text-xs text-muted">Choose a finished clip from your library. Chop Shop uploads its MP4 to cloud storage before adding it to the calendar.</p>
             </div>
-          ) : null}
-          {error ? <p role="alert" className="rounded-lg border border-punch/40 bg-punch/10 p-3 text-sm text-punch md:col-span-2">{error}</p> : null}
-          <div className="flex flex-wrap items-center gap-3 md:col-span-2">
-            <button type="submit" disabled={busy || loading || !options.length}
-              className="min-h-11 rounded-lg bg-volt px-5 py-2 text-xs font-extrabold text-[#080b10] disabled:cursor-not-allowed disabled:opacity-50">
-              {busy ? "Uploading and scheduling…" : "Upload video & schedule"}
+            <button type="button" onClick={() => setOpen(false)} disabled={busy}
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-volt px-4 py-2 text-xs font-extrabold text-[#080b10] transition hover:bg-[#e4ff83] disabled:opacity-50">
+              Close scheduler
             </button>
-            <span className="text-xs text-muted">The MP4 upload completes before the queue entry is created.</span>
           </div>
-        </form>
-      ) : null}
+          {success ? <p role="status" className="mt-3 rounded-lg border border-volt/30 bg-volt/10 p-3 text-sm text-volt">{success}</p> : null}
+          {form}
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <section className="rounded-xl border border-white/12 bg-panel p-4 md:p-5">
+      {body}
     </section>
   );
 }
