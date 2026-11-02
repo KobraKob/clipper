@@ -628,3 +628,54 @@ button:focus-visible, a:focus-visible { outline-offset: 3px; }
 .library-workspace, .job-workspace {
   width: 100%; max-width: none; margin-inline: 0; padding-block: 0;
 }
+
+
+/* Clip scheduling feedback: real request state, no fabricated percentage. */
+.clip-editor-card .schedule-request-progress,
+.clip-editor-card .schedule-confirmation,
+.clip-editor-card .schedule-request-error {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel);
+}
+.clip-editor-card .schedule-request-progress { border-color: rgba(242, 211, 92, .35); }
+.clip-editor-card .schedule-progress-track {
+  position: relative; display: block; width: 100%; height: 8px;
+  overflow: hidden; border-radius: 99px; background: var(--court);
+}
+.clip-editor-card .schedule-progress-track > span {
+  display: block; height: 100%; border-radius: inherit;
+  background: var(--volt); transition: width .25s ease;
+}
+.clip-editor-card .schedule-progress-indeterminate {
+  position: absolute; top: 0; left: -38%; width: 38%;
+  background: var(--volt);
+  animation: schedule-progress-sweep 1.25s ease-in-out infinite;
+}
+.clip-editor-card .schedule-confirmation.is-confirmed {
+  border-color: rgba(242, 211, 92, .35);
+}
+.clip-editor-card .schedule-confirmation.is-confirmed > div:first-child { color: var(--volt); }
+.clip-editor-card .schedule-confirmation.is-error,
+.clip-editor-card .schedule-request-error {
+  border-color: rgba(230, 92, 80, .5);
+  background: rgba(230, 92, 80, .08);
+}
+.clip-editor-card .schedule-confirmation.is-error > div:first-child,
+.clip-editor-card .schedule-request-error strong { color: var(--punch); }
+.clip-editor-card .schedule-confirmation-status {
+  padding: 3px 8px; border-radius: 5px; color: var(--paper);
+  background: var(--volt); font-size: 10px; font-weight: 800;
+  text-transform: uppercase;
+}
+.clip-editor-card .schedule-confirmation.is-error .schedule-confirmation-status {
+  color: #fff; background: var(--punch);
+}
+.clip-editor-card .schedule-request-error span { color: var(--ink); font-size: 12px; }
+@keyframes schedule-progress-sweep {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(365%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clip-editor-card .schedule-progress-indeterminate { animation: none; left: 0; width: 100%; opacity: .65; }
+}
