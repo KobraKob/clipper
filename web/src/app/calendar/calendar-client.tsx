@@ -297,7 +297,7 @@ export default function CalendarClient({
   );
 
   return (
-    <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
+    <main className="calendar-workspace mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
       {/* Top Breadcrumb + Telemetry Strip */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
         <nav
@@ -373,7 +373,7 @@ export default function CalendarClient({
       </div>
 
       {/* Main Header */}
-      <header className="flex flex-col justify-between gap-5 border-b border-white/10 pb-6 lg:flex-row lg:items-end">
+      <header className="calendar-heading flex flex-col justify-between gap-5 border-b border-white/10 pb-6 lg:flex-row lg:items-end">
         <div className="max-w-2xl">
           <p className="font-mono text-[10px] font-bold uppercase tracking-[.2em] text-ice">
             CHOP SHOP / DISTRIBUTION PIPELINE
@@ -462,7 +462,7 @@ export default function CalendarClient({
       ) : (
         <>
           {/* Command & Filter Bar */}
-          <section className="flex flex-col justify-between gap-3 border border-white/12 bg-panel p-3 lg:flex-row lg:items-center">
+          <section className="calendar-controls flex flex-col justify-between gap-3 border border-white/12 bg-panel p-3 lg:flex-row lg:items-center">
             {/* View Mode Switcher */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex border border-white/12 bg-[#080b10] p-0.5 font-mono text-xs">
@@ -549,7 +549,7 @@ export default function CalendarClient({
           </section>
 
           {/* Main Workspace + Right Inspector Split */}
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="calendar-layout grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
             {/* Primary Calendar or Queue View */}
             <div className="flex flex-col gap-6">
               {viewMode === "month" && (
