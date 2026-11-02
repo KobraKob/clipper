@@ -21,36 +21,27 @@ export default function Home() {
         <div className="home-copy">
           <div className="home-kicker">
             <span className="home-kicker-mark" aria-hidden="true">CS/</span>
-            <span>CHOP SHOP / VIDEO CUT ROOM</span>
+            <span>Chop Shop video workspace</span>
           </div>
-
           <h1 className="home-hero-title" id="home-title">
-            <span>FIND THE</span>
-            <span className="home-title-red">MOMENT.</span>
-            <span>MAKE THE</span>
-            <span className="home-title-yellow">CUT.</span>
+            <span>Find the moment.</span>
+            <span>Make the cut.</span>
           </h1>
-
           <p className="home-hero-copy">
-            Turn long-form footage into short-form clips. Bring a source,
-            review the cuts, refine timing and captions, then export what
-            deserves to be watched.
+            Turn long-form footage into short-form clips. Review the moments, refine timing and captions, then export what deserves to be watched.
           </p>
-
           <div className="home-actions">
             <a className="home-button home-button-primary" href="#studio">
-              <span>Start a cut</span>
-              <span aria-hidden="true">↘</span>
+              <span>Start a cut</span><span aria-hidden="true">↘</span>
             </a>
             <Link className="home-button home-button-secondary" href="/library">
               Open library <span aria-hidden="true">↗</span>
             </Link>
           </div>
-
           <div className="home-facts" aria-label="Workflow capabilities">
-            <span><i aria-hidden="true" /> Local file or URL</span>
-            <span><i aria-hidden="true" /> Review before export</span>
-            <span><i aria-hidden="true" /> No watermark</span>
+            <span><i aria-hidden="true" />Local file or URL</span>
+            <span><i aria-hidden="true" />Review before export</span>
+            <span><i aria-hidden="true" />No watermark</span>
           </div>
         </div>
 
@@ -68,12 +59,12 @@ export default function Home() {
             <span className="home-portrait-index" aria-hidden="true">01</span>
           </div>
           <div className="home-portrait-rail">
-            <span>THE CUT ROOM</span>
-            <span>BUILT TO MAKE</span>
+            <span>The cut room</span>
+            <span>Built to make</span>
           </div>
           <div className="home-image-note">
-            <span>CHOP SHOP / 01</span>
-            <b>MAKE IT COUNT.</b>
+            <span>Chop Shop</span>
+            <b>Make it count.</b>
           </div>
         </div>
       </section>
@@ -81,40 +72,35 @@ export default function Home() {
       <section className="home-section" id="studio" aria-labelledby="studio-title">
         <div className="home-section-head">
           <div>
-            <p className="home-section-kicker">01 / SOURCE IN</p>
-            <h2 id="studio-title">Start with<br /><span>the footage.</span></h2>
+            <p className="home-section-kicker">Create a project</p>
+            <h2 id="studio-title">Start with the footage.</h2>
           </div>
           <p className="home-section-copy">
-            Paste a video URL or choose a local file. Set the cut parameters
-            and start the existing pipeline. Your projects and editing tools
-            stay in the workspace.
+            Paste a video URL or choose a local file. Set the cut parameters and start the existing pipeline.
           </p>
         </div>
 
         <div className="home-studio-layout">
           <section className="home-form-panel" aria-label="Create a clipping job">
             <div className="home-panel-head">
-              <strong>01 / Ingest source</strong>
-              <span>URL OR FILE</span>
+              <strong>New video project</strong>
+              <span>URL or file</span>
             </div>
-            <div className="home-form-content">
-              <CutForm />
-            </div>
+            <div className="home-form-content"><CutForm /></div>
             <div className="home-panel-foot">
-              <span>CHOOSE YOUR SOURCE</span>
-              <span>SET YOUR OPTIONS</span>
+              <span>Choose your source</span>
+              <span>Set your options</span>
             </div>
           </section>
 
           <aside className="home-next-panel" aria-label="Workspace navigation">
-            <p className="home-section-kicker">02 / KEEP MOVING</p>
-            <h3>Everything<br />has a place.</h3>
-
+            <p className="home-section-kicker">Your workflow</p>
+            <h3>Keep every part in reach.</h3>
             <div className="home-next-step">
               <b>A</b>
               <div>
                 <strong>Review your clips</strong>
-                <p>Open a job to inspect moments, adjust cuts, and tune metadata.</p>
+                <p>Inspect moments, adjust cuts, and tune metadata in each job.</p>
               </div>
             </div>
             <div className="home-next-step">
@@ -128,16 +114,11 @@ export default function Home() {
               <b>C</b>
               <div>
                 <strong>Schedule distribution</strong>
-                <p>Open the calendar to manage cloud publishing schedules.</p>
+                <p>Manage cloud publishing schedules from the calendar.</p>
               </div>
             </div>
-
-            <Link className="home-next-link" href="/library">
-              Go to library <span aria-hidden="true">↗</span>
-            </Link>
-            <Link className="home-next-link" href="/calendar">
-              Open calendar <span aria-hidden="true">↗</span>
-            </Link>
+            <Link className="home-next-link" href="/library">Go to library <span aria-hidden="true">↗</span></Link>
+            <Link className="home-next-link" href="/calendar">Open calendar <span aria-hidden="true">↗</span></Link>
           </aside>
         </div>
       </section>
@@ -145,15 +126,13 @@ export default function Home() {
       <section className="home-section" id="pipeline" aria-labelledby="pipeline-title">
         <div className="home-section-head">
           <div>
-            <p className="home-section-kicker">02 / THE PIPELINE</p>
-            <h2 id="pipeline-title">From source<br /><span>to short-form.</span></h2>
+            <p className="home-section-kicker">How it works</p>
+            <h2 id="pipeline-title">From source to short-form.</h2>
           </div>
           <p className="home-section-copy">
-            Eight explicit stages. The pipeline is visible, the output is
-            reviewable, and the final decision stays with you.
+            Eight explicit stages. The pipeline is visible, the output is reviewable, and the final decision stays with you.
           </p>
         </div>
-
         <div className="home-process-grid">
           {PIPELINE_STAGES.map((stage, index) => (
             <article className="home-process-card" key={stage.id}>
@@ -168,35 +147,28 @@ export default function Home() {
       <section className="home-section" aria-labelledby="workspace-title">
         <div className="home-section-head">
           <div>
-            <p className="home-section-kicker">03 / WORKSPACE</p>
-            <h2 id="workspace-title">Pick up<br /><span>where you left.</span></h2>
+            <p className="home-section-kicker">Workspace</p>
+            <h2 id="workspace-title">Pick up where you left.</h2>
           </div>
           <p className="home-section-copy">
-            Move between creation, saved projects, and scheduled posts without
-            losing the path back to your work.
+            Move between creation, saved projects, and scheduled posts without losing the path back to your work.
           </p>
         </div>
         <div className="home-tools-grid">
           <Link className="home-tool" href="/library">
-            <span>
-              <small>01 / PROJECTS</small>
-              <strong>Clip library</strong>
-            </span>
+            <span><small>Projects</small><strong>Clip library</strong></span>
             <span className="home-tool-arrow" aria-hidden="true">↗</span>
           </Link>
           <Link className="home-tool" href="/calendar">
-            <span>
-              <small>02 / DISTRIBUTION</small>
-              <strong>Publishing calendar</strong>
-            </span>
+            <span><small>Distribution</small><strong>Publishing calendar</strong></span>
             <span className="home-tool-arrow" aria-hidden="true">↗</span>
           </Link>
         </div>
       </section>
 
       <footer className="home-footer">
-        <strong>CS/ CHOP SHOP</strong>
-        <span>FIND THE MOMENT. MAKE THE CUT.</span>
+        <strong>Chop Shop</strong>
+        <span>Find the moment. Make the cut.</span>
         <a href="#top">Back to top ↑</a>
       </footer>
     </main>
