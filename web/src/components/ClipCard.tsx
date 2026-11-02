@@ -316,7 +316,7 @@ export function ClipCard({
   const selectedCaptionOption = CAPTION_STYLE_OPTIONS.find((option) => option.key === captionStyle) || CAPTION_STYLE_OPTIONS[0];
 
   return (
-    <article className="clip-editor-card" className={`border border-white/15 bg-panel rounded-xl overflow-hidden stamp-sm transition ${clip.kept ? "" : "opacity-60"}`}>
+    <article className={`clip-editor-card border border-white/15 bg-panel rounded-xl overflow-hidden stamp-sm transition ${clip.kept ? "" : "opacity-60"}`}>
       {/* Card Header */}
       <div className="grid grid-cols-[minmax(0,1fr)_auto] border-b border-white/12 bg-panel-raised">
         <div className="px-4 py-3 text-volt flex items-center">
