@@ -3,7 +3,8 @@ import { publishClip } from "@/lib/store";
 import type { Platform } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 900;
+// Vercel Hobby permits a maximum Serverless Function duration of 300 seconds.
+export const maxDuration = 300;
 
 export async function POST(
   request: Request,
