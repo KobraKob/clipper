@@ -622,3 +622,9 @@ button:focus-visible, a:focus-visible { outline-offset: 3px; }
   .calendar-layout [class*="min-h-32"], .calendar-layout [class*="min-h-40"] { min-height: 76px; }
   .library-import-panel > button { align-items: flex-start; }
 }
+
+
+/* App routes already provide the page gutter; workspaces fill that canvas. */
+.library-workspace, .job-workspace {
+  width: 100%; max-width: none; margin-inline: 0; padding-block: 0;
+}
