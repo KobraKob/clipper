@@ -83,6 +83,7 @@ export function ClipCard({
   const [scheduling, setScheduling] = useState(false);
   const [scheduleState, setScheduleState] = useState<ClipSchedule | undefined>(clip.schedule);
   const [scheduleMsg, setScheduleMsg] = useState("");
+  const [scheduleFeedback, setScheduleFeedback] = useState<"success" | "error" | null>(null);
 
   // Analytics state
   const [analytics, setAnalytics] = useState<ClipAnalytics | undefined>(clip.analytics);
@@ -211,17 +212,19 @@ export function ClipCard({
     e.preventDefault();
     if (!scheduleTime) return;
     setScheduling(true);
-    setScheduleMsg("Scheduling clip…");
+    setScheduleFeedback(null);
+    setScheduleMsg("Sending your clip to the posting queue…");
     try {
       const scheduledUtc = new Date(scheduleTime).toISOString();
       const res = await scheduleClip(jobId, clip.id, schedulePlatform, scheduledUtc);
       const updatedClip = res.clips.find((item) => item.id === clip.id);
       setScheduleState(updatedClip?.schedule);
-      setScheduleMsg("Scheduled successfully!");
+      setScheduleFeedback("success");
+      setScheduleMsg("Schedule confirmed. Your clip is now in the posting queue.");
       setShowScheduleForm(false);
-      setTimeout(() => setScheduleMsg(""), 4000);
     } catch (err) {
-      setScheduleMsg(err instanceof Error ? err.message : "Scheduling failed.");
+      setScheduleFeedback("error");
+      setScheduleMsg(err instanceof Error ? err.message : "Scheduling failed. Please try again.");
     } finally {
       setScheduling(false);
     }
@@ -742,37 +745,85 @@ export function ClipCard({
                     />
                   </label>
                 </div>
-                <div className="flex items-center gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2 pt-1">
                   <button
                     type="submit"
-                    disabled={scheduling}
-                    className="bg-volt px-4 py-1.5 text-xs font-bold text-[#101016] rounded hover:bg-[#e4ff78] transition disabled:opacity-60 cursor-pointer"
+                    disabled={scheduling || !scheduleTime}
+                    className="bg-volt px-4 py-2 text-xs font-bold text-[#101016] rounded hover:bg-[#e4ff78] transition disabled:opacity-60 disabled:cursor-wait cursor-pointer"
                   >
-                    {scheduling ? "Scheduling…" : "Confirm Schedule"}
+                    {scheduling ? "Adding to queue…" : "Confirm Schedule"}
                   </button>
-                  {scheduleMsg ? (
-                    <span className="text-xs font-semibold text-volt">{scheduleMsg}</span>
-                  ) : null}
+                  <span className="text-[11px] text-muted">
+                    {scheduling ? "Keep this tab open until the request is confirmed." : "Your clip will publish at the selected time."}
+                  </span>
                 </div>
+
+                {scheduling ? (
+                  <div className="schedule-request-progress" role="status" aria-live="polite">
+                    <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+                      <span className="text-volt">Adding clip to posting queue</span>
+                      <span className="text-muted">In progress</span>
+                    </div>
+                    <div
+                      className="schedule-progress-track"
+                      role="progressbar"
+                      aria-label="Scheduling request in progress"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <span className="schedule-progress-indeterminate" />
+                    </div>
+                    <p className="text-[11px] text-muted">Waiting for the scheduler to confirm this time slot.</p>
+                  </div>
+                ) : null}
+
+                {scheduleFeedback === "error" && scheduleMsg ? (
+                  <div className="schedule-request-error" role="alert">
+                    <strong>Could not schedule this clip</strong>
+                    <span>{scheduleMsg}</span>
+                  </div>
+                ) : null}
               </form>
             ) : null}
 
-            {/* Schedule State Badge */}
+            {/* Schedule State */}
             {scheduleState ? (
-              <div className="flex items-center gap-2 border border-volt/30 bg-volt/10 p-2.5 rounded-lg text-xs font-semibold text-ink">
-                <span>📅 Scheduled:</span>
-                <span className="font-mono text-volt">
-                  {new Date(
-                    scheduleState.scheduled_at ||
-                      scheduleState.publishAt ||
-                      scheduleState.published_at ||
-                      "",
-                  ).toLocaleString()}
-                </span>
-                <span className="bg-volt text-[#101016] px-1.5 py-0.5 text-[10px] font-bold uppercase rounded">
-                  {scheduleState.status}
-                </span>
+              <div className={`schedule-confirmation ${scheduleState.status === "error" ? "is-error" : "is-confirmed"}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <span aria-hidden="true">{scheduleState.status === "published" ? "✓" : scheduleState.status === "error" ? "!" : "✓"}</span>
+                    <span>{scheduleState.status === "published" ? "Published" : scheduleState.status === "error" ? "Schedule failed" : "Added to posting queue"}</span>
+                  </div>
+                  <span className="schedule-confirmation-status">{scheduleState.status}</span>
+                </div>
+                <div className="schedule-progress-track" role="progressbar" aria-label="Scheduling request completed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={scheduleState.status === "error" ? 0 : 100}>
+                  <span style={{ width: scheduleState.status === "error" ? "0%" : "100%" }} />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-muted">
+                    {scheduleState.status === "published" ? "Published at" : "Scheduled for"}
+                  </span>
+                  <span className="font-mono text-volt">
+                    {new Date(
+                      scheduleState.scheduled_at ||
+                        scheduleState.publishAt ||
+                        scheduleState.published_at ||
+                        "",
+                    ).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted">
+                  {scheduleState.status === "scheduled"
+                    ? `Queued for ${scheduleState.platform === "both" ? "YouTube Shorts and Instagram Reels" : scheduleState.platform === "youtube" ? "YouTube Shorts" : "Instagram Reels"}. This bar confirms queue acceptance; it is not a live upload percentage.`
+                    : scheduleState.status === "published"
+                      ? "The scheduled publishing task has completed."
+                      : scheduleState.error || "The scheduled task did not complete."}
+                </p>
               </div>
+            ) : null}
+
+            {scheduleFeedback === "success" && !scheduleState && scheduleMsg ? (
+              <p role="status" className="text-xs font-semibold text-volt">{scheduleMsg}</p>
             ) : null}
 
             {/* Publishing Results & Errors */}
