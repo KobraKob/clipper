@@ -23,19 +23,14 @@ export function SiteFrame({ children }: { children: ReactNode }) {
         Skip to content
       </a>
 
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-panel">
-        <div className="mx-auto flex h-14 w-full max-w-[1400px] items-center gap-3 px-4 md:gap-6 md:px-6">
-          <Link href="/" aria-label="Chop Shop home" className="flex shrink-0 items-center gap-2.5">
-            <span
-              aria-hidden="true"
-              className="grid h-8 place-items-center rounded-md bg-volt px-1.5 font-mono text-xs font-black text-[#101016]"
-            >
-              CS/
-            </span>
-            <span className="display hidden text-xl text-ink sm:block">CHOP SHOP</span>
+      <header className="site-frame-header">
+        <div className="mx-auto flex h-[72px] w-full max-w-[1320px] items-center gap-3">
+          <Link href="/" aria-label="Chop Shop home" className="site-frame-brand flex shrink-0 items-center">
+            <span aria-hidden="true" className="site-frame-brand-mark grid place-items-center">CS/</span>
+            <span>CHOP SHOP</span>
           </Link>
 
-          <nav aria-label="Main navigation" className="flex min-w-0 flex-1 items-center gap-1">
+          <nav aria-label="Main navigation" className="site-frame-nav flex min-w-0 flex-1 items-center">
             {NAV.map((item) => {
               const current = item.active(pathname);
               return (
@@ -43,9 +38,7 @@ export function SiteFrame({ children }: { children: ReactNode }) {
                   key={item.href}
                   href={item.href}
                   aria-current={current ? "page" : undefined}
-                  className={`inline-flex h-9 items-center rounded-lg px-2.5 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-ice md:px-3.5 ${
-                    current ? "bg-panel-raised text-ink" : "text-muted hover:bg-panel-raised/60 hover:text-ink"
-                  } ${item.className ?? ""}`}
+                  className={item.className ?? ""}
                 >
                   {item.label}
                 </Link>
@@ -53,17 +46,13 @@ export function SiteFrame({ children }: { children: ReactNode }) {
             })}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-4">
-            <span className="hidden font-mono text-[10px] font-bold uppercase tracking-[.16em] text-muted xl:block">
+          <div className="site-frame-right flex shrink-0 items-center">
+            <span className="site-frame-live">
+              <span aria-hidden="true" className="site-frame-live-dot" />
               Local-first cut room
             </span>
-            <Link
-              href="/#studio"
-              aria-label="New cut"
-              className="stamp-sm inline-flex h-9 items-center rounded-lg bg-volt px-3.5 text-sm font-bold text-[#101016] transition hover:bg-[#e4ff78]"
-            >
-              <span aria-hidden="true" className="sm:hidden">+</span>
-              <span className="hidden sm:inline">+ New cut</span>
+            <Link href="/#studio" aria-label="New cut" className="site-frame-new">
+              + New cut
             </Link>
           </div>
         </div>

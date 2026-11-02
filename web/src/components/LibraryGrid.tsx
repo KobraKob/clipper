@@ -311,9 +311,9 @@ export function LibraryGrid() {
   /* ---------- render ---------- */
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="library-workspace flex flex-col gap-6">
       {/* overview doubles as the status filter */}
-      <section className="stamp-sm overflow-hidden rounded-xl border border-white/12 bg-panel" aria-label="Filter by status">
+      <section className="library-overview stamp-sm overflow-hidden rounded-xl border border-white/12 bg-panel" aria-label="Filter by status">
         <div className="grid grid-cols-2 divide-x divide-y divide-white/10 md:grid-cols-4 md:divide-y-0">
           {tiles.map((tile) => {
             const active = filter === tile.value;
@@ -337,7 +337,7 @@ export function LibraryGrid() {
       </section>
 
       {/* batch import */}
-      <section className="overflow-hidden rounded-xl border border-white/12 bg-panel">
+      <section className="library-import-panel overflow-hidden rounded-xl border border-white/12 bg-panel">
         <button
           type="button"
           aria-expanded={showBatchImport}
@@ -391,7 +391,7 @@ export function LibraryGrid() {
         </div>
       ) : null}
 
-      <section aria-labelledby="projects-title" className="flex flex-col gap-4">
+      <section aria-labelledby="projects-title" className="library-projects flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[.16em] text-ice">Your workspace</p>
@@ -425,7 +425,7 @@ export function LibraryGrid() {
         </div>
 
         {/* toolbar */}
-        <div className="sticky top-0 z-20 flex flex-col gap-3 rounded-xl border border-white/10 bg-panel p-3 md:p-4">
+        <div className="library-toolbar sticky top-0 z-20 flex flex-col gap-3 rounded-xl border border-white/10 bg-panel p-3 md:p-4">
           <label className="relative block">
             <span className="sr-only">Search projects</span>
             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted" aria-hidden="true">

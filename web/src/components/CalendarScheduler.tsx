@@ -114,7 +114,7 @@ export function CalendarScheduler() {
   }
 
   return (
-    <section className="rounded-xl border border-white/12 bg-panel p-4 md:p-5">
+    <section className="calendar-scheduler rounded-xl border border-white/12 bg-panel p-4 md:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[.16em] text-ice">NEW QUEUED VIDEO</p>
@@ -129,7 +129,7 @@ export function CalendarScheduler() {
 
       {success ? <p role="status" className="mt-3 rounded-lg border border-volt/30 bg-volt/10 p-3 text-sm text-volt">{success}</p> : null}
       {open ? (
-        <form onSubmit={submit} className="mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
+        <form onSubmit={submit} className="schedule-form mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
           <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted md:col-span-2">
             Finished library clip
             <select value={jobClip} onChange={(event) => setJobClip(event.target.value)} disabled={loading || busy || !options.length}

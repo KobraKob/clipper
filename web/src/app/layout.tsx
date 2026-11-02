@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { SiteFrame } from "@/components/SiteFrame";
 import "./globals.css";
+import "./hallmark.css";
 
 // Self-hosted fonts keep the interface independent of third-party font requests.
 const figtree = localFont({
