@@ -313,7 +313,7 @@ export function LibraryGrid() {
   return (
     <div className="library-workspace flex flex-col gap-6">
       {/* overview doubles as the status filter */}
-      <section className="stamp-sm overflow-hidden rounded-xl border border-white/12 bg-panel" aria-label="Filter by status" className="library-overview">
+      <section className="library-overview stamp-sm overflow-hidden rounded-xl border border-white/12 bg-panel" aria-label="Filter by status">
         <div className="grid grid-cols-2 divide-x divide-y divide-white/10 md:grid-cols-4 md:divide-y-0">
           {tiles.map((tile) => {
             const active = filter === tile.value;
