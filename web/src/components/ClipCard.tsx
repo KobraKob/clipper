@@ -323,11 +323,11 @@ export function ClipCard({
           <div className="flex items-center gap-2">
             <h3 className="display text-2xl md:text-3xl leading-tight">{activeTitle}</h3>
             {savingTitle ? (
-              <span className="text-xs bg-volt text-[#101016] font-bold px-1.5 py-0.5 rounded">Saving…</span>
+              <span className="text-xs bg-volt text-white font-bold px-1.5 py-0.5 rounded">Saving…</span>
             ) : null}
           </div>
         </div>
-        <p className="flex items-center justify-center bg-volt px-4 text-3xl font-black text-[#101016]">
+        <p className="flex items-center justify-center bg-volt px-4 text-3xl font-black text-white">
           {clip.score}
         </p>
       </div>
@@ -372,7 +372,7 @@ export function ClipCard({
                   type="button"
                   onClick={() => setPreviewTab("video")}
                   className={`flex-1 px-3 py-1 text-center transition cursor-pointer ${
-                    previewTab === "video" ? "bg-volt text-[#101016]" : "bg-panel-raised text-muted hover:text-ink"
+                    previewTab === "video" ? "bg-volt text-white" : "bg-panel-raised text-muted hover:text-ink"
                   }`}
                 >
                   Video
@@ -381,7 +381,7 @@ export function ClipCard({
                   type="button"
                   onClick={() => setPreviewTab("cover")}
                   className={`flex-1 px-3 py-1 text-center transition cursor-pointer ${
-                    previewTab === "cover" ? "bg-volt text-[#101016]" : "bg-panel-raised text-muted hover:text-ink"
+                    previewTab === "cover" ? "bg-volt text-white" : "bg-panel-raised text-muted hover:text-ink"
                   }`}
                 >
                   Cover
@@ -519,7 +519,7 @@ export function ClipCard({
               type="button"
               disabled={rerendering || busy}
               onClick={handleRerenderClick}
-              className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-bold text-ink rounded hover:bg-volt hover:text-[#101016] hover:border-volt transition disabled:opacity-60 cursor-pointer"
+              className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-bold text-ink rounded hover:bg-volt hover:text-white hover:border-volt transition disabled:opacity-60 cursor-pointer"
             >
               {rerendering ? "Re-rendering…" : clip.captionStyle !== captionStyle ? "Apply style & re-render" : "Re-render Video"}
             </button>
@@ -540,7 +540,7 @@ export function ClipCard({
           <div className="flex flex-col gap-2.5 border border-white/10 bg-panel-raised/40 p-3.5 rounded-lg text-sm">
             <div className="flex items-center justify-between">
               <p className="font-bold text-ink">Title A/B Variants (Viral Testing)</p>
-              <span className="text-[11px] font-mono font-bold bg-volt text-[#101016] px-2 py-0.5 rounded">
+              <span className="text-[11px] font-mono font-bold bg-volt text-white px-2 py-0.5 rounded">
                 A/B Engine
               </span>
             </div>
@@ -568,7 +568,7 @@ export function ClipCard({
                         {v.label || v.angle || v.id}
                       </span>
                       {selectedVariantId === v.id ? (
-                        <span className="text-[10px] font-bold bg-volt text-[#101016] px-1.5 py-0.5 rounded">
+                        <span className="text-[10px] font-bold bg-volt text-white px-1.5 py-0.5 rounded">
                           ACTIVE FOR PUBLISH
                         </span>
                       ) : null}
@@ -588,7 +588,7 @@ export function ClipCard({
               <p className="font-bold text-ink">Publishing copy</p>
               <p className="text-xs text-muted">Title, description, caption and hashtags for this clip</p>
             </div>
-            <button type="button" onClick={() => setShowMetadataEditor((open) => !open)} className="border border-volt bg-volt px-3 py-2 text-xs font-black uppercase tracking-wide text-[#101016] hover:bg-[#f6f0df] transition cursor-pointer">
+            <button type="button" onClick={() => setShowMetadataEditor((open) => !open)} className="border border-volt bg-volt px-3 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-[#e0e7ff] transition cursor-pointer">
               {showMetadataEditor ? "Close editor" : "Edit details"}
             </button>
           </div>
@@ -597,10 +597,10 @@ export function ClipCard({
           {metadataCaption ? <p className="whitespace-pre-line text-ink/80 text-xs leading-relaxed">{metadataCaption}</p> : null}
           {metadataHashtags ? <p className="text-xs text-volt break-words">{metadataHashtags}</p> : null}
           <div className="flex flex-wrap gap-2 pt-1">
-            <button type="button" disabled={!metadataTitle.trim() && !metadataDescription.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-[#101016] transition cursor-pointer disabled:opacity-40" onClick={() => copy("yt", `${metadataTitle}\\n\\n${metadataDescription}`)}>
+            <button type="button" disabled={!metadataTitle.trim() && !metadataDescription.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-white transition cursor-pointer disabled:opacity-40" onClick={() => copy("yt", `${metadataTitle}\\n\\n${metadataDescription}`)}>
               {copied === "yt" ? "Copied" : "Copy YouTube text"}
             </button>
-            <button type="button" disabled={!metadataCaption.trim() && !metadataHashtags.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-[#101016] transition cursor-pointer disabled:opacity-40" onClick={() => copy("ig", [metadataCaption, metadataHashtags].filter(Boolean).join("\\n\\n"))}>
+            <button type="button" disabled={!metadataCaption.trim() && !metadataHashtags.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-white transition cursor-pointer disabled:opacity-40" onClick={() => copy("ig", [metadataCaption, metadataHashtags].filter(Boolean).join("\\n\\n"))}>
               {copied === "ig" ? "Copied" : "Copy Instagram caption"}
             </button>
           </div>
@@ -624,7 +624,7 @@ export function ClipCard({
                 <span className="font-normal normal-case tracking-normal">Separate hashtags with spaces, commas or new lines. The # is added automatically.</span>
               </label>
               <div className="flex flex-wrap items-center gap-3">
-                <button type="submit" disabled={savingMetadata} className="bg-volt px-4 py-2 text-xs font-black uppercase tracking-wide text-[#101016] hover:bg-[#f6f0df] disabled:opacity-50 cursor-pointer">
+                <button type="submit" disabled={savingMetadata} className="bg-volt px-4 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-[#e0e7ff] disabled:opacity-50 cursor-pointer">
                   {savingMetadata ? "Saving…" : "Save clip details"}
                 </button>
                 <button type="button" onClick={() => setShowMetadataEditor(false)} className="px-3 py-2 text-xs font-bold text-muted hover:text-ink cursor-pointer">Cancel</button>
@@ -671,7 +671,7 @@ export function ClipCard({
                   type="button"
                   disabled={publishing !== null}
                   onClick={() => doPublish(t)}
-                  className="border border-white/20 bg-panel text-ink px-3.5 py-2 text-xs font-bold rounded-lg hover:bg-volt hover:text-[#101016] hover:border-volt transition disabled:opacity-60 disabled:cursor-wait cursor-pointer"
+                  className="border border-white/20 bg-panel text-ink px-3.5 py-2 text-xs font-bold rounded-lg hover:bg-volt hover:text-white hover:border-volt transition disabled:opacity-60 disabled:cursor-wait cursor-pointer"
                 >
                   {publishing === t
                     ? "Uploading…"
@@ -746,7 +746,7 @@ export function ClipCard({
                   <button
                     type="submit"
                     disabled={scheduling}
-                    className="bg-volt px-4 py-1.5 text-xs font-bold text-[#101016] rounded hover:bg-[#e4ff78] transition disabled:opacity-60 cursor-pointer"
+                    className="bg-volt px-4 py-1.5 text-xs font-bold text-white rounded hover:bg-[#a5b4fc] transition disabled:opacity-60 cursor-pointer"
                   >
                     {scheduling ? "Scheduling…" : "Confirm Schedule"}
                   </button>
@@ -769,7 +769,7 @@ export function ClipCard({
                       "",
                   ).toLocaleString()}
                 </span>
-                <span className="bg-volt text-[#101016] px-1.5 py-0.5 text-[10px] font-bold uppercase rounded">
+                <span className="bg-volt text-white px-1.5 py-0.5 text-[10px] font-bold uppercase rounded">
                   {scheduleState.status}
                 </span>
               </div>
@@ -885,7 +885,7 @@ export function ClipCard({
             type="button"
             disabled={busy}
             onClick={() => onKeep(!clip.kept)}
-            className="bg-volt px-4 py-2 font-bold text-xs text-[#101016] hover:bg-[#e4ff78] rounded-lg transition cursor-pointer"
+            className="bg-volt px-4 py-2 font-bold text-xs text-white hover:bg-[#a5b4fc] rounded-lg transition cursor-pointer"
           >
             {clip.kept ? "Drop this clip" : "Keep this clip"}
           </button>

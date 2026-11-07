@@ -72,8 +72,32 @@ export function LibraryGrid() {
   const [showBatchImport, setShowBatchImport] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<LibraryFilter>("all");
-  const [sort, setSort] = useState<SortMode>("newest");
-  const [view, setView] = useState<ViewMode>("grid");
+  const [sort, setSort] = useState<SortMode>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(PREFS_KEY);
+        if (raw) {
+          const p = JSON.parse(raw) as { view?: ViewMode; sort?: SortMode };
+          if (p.sort === "newest" || p.sort === "oldest" || p.sort === "most-clips" || p.sort === "top-score") {
+            return p.sort;
+          }
+        }
+      } catch {}
+    }
+    return "newest";
+  });
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(PREFS_KEY);
+        if (raw) {
+          const p = JSON.parse(raw) as { view?: ViewMode; sort?: SortMode };
+          if (p.view === "grid" || p.view === "list") return p.view;
+        }
+      } catch {}
+    }
+    return "grid";
+  });
 
   const mounted = useRef(true);
 
@@ -102,8 +126,25 @@ export function LibraryGrid() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let ignore = false;
+    async function initLibrary() {
+      try {
+        const next = await fetchJobs();
+        if (!ignore) {
+          setJobs(next);
+          setError("");
+        }
+      } catch (err) {
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : "Could not load the library.");
+        }
+      }
+    }
+    void initLibrary();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const hasActive = useMemo(() => (jobs || []).some((job) => isActive(job.status)), [jobs]);
 
@@ -120,21 +161,7 @@ export function LibraryGrid() {
     };
   }, [hasActive, load]);
 
-  /* ---------- persisted prefs ---------- */
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(PREFS_KEY);
-      if (!raw) return;
-      const p = JSON.parse(raw) as { view?: ViewMode; sort?: SortMode };
-      if (p.view === "grid" || p.view === "list") setView(p.view);
-      if (p.sort === "newest" || p.sort === "oldest" || p.sort === "most-clips" || p.sort === "top-score") {
-        setSort(p.sort);
-      }
-    } catch {
-      // ignore corrupt prefs
-    }
-  }, []);
 
   useEffect(() => {
     try {
@@ -569,7 +596,7 @@ export function LibraryGrid() {
               <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                 <Link
                   href="/#studio"
-                  className="inline-flex min-h-10 items-center rounded-lg bg-volt px-4 py-2 text-xs font-extrabold text-[#080b10] transition hover:bg-[#e4ff78]"
+                  className="inline-flex min-h-10 items-center rounded-lg bg-volt px-4 py-2 text-xs font-extrabold text-[#080b10] transition hover:bg-[#a5b4fc]"
                 >
                   Create a cut
                 </Link>

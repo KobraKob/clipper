@@ -122,7 +122,7 @@ export function CalendarScheduler() {
           <p className="mt-1 text-xs text-muted">Choose a finished clip from your library. Chop Shop uploads its MP4 to cloud storage before adding it to the calendar.</p>
         </div>
         <button type="button" onClick={toggleScheduler} disabled={busy || loading}
-          className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-volt px-4 py-2 text-xs font-extrabold text-[#080b10] transition hover:bg-[#e4ff83] disabled:opacity-50">
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/20 hover:brightness-110 transition-all disabled:opacity-50">
           {open ? "Close scheduler" : "+ Schedule a video"}
         </button>
       </div>
@@ -162,7 +162,7 @@ export function CalendarScheduler() {
           {error ? <p role="alert" className="rounded-lg border border-punch/40 bg-punch/10 p-3 text-sm text-punch md:col-span-2">{error}</p> : null}
           <div className="flex flex-wrap items-center gap-3 md:col-span-2">
             <button type="submit" disabled={busy || loading || !options.length}
-              className="min-h-11 rounded-lg bg-volt px-5 py-2 text-xs font-extrabold text-[#080b10] disabled:cursor-not-allowed disabled:opacity-50">
+              className="min-h-11 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/20 hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-50">
               {busy ? "Uploading and scheduling…" : "Upload video & schedule"}
             </button>
             <span className="text-xs text-muted">The MP4 upload completes before the queue entry is created.</span>

@@ -39,8 +39,30 @@ export function JobStudio({ jobId }: { jobId: string }) {
   const [showLogs, setShowLogs] = useState(false);
   const [clipSearch, setClipSearch] = useState("");
   const [clipFilter, setClipFilter] = useState<Filter>("all");
-  const [clipSort, setClipSort] = useState<Sort>("score");
-  const [clipView, setClipView] = useState<View>("grid");
+  const [clipSort, setClipSort] = useState<Sort>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(PREFS_KEY);
+        if (raw) {
+          const p = JSON.parse(raw) as { view?: View; sort?: Sort };
+          if (p.sort === "score" || p.sort === "start" || p.sort === "duration") return p.sort;
+        }
+      } catch {}
+    }
+    return "score";
+  });
+  const [clipView, setClipView] = useState<View>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(PREFS_KEY);
+        if (raw) {
+          const p = JSON.parse(raw) as { view?: View; sort?: Sort };
+          if (p.view === "grid" || p.view === "list") return p.view;
+        }
+      } catch {}
+    }
+    return "grid";
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [copied, setCopied] = useState("");
 
@@ -61,8 +83,25 @@ export function JobStudio({ jobId }: { jobId: string }) {
   }, [jobId]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let ignore = false;
+    async function initJob() {
+      try {
+        const next = await fetchJob(jobId);
+        if (!ignore) {
+          setJob(next);
+          setError("");
+        }
+      } catch (err) {
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : "Could not load this job.");
+        }
+      }
+    }
+    void initJob();
+    return () => {
+      ignore = true;
+    };
+  }, [jobId]);
 
   const isRunning = job?.status === "running";
 
@@ -109,19 +148,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
     };
   }, [jobId, isRunning, showLogs]);
 
-  /* ---------- persisted view prefs ---------- */
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(PREFS_KEY);
-      if (!raw) return;
-      const p = JSON.parse(raw) as { view?: View; sort?: Sort };
-      if (p.view === "grid" || p.view === "list") setClipView(p.view);
-      if (p.sort === "score" || p.sort === "start" || p.sort === "duration") setClipSort(p.sort);
-    } catch {
-      // ignore corrupt prefs
-    }
-  }, []);
 
   useEffect(() => {
     try {
@@ -298,7 +325,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
           >
             Retry
           </button>
-          <Link href="/" className="rounded-lg bg-volt px-4 py-2 font-bold text-[#101016] transition hover:bg-[#e4ff78]">
+          <Link href="/" className="rounded-lg bg-volt px-4 py-2 font-bold text-white transition hover:bg-[#a5b4fc]">
             ← Back to New Cut
           </Link>
         </div>
@@ -391,7 +418,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
             </Link>
             <Link
               href="/library"
-              className="stamp-sm rounded-lg border border-volt bg-volt px-4 py-2 font-bold text-[#101016] transition hover:bg-[#e4ff78]"
+              className="stamp-sm rounded-lg border border-volt bg-volt px-4 py-2 font-bold text-white transition hover:bg-[#a5b4fc]"
             >
               Library
             </Link>
@@ -466,7 +493,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
             <button
               type="button"
               onClick={() => setShowLogs(true)}
-              className="stamp-sm cursor-pointer rounded-lg bg-volt px-4 py-2 font-bold text-[#101016] transition hover:bg-[#e4ff78]"
+              className="stamp-sm cursor-pointer rounded-lg bg-volt px-4 py-2 font-bold text-white transition hover:bg-[#a5b4fc]"
             >
               Open console
             </button>
@@ -728,7 +755,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
                       type="button"
                       disabled={busy || visibleClips.every((c) => c.kept)}
                       onClick={() => void bulkSetKept(true)}
-                      className="cursor-pointer rounded-lg border border-volt/40 bg-volt/10 px-3 py-1.5 text-xs font-bold text-volt transition hover:bg-volt hover:text-[#101016] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="cursor-pointer rounded-lg border border-volt/40 bg-volt/10 px-3 py-1.5 text-xs font-bold text-volt transition hover:bg-volt hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {bulkLabel && busy ? `Working ${bulkLabel}` : "Keep shown"}
                     </button>

@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type DragEvent,
   type FormEvent,
@@ -55,12 +56,12 @@ const DEFAULTS: Settings = {
 
 const STORAGE_KEY = "cutform.settings.v1";
 const MAX_SOUNDTRACK_BYTES = 100 * 1024 * 1024;
-const ON_VOLT = "text-[#101016]";
-const HARD_SHADOW = "shadow-[3px_3px_0_0_rgba(255,255,255,0.85)]";
+const ON_VOLT = "text-white";
+const HARD_SHADOW = "shadow-lg shadow-black/40";
 const FOCUS_RING =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ice";
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500";
 const FOCUS_WITHIN_RING =
-  "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ice";
+  "has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-indigo-500";
 
 const SECTIONS = [
   { id: "source", label: "Source" },
@@ -498,8 +499,28 @@ function IndeterminateBar() {
 export function CutForm() {
   const router = useRouter();
 
-  const [settings, setSettings] = useState<Settings>(DEFAULTS);
-  const [hydrated, setHydrated] = useState(false);
+  const [settings, setSettings] = useState<Settings>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw) as Partial<Settings>;
+          const next = { ...DEFAULTS, ...saved };
+          if (!CAPTION_STYLE_OPTIONS.some((o) => o.key === next.captionStyle)) next.captionStyle = DEFAULTS.captionStyle;
+          next.clipCount = clamp(Number(next.clipCount) || DEFAULTS.clipCount, 1, 10);
+          return next;
+        }
+      } catch {
+        /* storage unavailable or corrupt, defaults stay */
+      }
+    }
+    return DEFAULTS;
+  });
+  const hydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   const [sourceUrl, setSourceUrl] = useState("");
   const [uploadedName, setUploadedName] = useState("");
@@ -540,24 +561,7 @@ export function CutForm() {
     settings.progressBar && "Progress bar",
   ].filter(Boolean) as string[];
 
-  /* Restore saved settings once on the client */
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw) as Partial<Settings>;
-        setSettings((prev) => {
-          const next = { ...prev, ...saved };
-          if (!CAPTION_STYLE_OPTIONS.some((o) => o.key === next.captionStyle)) next.captionStyle = DEFAULTS.captionStyle;
-          next.clipCount = clamp(Number(next.clipCount) || DEFAULTS.clipCount, 1, 10);
-          return next;
-        });
-      }
-    } catch {
-      /* storage unavailable or corrupt, defaults stay */
-    }
-    setHydrated(true);
-  }, []);
+
 
   useEffect(() => {
     if (!hydrated) return;
@@ -756,7 +760,7 @@ export function CutForm() {
     <button
       type="submit"
       disabled={working}
-      className={`display flex w-full items-center justify-center gap-2 rounded-xl border-2 border-volt bg-volt px-4 py-3 text-2xl ${ON_VOLT} ${HARD_SHADOW} transition hover:bg-[#e4ff78] active:translate-x-[3px] active:translate-y-[3px] active:shadow-none disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none ${FOCUS_RING}`}
+      className={`display flex w-full items-center justify-center gap-2 rounded-xl border-2 border-volt bg-volt px-4 py-3 text-2xl ${ON_VOLT} ${HARD_SHADOW} transition hover:bg-[#a5b4fc] active:translate-x-[3px] active:translate-y-[3px] active:shadow-none disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none ${FOCUS_RING}`}
     >
       {busy ? (
         <span

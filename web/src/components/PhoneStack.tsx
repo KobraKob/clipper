@@ -1,18 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion } from "motion/react";
 
 const PHONES = [
-  { bg: "bg-panel-raised", fg: "text-volt", caption: ["STOP", "SCROLLING", "FOR THIS"], active: 1 },
-  { bg: "bg-volt", fg: "text-[#101016]", caption: ["THE HOOK", "IS THE", "WHOLE CLIP"], active: 0 },
-  { bg: "bg-punch", fg: "text-white", caption: ["FACE STAYS", "IN FRAME", "WORDS POP"], active: 2 },
+  {
+    bg: "bg-[#111420]",
+    fg: "text-cyan-300",
+    border: "border-cyan-500/30",
+    caption: ["STOP", "SCROLLING", "FOR THIS"],
+    active: 1,
+    activeBg: "bg-cyan-950/80 text-cyan-300 border border-cyan-400/40",
+  },
+  {
+    bg: "bg-gradient-to-br from-indigo-600 via-indigo-700 to-indigo-900",
+    fg: "text-white",
+    border: "border-indigo-400/40",
+    caption: ["THE HOOK", "IS THE", "WHOLE CLIP"],
+    active: 0,
+    activeBg: "bg-black/60 text-indigo-200 border border-indigo-400/50 shadow-md",
+  },
+  {
+    bg: "bg-gradient-to-br from-emerald-600 via-teal-800 to-slate-900",
+    fg: "text-white",
+    border: "border-emerald-400/30",
+    caption: ["FACE STAYS", "IN FRAME", "WORDS POP"],
+    active: 2,
+    activeBg: "bg-black/60 text-emerald-300 border border-emerald-400/40 shadow-md",
+  },
 ];
 
 // slot 0 = front, 1 = right, 2 = left. x is a percentage of the phone's own width.
 const SLOTS = [
-  { x: 0, y: 0, r: 0, s: 1, z: 30 },
-  { x: 46, y: 28, r: 6, s: 0.9, z: 20 },
-  { x: -46, y: 28, r: -6, s: 0.9, z: 10 },
+  { x: 0, y: 0, r: 0, s: 1, z: 30, opacity: 1 },
+  { x: 44, y: 24, r: 5, s: 0.9, z: 20, opacity: 0.8 },
+  { x: -44, y: 24, r: -5, s: 0.9, z: 10, opacity: 0.7 },
 ];
 
 export function PhoneStack() {
@@ -40,29 +62,37 @@ export function PhoneStack() {
         const activeWord = isFront ? tick % phone.caption.length : phone.active;
 
         return (
-          <button
+          <motion.button
             key={phone.caption.join(" ")}
             type="button"
             onClick={() => bringForward(index)}
             aria-pressed={isFront}
             aria-label={`Preview: ${phone.caption.join(" ")}`}
-            className={`stamp-sm absolute left-1/2 top-2 block h-[340px] w-[190px] cursor-pointer overflow-hidden rounded-2xl border-2 border-white/20 text-left transition-transform duration-300 ease-out focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ice motion-reduce:transition-none md:h-[440px] md:w-[230px] ${phone.bg}`}
-            style={{
+            animate={{
+              x: `calc(-50% + ${slot.x * 1.8}px)`,
+              y: slot.y,
+              rotate: slot.r,
+              scale: slot.s,
               zIndex: slot.z,
-              transform: `translateX(${-50 + slot.x}%) translateY(${slot.y}px) rotate(${slot.r}deg) scale(${slot.s})`,
+              opacity: slot.opacity,
             }}
+            transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            className={`absolute left-1/2 top-2 block h-[340px] w-[190px] cursor-pointer overflow-hidden rounded-3xl border ${phone.border} text-left shadow-2xl backdrop-blur-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-500 md:h-[440px] md:w-[230px] ${phone.bg}`}
           >
-            <span className={`flex h-8 items-center justify-between border-b border-white/15 px-3 text-[10px] font-bold opacity-80 ${phone.fg}`}>
-              <span>9:16</span>
-              <span>1080</span>
+            <span className={`flex h-8 items-center justify-between border-b border-white/10 px-3.5 text-[10px] font-bold opacity-80 ${phone.fg}`}>
+              <span className="font-mono">9:16</span>
+              <span className="flex items-center gap-1 font-mono">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                1080p
+              </span>
             </span>
 
-            <span className={`flex h-[calc(100%-5.5rem)] flex-col justify-end gap-1 p-3.5 ${phone.fg}`}>
+            <span className={`flex h-[calc(100%-5.5rem)] flex-col justify-end gap-1.5 p-4 ${phone.fg}`}>
               {phone.caption.map((word, i) => (
                 <span
                   key={word}
-                  className={`display block -ml-1.5 self-start rounded px-1.5 py-0.5 text-3xl transition-colors duration-150 md:text-5xl ${
-                    i === activeWord ? "bg-[#101016] text-volt" : ""
+                  className={`font-display block -ml-1 self-start rounded-md px-2 py-0.5 text-2xl md:text-4xl transition-all duration-200 tracking-tight ${
+                    i === activeWord ? phone.activeBg : "opacity-85"
                   }`}
                 >
                   {word}
@@ -70,16 +100,16 @@ export function PhoneStack() {
               ))}
             </span>
 
-            <span className="grid h-14 grid-cols-12 items-end gap-0.5 border-t border-white/15 bg-panel-inset p-2" aria-hidden="true">
+            <span className="grid h-12 grid-cols-12 items-end gap-1 border-t border-white/10 bg-black/40 p-2.5" aria-hidden="true">
               {Array.from({ length: 12 }, (_, i) => (
                 <span
                   key={i}
-                  className={`block w-full rounded-xs ${i % 3 === 0 ? "bg-volt" : "bg-ice"}`}
-                  style={{ height: `${30 + ((i * 17) % 70)}%` }}
+                  className={`block w-full rounded-full ${i % 3 === 0 ? "bg-cyan-400" : "bg-indigo-400"}`}
+                  style={{ height: `${25 + ((i * 19) % 75)}%` }}
                 />
               ))}
             </span>
-          </button>
+          </motion.button>
         );
       })}
     </div>

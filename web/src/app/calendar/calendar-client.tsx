@@ -38,13 +38,13 @@ const STATUS_STYLE: Record<
   },
   scheduled: {
     label: "SCHEDULED",
-    dot: "bg-volt",
-    badge: "border-volt/40 bg-volt/10 text-volt",
+    dot: "bg-indigo-400",
+    badge: "border-indigo-400/40 bg-indigo-950/60 text-indigo-300",
   },
   processing: {
     label: "PROCESSING",
-    dot: "bg-ice",
-    badge: "border-ice/40 bg-ice/10 text-ice",
+    dot: "bg-cyan-400",
+    badge: "border-cyan-400/40 bg-cyan-950/60 text-cyan-300",
   },
   queued: {
     label: "QUEUED",
