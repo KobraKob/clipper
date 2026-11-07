@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { motion, AnimatePresence } from "motion/react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Studio", match: (p: string) => p === "/" },
@@ -41,14 +40,9 @@ export function SiteFrame({ children }: { children: ReactNode }) {
             aria-label="Chop Shop home"
             className="group flex shrink-0 items-center gap-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg p-1"
           >
-            <motion.div
-              whileHover={{ scale: 1.05, rotate: 2 }}
-              whileTap={{ scale: 0.95 }}
-              transition={{ type: "spring", stiffness: 400, damping: 20 }}
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 shadow-md shadow-indigo-500/25 ring-1 ring-white/20"
-            >
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 shadow-md shadow-indigo-500/25 ring-1 ring-white/20 transition-transform duration-200 group-hover:scale-105 group-hover:rotate-2 group-active:scale-95">
               <span className="font-display text-sm font-black tracking-wider text-white">CS</span>
-            </motion.div>
+            </div>
             <div className="flex flex-col">
               <span className="font-display text-xl font-extrabold tracking-tight text-white group-hover:text-indigo-200 transition-colors">
                 CHOP SHOP
@@ -70,17 +64,10 @@ export function SiteFrame({ children }: { children: ReactNode }) {
                   aria-current={isActive ? "page" : undefined}
                   className={`relative px-4 py-2 text-sm font-medium transition-all duration-200 rounded-full ${
                     isActive
-                      ? "text-white font-semibold"
+                      ? "text-white font-semibold bg-gradient-to-r from-indigo-500/20 to-cyan-500/20 border border-indigo-500/40 shadow-sm"
                       : "text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]"
                   }`}
                 >
-                  {isActive && (
-                    <motion.div
-                      layoutId="active-nav-pill"
-                      className="absolute inset-0 rounded-full bg-gradient-to-r from-indigo-500/20 to-cyan-500/20 border border-indigo-500/40 shadow-sm"
-                      transition={{ type: "spring", stiffness: 450, damping: 30 }}
-                    />
-                  )}
                   <span className="relative z-10">{item.label}</span>
                 </Link>
               );
@@ -137,13 +124,8 @@ export function SiteFrame({ children }: { children: ReactNode }) {
         </div>
 
         {/* Mobile Navigation Drawer */}
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.25, ease: "easeInOut" }}
+        {mobileMenuOpen && (
+            <div
               className="border-b border-white/[0.08] bg-[#0c0e14] px-4 py-4 md:hidden overflow-hidden"
             >
               <div className="flex flex-col gap-2">
@@ -174,9 +156,8 @@ export function SiteFrame({ children }: { children: ReactNode }) {
                 </span>
                 <span className="text-slate-500">v2.1</span>
               </div>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
       </header>
 
       {/* Main Page Content Body */}
