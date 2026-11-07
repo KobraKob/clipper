@@ -241,6 +241,18 @@ function mapManifestClips(manifest: any): Clip[] {
 }
 
 async function spawnClipperProcess(job: Job): Promise<void> {
+  let logFd: number | null = null;
+  const closeLog = () => {
+    if (logFd === null) return;
+    try {
+      closeSync(logFd);
+    } catch {
+      // The child error and close events can both run.
+    } finally {
+      logFd = null;
+    }
+  };
+
   try {
     const rootDir = await resolveRootDir();
     const workDir = await resolveWorkDir(job.id);
@@ -249,7 +261,8 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     await fs.mkdir(outDir, { recursive: true });
 
     const logFile = path.join(workDir, "clipper.log");
-    const logFd = openSync(logFile, "w");
+    logFd = openSync(logFile, "w");
+    const childLogFd = logFd;
 
     const args = [
       "-m",
@@ -282,9 +295,10 @@ async function spawnClipperProcess(job: Job): Promise<void> {
       args.push("--soundtrack-volume", String(job.soundtrackVolume ?? 0.18));
     }
 
+    let spawnFailed = false;
     const child = spawn(/*turbopackIgnore: true*/ PYTHON, args, {
       cwd: rootDir,
-      stdio: ["ignore", logFd, logFd],
+      stdio: ["ignore", childLogFd, childLogFd],
       windowsHide: true,
       env: {
         ...process.env,
@@ -294,11 +308,8 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     });
 
     child.on("error", async (error) => {
-      try {
-        closeSync(logFd);
-      } catch {
-        // The close handler may already have closed the descriptor.
-      }
+      spawnFailed = true;
+      closeLog();
       console.error("[clipper] Failed to start child process:", error);
       await storeMutex.runExclusive(async () => {
         const currentJobs = await readJobs();
@@ -311,11 +322,8 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     });
 
     child.on("close", async (code) => {
-      try {
-        closeSync(logFd);
-      } catch {
-        // already closed
-      }
+      closeLog();
+      if (spawnFailed) return;
 
       await storeMutex.runExclusive(async () => {
         // Check if manifest was produced on disk first (even if process had non-zero exit code)
@@ -396,8 +404,20 @@ async function spawnClipperProcess(job: Job): Promise<void> {
       }
     }, 1500);
     interval.unref();
-  } catch {
-    // Process launch error
+  } catch (error) {
+    closeLog();
+    const message = error instanceof Error ? error.message : "Unknown process startup error.";
+    console.error("[clipper] Could not prepare clipper process:", error);
+    await storeMutex.runExclusive(async () => {
+      const currentJobs = await readJobs();
+      const index = currentJobs.findIndex((item) => item.id === job.id);
+      if (index === -1 || currentJobs[index].status === "done") return;
+      currentJobs[index].status = "error";
+      currentJobs[index].error = `Could not start clipper process: ${message}`;
+      await writeJobs(currentJobs);
+    }).catch((storeError) => {
+      console.error("[clipper] Could not persist process startup failure:", storeError);
+    });
   }
 }
 
