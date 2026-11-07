@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
 import {
   fetchClipAnalytics,
@@ -15,15 +15,7 @@ import type { Clip, ClipAnalytics, ClipSchedule, Platform, TitleVariant } from "
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 import { normalizeTitleVariants } from "@/lib/titleVariants";
 
-export function ClipCard({
-  jobId,
-  clip,
-  busy,
-  onKeep,
-  onTimes,
-  onRerender,
-  captionsEnabled = true,
-}: {
+type ClipCardProps = {
   jobId: string;
   clip: Clip;
   busy?: boolean;
@@ -31,7 +23,17 @@ export function ClipCard({
   onTimes: (start: number, end: number) => void;
   onRerender?: (start: number, end: number, captionStyle?: string) => Promise<void>;
   captionsEnabled?: boolean;
-}) {
+};
+
+function ClipCardView({
+  jobId,
+  clip,
+  busy,
+  onKeep,
+  onTimes,
+  onRerender,
+  captionsEnabled = true,
+}: ClipCardProps) {
   const [start, setStart] = useState(clip.start);
   const [end, setEnd] = useState(clip.end);
   const [timeError, setTimeError] = useState("");
@@ -960,3 +962,12 @@ export function ClipCard({
     </article>
   );
 }
+
+export const ClipCard = memo(
+  ClipCardView,
+  (previous, next) =>
+    previous.jobId === next.jobId &&
+    previous.clip === next.clip &&
+    previous.busy === next.busy &&
+    previous.captionsEnabled === next.captionsEnabled,
+);
