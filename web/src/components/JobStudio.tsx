@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { deleteJob, fetchJob, fetchJobLogs, patchClip, rerenderClip } from "@/lib/api";
+import { deleteJob, fetchJob, fetchJobLogs, fetchJobStatus, patchClip, rerenderClip } from "@/lib/api";
 import { formatTimecode } from "@/lib/pipeline";
 import type { JobView } from "@/lib/types";
 import { ClipCard } from "./ClipCard";
@@ -98,8 +98,34 @@ export function JobStudio({ jobId }: { jobId: string }) {
     if (refreshInFlight.current) return;
     refreshInFlight.current = true;
     try {
-      const next = await fetchJob(jobId);
-      setJob((current) => preserveUnchangedClipReferences(current, next));
+      const status = await fetchJobStatus(jobId);
+      if (status.status !== "running") {
+        const next = await fetchJob(jobId);
+        setJob((current) => preserveUnchangedClipReferences(current, next));
+      } else {
+        setJob((current) => {
+          if (!current) return current;
+          if (
+            current.status === status.status &&
+            current.stageIndex === status.stageIndex &&
+            current.stageId === status.stageId &&
+            current.progress === status.progress &&
+            current.progressMessage === status.progressMessage &&
+            current.error === status.error
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            status: status.status,
+            stageIndex: status.stageIndex,
+            stageId: status.stageId,
+            progress: status.progress,
+            progressMessage: status.progressMessage,
+            error: status.error,
+          };
+        });
+      }
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load this job.");

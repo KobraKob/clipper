@@ -4,7 +4,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
 import {
   fetchClipAnalytics,
-  fetchJob,
+  fetchClipPublishStatus,
   publishClip,
   patchClip,
   rerenderClip,
@@ -279,9 +279,9 @@ function ClipCardView({
       if (polling || document.visibilityState !== "visible") return;
       polling = true;
       try {
-        const j = await fetchJob(jobId);
-        const c = j.clips.find((x) => x.id === clip.id);
-        const nextPublish = c?.publish;
+        const snapshot = await fetchClipPublishStatus(jobId, clip.id);
+        const nextPublish = snapshot.publish;
+        if (snapshot.analytics) setAnalytics(snapshot.analytics);
         if (nextPublish) {
           setPublishState((current) =>
             JSON.stringify(current) === JSON.stringify(nextPublish) ? current : nextPublish

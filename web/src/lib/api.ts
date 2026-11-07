@@ -1,4 +1,4 @@
-import type { CreateJobInput, JobView, Platform, Provider } from "./types";
+import type { Clip, CreateJobInput, JobView, Platform, Provider } from "./types";
 
 async function parseError(res: Response): Promise<string> {
   try {
@@ -50,6 +50,28 @@ export async function fetchJob(id: string): Promise<JobView> {
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
+
+export async function fetchJobStatus(
+  id: string,
+): Promise<Pick<JobView, "id" | "status" | "stageIndex" | "stageId" | "progress" | "progressMessage" | "error">> {
+  const res = await fetch(`/api/jobs/${id}/status`, { cache: "no-store" });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function fetchClipPublishStatus(
+  jobId: string,
+  clipId: string,
+): Promise<Pick<Clip, "publish" | "analytics">> {
+  const res = await fetch(
+    `/api/jobs/${jobId}/clips/${clipId}/publish-status`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+
 
 export async function fetchJobs(): Promise<JobView[]> {
   const res = await fetch("/api/jobs", { cache: "no-store" });
