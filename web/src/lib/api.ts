@@ -12,11 +12,13 @@ async function parseError(res: Response): Promise<string> {
 export async function uploadVideo(
   file: File,
 ): Promise<{ path: string; fileName: string; originalName: string; size: number }> {
-  const formData = new FormData();
-  formData.append("file", file);
   const res = await fetch("/api/upload", {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-File-Name": encodeURIComponent(file.name),
+    },
+    body: file,
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
@@ -25,11 +27,13 @@ export async function uploadVideo(
 export async function uploadSoundtrack(
   file: File,
 ): Promise<{ path: string; fileName: string; originalName: string; size: number }> {
-  const formData = new FormData();
-  formData.append("file", file);
   const res = await fetch("/api/upload/soundtrack", {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-File-Name": encodeURIComponent(file.name),
+    },
+    body: file,
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
