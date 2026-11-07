@@ -132,8 +132,31 @@ export function LibraryGrid() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let ignore = false;
+    loadInFlight.current = true;
+
+    async function initLibrary() {
+      try {
+        const next = await fetchJobs();
+        if (ignore || !mounted.current) return;
+        setJobs((current) =>
+          current && JSON.stringify(current) === JSON.stringify(next) ? current : next
+        );
+        setError("");
+      } catch (err) {
+        if (!ignore && mounted.current) {
+          setError(err instanceof Error ? err.message : "Could not load the library.");
+        }
+      } finally {
+        loadInFlight.current = false;
+      }
+    }
+
+    void initLibrary();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const hasActive = useMemo(() => (jobs || []).some((job) => isActive(job.status)), [jobs]);
 
