@@ -55,6 +55,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<JobView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyClipIds, setBusyClipIds] = useState<Set<string>>(new Set());
   const [bulkLabel, setBulkLabel] = useState("");
   const [logs, setLogs] = useState("");
   const [showLogs, setShowLogs] = useState(false);
@@ -287,20 +288,30 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
   /* ---------- actions ---------- */
 
+  function setClipBusy(clipId: string, isBusy: boolean) {
+    setBusyClipIds((current) => {
+      if (current.has(clipId) === isBusy) return current;
+      const next = new Set(current);
+      if (isBusy) next.add(clipId);
+      else next.delete(clipId);
+      return next;
+    });
+  }
+
   async function updateClip(clipId: string, patch: { kept?: boolean; start?: number; end?: number }) {
-    setBusy(true);
+    setClipBusy(clipId, true);
     try {
       const next = await patchClip(jobId, clipId, patch);
       setJob((current) => preserveUnchangedClipReferences(current, next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update clip.");
     } finally {
-      setBusy(false);
+      setClipBusy(clipId, false);
     }
   }
 
   async function handleRerender(clipId: string, start: number, end: number, captionStyle?: string) {
-    setBusy(true);
+    setClipBusy(clipId, true);
     try {
       const next = await rerenderClip(jobId, clipId, start, end, captionStyle);
       setJob((current) => preserveUnchangedClipReferences(current, next));
@@ -308,7 +319,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
       setError(err instanceof Error ? err.message : "Could not re-render clip.");
       throw err;
     } finally {
-      setBusy(false);
+      setClipBusy(clipId, false);
     }
   }
 
@@ -485,7 +496,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
             <button
               type="button"
               onClick={handleDeleteJob}
-              disabled={busy}
+              disabled={busy || busyClipIds.size > 0}
               className={`stamp-sm cursor-pointer rounded-lg border px-4 py-2 font-semibold transition disabled:opacity-60 ${
                 confirmDelete
                   ? "border-punch bg-punch text-white"
@@ -813,7 +824,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      disabled={busy || visibleClips.every((c) => c.kept)}
+                      disabled={busy || busyClipIds.size > 0 || visibleClips.every((c) => c.kept)}
                       onClick={() => void bulkSetKept(true)}
                       className="cursor-pointer rounded-lg border border-volt/40 bg-volt/10 px-3 py-1.5 text-xs font-bold text-volt transition hover:bg-volt hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -821,7 +832,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
                     </button>
                     <button
                       type="button"
-                      disabled={busy || visibleClips.every((c) => !c.kept)}
+                      disabled={busy || busyClipIds.size > 0 || visibleClips.every((c) => !c.kept)}
                       onClick={() => void bulkSetKept(false)}
                       className="cursor-pointer rounded-lg border border-white/15 bg-panel-raised px-3 py-1.5 text-xs font-bold text-muted transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -838,7 +849,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
                       <ClipCard
                         jobId={jobId}
                         clip={clip}
-                        busy={busy}
+                        busy={busy || busyClipIds.has(clip.id)}
                         captionsEnabled={job.captions}
                         onKeep={(keptNext) => void updateClip(clip.id, { kept: keptNext })}
                         onTimes={(start, end) => void updateClip(clip.id, { start, end })}
