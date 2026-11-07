@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
 import {
   fetchClipAnalytics,
@@ -50,6 +50,16 @@ export function ClipCard({
   const [rerendering, setRerendering] = useState(false);
   const [rerenderMessage, setRerenderMessage] = useState("");
   const [videoKey, setVideoKey] = useState(0);
+  const publishPollTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (publishPollTimer.current !== null) {
+        window.clearInterval(publishPollTimer.current);
+        publishPollTimer.current = null;
+      }
+    };
+  }, []);
 
   // Normalize old job records before using variant IDs as React keys or selection values.
   const initialTitleVariants = normalizeTitleVariants(
@@ -262,12 +272,17 @@ export function ClipCard({
         : "Connecting to YouTube API and preparing upload...",
     );
 
-    const timer = setInterval(async () => {
+    let polling = false;
+    const pollPublishState = async () => {
+      if (polling || document.visibilityState !== "visible") return;
+      polling = true;
       try {
         const j = await fetchJob(jobId);
         const c = j.clips.find((x) => x.id === clip.id);
         if (c?.publish) {
-          setPublishState(c.publish);
+          setPublishState((current) =>
+            JSON.stringify(current) === JSON.stringify(c.publish) ? current : c.publish
+          );
           const pKey = target === "both" ? "youtube" : target;
           const platState = c.publish[pKey];
           if (typeof platState?.progress === "number") {
@@ -278,9 +293,19 @@ export function ClipCard({
           }
         }
       } catch {
-        // ignore polling errors
+        // The publish request remains authoritative; polling is best-effort.
+      } finally {
+        polling = false;
       }
-    }, 1000);
+    };
+
+    if (publishPollTimer.current !== null) {
+      window.clearInterval(publishPollTimer.current);
+    }
+    void pollPublishState();
+    publishPollTimer.current = window.setInterval(() => {
+      void pollPublishState();
+    }, 2500);
 
     try {
       const job = await publishClip(
@@ -301,7 +326,10 @@ export function ClipCard({
       setPublishError(err instanceof Error ? err.message : "Publish failed.");
       setPublishStatusText("");
     } finally {
-      clearInterval(timer);
+      if (publishPollTimer.current !== null) {
+        window.clearInterval(publishPollTimer.current);
+        publishPollTimer.current = null;
+      }
       setTimeout(() => {
         setPublishing(null);
         setPublishProgress(0);
@@ -408,7 +436,7 @@ export function ClipCard({
                   key={videoKey}
                   controls
                   playsInline
-                  preload="metadata"
+                  preload="none"
                   src={videoSrc}
                   className="h-full w-full object-cover"
                   onError={() => setHasVideo(false)}

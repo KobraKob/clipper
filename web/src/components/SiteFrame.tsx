@@ -28,12 +28,12 @@ export function SiteFrame({ children }: { children: ReactNode }) {
 
       {/* Top Ambient Glow Backdrop */}
       <div
-        className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-[900px] h-[340px] bg-gradient-to-b from-indigo-500/10 via-cyan-500/5 to-transparent blur-3xl z-0"
+        className="pointer-events-none fixed top-0 left-1/2 -translate-x-1/2 w-[900px] h-[340px] bg-gradient-to-b from-indigo-500/10 via-cyan-500/5 to-transparent blur-xl z-0"
         aria-hidden="true"
       />
 
       {/* Modern Sticky Navigation Bar */}
-      <header className="sticky top-0 z-50 w-full border-b border-white/[0.08] bg-[#08090d]/85 backdrop-blur-xl transition-colors duration-200">
+      <header className="sticky top-0 z-50 w-full border-b border-white/[0.08] bg-[#08090d]/90 backdrop-blur-sm transition-colors duration-200">
         <div className="mx-auto flex h-[72px] w-full max-w-[1360px] items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Brand Logo */}
           <Link

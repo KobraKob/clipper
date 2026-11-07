@@ -69,16 +69,23 @@ export function JobStudio({ jobId }: { jobId: string }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLPreElement>(null);
   const stickToBottom = useRef(true);
+  const refreshInFlight = useRef(false);
 
   /* ---------- data ---------- */
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
       const next = await fetchJob(jobId);
-      setJob(next);
+      setJob((current) =>
+        current && JSON.stringify(current) === JSON.stringify(next) ? current : next
+      );
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load this job.");
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [jobId]);
 
@@ -120,14 +127,20 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     let ignore = false;
+    let loading = false;
     async function loadLogs() {
+      if (loading) return;
+      loading = true;
       try {
         const res = await fetchJobLogs(jobId);
         if (ignore) return;
-        setLogs(res.logs || "");
+        const nextLogs = res.logs || "";
+        setLogs((current) => current === nextLogs ? current : nextLogs);
         if (res.status === "error") setShowLogs(true);
       } catch {
         // logs endpoint unavailable or job deleted
+      } finally {
+        loading = false;
       }
     }
     void loadLogs();

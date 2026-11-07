@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useCallback, useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ScheduledPost } from "./page";
@@ -129,6 +129,27 @@ export default function CalendarClient({
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  const stepMonth = useCallback((delta: number) => {
+    let nextMonth = cursorMonth + delta;
+    let nextYear = cursorYear;
+    if (nextMonth < 0) {
+      nextMonth = 11;
+      nextYear -= 1;
+    } else if (nextMonth > 11) {
+      nextMonth = 0;
+      nextYear += 1;
+    }
+    setCursorMonth(nextMonth);
+    setCursorYear(nextYear);
+    setSelectedDay(1);
+  }, [cursorMonth, cursorYear]);
+
+  const jumpToToday = useCallback(() => {
+    setCursorYear(todayIST.year);
+    setCursorMonth(todayIST.month);
+    setSelectedDay(todayIST.day);
+  }, [todayIST]);
+
   // Keyboard navigation ([ / ] month step, T today, 1/2/3 view switch, / search, Esc close inspector)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -164,28 +185,9 @@ export default function CalendarClient({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, [stepMonth, jumpToToday]);
 
-  function stepMonth(delta: number) {
-    let nextMonth = cursorMonth + delta;
-    let nextYear = cursorYear;
-    if (nextMonth < 0) {
-      nextMonth = 11;
-      nextYear -= 1;
-    } else if (nextMonth > 11) {
-      nextMonth = 0;
-      nextYear += 1;
-    }
-    setCursorMonth(nextMonth);
-    setCursorYear(nextYear);
-    setSelectedDay(1);
-  }
 
-  function jumpToToday() {
-    setCursorYear(todayIST.year);
-    setCursorMonth(todayIST.month);
-    setSelectedDay(todayIST.day);
-  }
 
   function handleRefresh() {
     setIsRefreshing(true);
