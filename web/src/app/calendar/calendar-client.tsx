@@ -11,6 +11,20 @@ type StatusFilter = "all" | ScheduledPost["status"];
 type QueueSort = "asc" | "desc" | "failed_first";
 
 const TZ = "Asia/Kolkata";
+const IST_PARTS_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: TZ,
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const IST_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-IN", {
+  timeZone: TZ,
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 const MONTHS = [
   "January",
   "February",
@@ -65,15 +79,7 @@ const STATUS_STYLE: Record<
 
 function getISTParts(iso: string) {
   const d = new Date(iso);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
+  const parts = IST_PARTS_FORMATTER.formatToParts(d);
 
   const map: Record<string, string> = {};
   for (const p of parts) {
@@ -88,11 +94,7 @@ function getISTParts(iso: string) {
 }
 
 function displayTime(value: string) {
-  return new Intl.DateTimeFormat("en-IN", {
-    timeZone: TZ,
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return IST_DISPLAY_FORMATTER.format(new Date(value));
 }
 
 function getPostTitle(post: ScheduledPost) {
@@ -195,10 +197,14 @@ export default function CalendarClient({
     setTimeout(() => setIsRefreshing(false), 450);
   }
 
-  function copyValue(key: string, text: string) {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 1400);
+  async function copyValue(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey(null), 1400);
+    } catch {
+      setCopiedKey(null);
+    }
   }
 
   // Telemetry counts across all loaded posts

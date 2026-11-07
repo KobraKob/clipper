@@ -25,6 +25,11 @@ type ClipCardProps = {
   captionsEnabled?: boolean;
 };
 
+function toLocalDateTimeValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function ClipCardView({
   jobId,
   clip,
@@ -90,7 +95,7 @@ function ClipCardView({
   const [scheduleTime, setScheduleTime] = useState(() => {
     const d = new Date(Date.now() + 24 * 3600 * 1000);
     d.setHours(18, 0, 0, 0);
-    return d.toISOString().slice(0, 16);
+    return toLocalDateTimeValue(d);
   });
   const [scheduling, setScheduling] = useState(false);
   const [scheduleState, setScheduleState] = useState<ClipSchedule | undefined>(clip.schedule);

@@ -359,11 +359,14 @@ export function JobStudio({ jobId }: { jobId: string }) {
     }
   }
 
-  function copy(label: string, text: string) {
-    void navigator.clipboard.writeText(text).then(() => {
+  async function copy(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(label);
       window.setTimeout(() => setCopied((c) => (c === label ? "" : c)), 1500);
-    });
+    } catch {
+      setError("Clipboard access is unavailable in this browser context.");
+    }
   }
 
   function resetFilters() {
