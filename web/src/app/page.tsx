@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { motion } from "motion/react";
 import { CutForm } from "@/components/CutForm";
 import { PhoneStack } from "@/components/PhoneStack";
 import { PIPELINE_STAGES } from "@/lib/types";
@@ -30,17 +27,13 @@ export default function Home() {
       {/* Hero Section */}
       <section className="relative overflow-hidden pt-6 pb-16 lg:py-20" aria-labelledby="home-title">
         {/* Subtle Ambient Background Gradients */}
-        <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-b from-indigo-600/15 via-cyan-500/10 to-transparent blur-3xl -z-10" />
+        <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-b from-indigo-600/15 via-cyan-500/10 to-transparent blur-xl -z-10" />
 
         <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
             {/* Left Copy Column */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-              className="lg:col-span-7 flex flex-col gap-6"
-            >
+            <div
+              className="lg:col-span-7 flex flex-col gap-6">
               <div className="inline-flex items-center gap-2.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-300 w-fit shadow-sm shadow-indigo-500/10">
                 <span className="flex h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
                 <span>Next-Gen Video Clipping Studio</span>
@@ -59,19 +52,16 @@ export default function Home() {
 
               {/* CTAs */}
               <div className="flex flex-wrap items-center gap-4 pt-2">
-                <motion.a
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                <a
                   href="#studio"
-                  className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-xl shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:brightness-110 transition-all"
-                >
+                  className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-xl shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:brightness-110 transition-all">
                   <span>Start New Project</span>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                   </svg>
-                </motion.a>
+                </a>
 
-                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <div>
                   <Link
                     href="/library"
                     className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-6 py-3.5 text-sm font-semibold text-slate-200 hover:bg-white/[0.08] hover:text-white hover:border-white/20 transition-all"
@@ -81,7 +71,7 @@ export default function Home() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                     </svg>
                   </Link>
-                </motion.div>
+                </div>
               </div>
 
               {/* Stats Strip */}
@@ -95,15 +85,11 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            </motion.div>
+            </div>
 
             {/* Right Visual Interactive Phone Stack */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.7, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
-              className="lg:col-span-5 flex flex-col items-center justify-center relative"
-            >
+            <div
+              className="lg:col-span-5 flex flex-col items-center justify-center relative">
               <div className="relative w-full max-w-[380px] p-4 rounded-3xl bg-gradient-to-b from-white/[0.08] to-white/[0.02] border border-white/[0.1] shadow-2xl shadow-indigo-950/50 backdrop-blur-md">
                 <div className="flex items-center justify-between pb-3 px-2 border-b border-white/[0.06] text-xs text-slate-400">
                   <span className="flex items-center gap-1.5 font-medium text-slate-300">
@@ -124,7 +110,7 @@ export default function Home() {
                   </span>
                 </div>
               </div>
-            </motion.div>
+            </div>
           </div>
         </div>
       </section>
@@ -148,7 +134,7 @@ export default function Home() {
           </div>
 
           {/* Form Card Container */}
-          <div className="rounded-3xl border border-white/[0.1] bg-[#0c0e15]/90 p-5 sm:p-8 shadow-2xl backdrop-blur-xl">
+          <div className="rounded-3xl border border-white/[0.1] bg-[#0c0e15]/90 p-5 sm:p-8 shadow-2xl backdrop-blur-sm">
             <CutForm />
           </div>
         </div>
@@ -172,12 +158,9 @@ export default function Home() {
           {/* Stages Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {PIPELINE_STAGES.map((stage, idx) => (
-              <motion.div
+              <div
                 key={stage.id}
-                whileHover={{ y: -4 }}
-                transition={{ duration: 0.2 }}
-                className="group relative rounded-2xl border border-white/[0.08] bg-[#0d1018] p-5 hover:border-indigo-500/40 hover:bg-[#121622] transition-colors"
-              >
+                className="group relative rounded-2xl border border-white/[0.08] bg-[#0d1018] p-5 hover:border-indigo-500/40 hover:bg-[#121622] transition-colors">
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-display text-sm font-bold text-slate-500 group-hover:text-cyan-400 transition-colors">
                     0{idx + 1}
@@ -190,7 +173,7 @@ export default function Home() {
                 <p className="text-xs text-slate-400 leading-relaxed">
                   {STAGE_DESCRIPTIONS[stage.id] || "Automated processing stage"}
                 </p>
-              </motion.div>
+              </div>
             ))}
           </div>
         </div>

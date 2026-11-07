@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJob, getJobLogs } from "@/lib/store";
+import { getJobStatus, getJobLogs } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const job = await getJob(id);
+  const job = await getJobStatus(id);
   if (!job) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }

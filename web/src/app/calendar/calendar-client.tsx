@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useCallback, useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ScheduledPost } from "./page";
@@ -11,6 +11,20 @@ type StatusFilter = "all" | ScheduledPost["status"];
 type QueueSort = "asc" | "desc" | "failed_first";
 
 const TZ = "Asia/Kolkata";
+const IST_PARTS_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: TZ,
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const IST_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-IN", {
+  timeZone: TZ,
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 const MONTHS = [
   "January",
   "February",
@@ -65,15 +79,7 @@ const STATUS_STYLE: Record<
 
 function getISTParts(iso: string) {
   const d = new Date(iso);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
+  const parts = IST_PARTS_FORMATTER.formatToParts(d);
 
   const map: Record<string, string> = {};
   for (const p of parts) {
@@ -88,11 +94,7 @@ function getISTParts(iso: string) {
 }
 
 function displayTime(value: string) {
-  return new Intl.DateTimeFormat("en-IN", {
-    timeZone: TZ,
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return IST_DISPLAY_FORMATTER.format(new Date(value));
 }
 
 function getPostTitle(post: ScheduledPost) {
@@ -129,6 +131,27 @@ export default function CalendarClient({
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  const stepMonth = useCallback((delta: number) => {
+    let nextMonth = cursorMonth + delta;
+    let nextYear = cursorYear;
+    if (nextMonth < 0) {
+      nextMonth = 11;
+      nextYear -= 1;
+    } else if (nextMonth > 11) {
+      nextMonth = 0;
+      nextYear += 1;
+    }
+    setCursorMonth(nextMonth);
+    setCursorYear(nextYear);
+    setSelectedDay(1);
+  }, [cursorMonth, cursorYear]);
+
+  const jumpToToday = useCallback(() => {
+    setCursorYear(todayIST.year);
+    setCursorMonth(todayIST.month);
+    setSelectedDay(todayIST.day);
+  }, [todayIST]);
+
   // Keyboard navigation ([ / ] month step, T today, 1/2/3 view switch, / search, Esc close inspector)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -164,28 +187,9 @@ export default function CalendarClient({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, [stepMonth, jumpToToday]);
 
-  function stepMonth(delta: number) {
-    let nextMonth = cursorMonth + delta;
-    let nextYear = cursorYear;
-    if (nextMonth < 0) {
-      nextMonth = 11;
-      nextYear -= 1;
-    } else if (nextMonth > 11) {
-      nextMonth = 0;
-      nextYear += 1;
-    }
-    setCursorMonth(nextMonth);
-    setCursorYear(nextYear);
-    setSelectedDay(1);
-  }
 
-  function jumpToToday() {
-    setCursorYear(todayIST.year);
-    setCursorMonth(todayIST.month);
-    setSelectedDay(todayIST.day);
-  }
 
   function handleRefresh() {
     setIsRefreshing(true);
@@ -193,10 +197,14 @@ export default function CalendarClient({
     setTimeout(() => setIsRefreshing(false), 450);
   }
 
-  function copyValue(key: string, text: string) {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 1400);
+  async function copyValue(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey(null), 1400);
+    } catch {
+      setCopiedKey(null);
+    }
   }
 
   // Telemetry counts across all loaded posts

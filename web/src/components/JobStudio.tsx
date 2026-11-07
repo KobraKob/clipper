@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { deleteJob, fetchJob, fetchJobLogs, patchClip, rerenderClip } from "@/lib/api";
+import { deleteJob, fetchJob, fetchJobLogs, fetchJobStatus, patchClip, rerenderClip } from "@/lib/api";
 import { formatTimecode } from "@/lib/pipeline";
 import type { JobView } from "@/lib/types";
 import { ClipCard } from "./ClipCard";
@@ -29,11 +29,33 @@ function isTypingTarget(target: EventTarget | null) {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 
+function preserveUnchangedClipReferences(
+  current: JobView | null,
+  next: JobView,
+): JobView {
+  if (!current || current.id !== next.id) return next;
+  if (JSON.stringify(current) === JSON.stringify(next)) return current;
+
+  const previousById = new Map(current.clips.map((clip) => [clip.id, clip]));
+  let reusedAny = false;
+  const clips = next.clips.map((clip) => {
+    const previous = previousById.get(clip.id);
+    if (previous && JSON.stringify(previous) === JSON.stringify(clip)) {
+      reusedAny = true;
+      return previous;
+    }
+    return clip;
+  });
+
+  return reusedAny ? { ...next, clips } : next;
+}
+
 export function JobStudio({ jobId }: { jobId: string }) {
   const router = useRouter();
   const [job, setJob] = useState<JobView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyClipIds, setBusyClipIds] = useState<Set<string>>(new Set());
   const [bulkLabel, setBulkLabel] = useState("");
   const [logs, setLogs] = useState("");
   const [showLogs, setShowLogs] = useState(false);
@@ -69,16 +91,47 @@ export function JobStudio({ jobId }: { jobId: string }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLPreElement>(null);
   const stickToBottom = useRef(true);
+  const refreshInFlight = useRef(false);
 
   /* ---------- data ---------- */
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
-      const next = await fetchJob(jobId);
-      setJob(next);
+      const status = await fetchJobStatus(jobId);
+      if (status.status !== "running") {
+        const next = await fetchJob(jobId);
+        setJob((current) => preserveUnchangedClipReferences(current, next));
+      } else {
+        setJob((current) => {
+          if (!current) return current;
+          if (
+            current.status === status.status &&
+            current.stageIndex === status.stageIndex &&
+            current.stageId === status.stageId &&
+            current.progress === status.progress &&
+            current.progressMessage === status.progressMessage &&
+            current.error === status.error
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            status: status.status,
+            stageIndex: status.stageIndex,
+            stageId: status.stageId,
+            progress: status.progress,
+            progressMessage: status.progressMessage,
+            error: status.error,
+          };
+        });
+      }
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load this job.");
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [jobId]);
 
@@ -88,7 +141,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
       try {
         const next = await fetchJob(jobId);
         if (!ignore) {
-          setJob(next);
+          setJob((current) => preserveUnchangedClipReferences(current, next));
           setError("");
         }
       } catch (err) {
@@ -120,14 +173,20 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     let ignore = false;
+    let loading = false;
     async function loadLogs() {
+      if (loading) return;
+      loading = true;
       try {
         const res = await fetchJobLogs(jobId);
         if (ignore) return;
-        setLogs(res.logs || "");
+        const nextLogs = res.logs || "";
+        setLogs((current) => current === nextLogs ? current : nextLogs);
         if (res.status === "error") setShowLogs(true);
       } catch {
         // logs endpoint unavailable or job deleted
+      } finally {
+        loading = false;
       }
     }
     void loadLogs();
@@ -229,26 +288,38 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
   /* ---------- actions ---------- */
 
+  function setClipBusy(clipId: string, isBusy: boolean) {
+    setBusyClipIds((current) => {
+      if (current.has(clipId) === isBusy) return current;
+      const next = new Set(current);
+      if (isBusy) next.add(clipId);
+      else next.delete(clipId);
+      return next;
+    });
+  }
+
   async function updateClip(clipId: string, patch: { kept?: boolean; start?: number; end?: number }) {
-    setBusy(true);
+    setClipBusy(clipId, true);
     try {
-      setJob(await patchClip(jobId, clipId, patch));
+      const next = await patchClip(jobId, clipId, patch);
+      setJob((current) => preserveUnchangedClipReferences(current, next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update clip.");
     } finally {
-      setBusy(false);
+      setClipBusy(clipId, false);
     }
   }
 
   async function handleRerender(clipId: string, start: number, end: number, captionStyle?: string) {
-    setBusy(true);
+    setClipBusy(clipId, true);
     try {
-      setJob(await rerenderClip(jobId, clipId, start, end, captionStyle));
+      const next = await rerenderClip(jobId, clipId, start, end, captionStyle);
+      setJob((current) => preserveUnchangedClipReferences(current, next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not re-render clip.");
       throw err;
     } finally {
-      setBusy(false);
+      setClipBusy(clipId, false);
     }
   }
 
@@ -262,7 +333,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
         setBulkLabel(`${i + 1}/${targets.length}`);
         latest = await patchClip(jobId, targets[i].id, { kept: keptNext });
       }
-      if (latest) setJob(latest);
+      if (latest) setJob((current) => preserveUnchangedClipReferences(current, latest));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Bulk update failed.");
       void refresh();
@@ -288,11 +359,14 @@ export function JobStudio({ jobId }: { jobId: string }) {
     }
   }
 
-  function copy(label: string, text: string) {
-    void navigator.clipboard.writeText(text).then(() => {
+  async function copy(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(label);
       window.setTimeout(() => setCopied((c) => (c === label ? "" : c)), 1500);
-    });
+    } catch {
+      setError("Clipboard access is unavailable in this browser context.");
+    }
   }
 
   function resetFilters() {
@@ -425,7 +499,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
             <button
               type="button"
               onClick={handleDeleteJob}
-              disabled={busy}
+              disabled={busy || busyClipIds.size > 0}
               className={`stamp-sm cursor-pointer rounded-lg border px-4 py-2 font-semibold transition disabled:opacity-60 ${
                 confirmDelete
                   ? "border-punch bg-punch text-white"
@@ -753,7 +827,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      disabled={busy || visibleClips.every((c) => c.kept)}
+                      disabled={busy || busyClipIds.size > 0 || visibleClips.every((c) => c.kept)}
                       onClick={() => void bulkSetKept(true)}
                       className="cursor-pointer rounded-lg border border-volt/40 bg-volt/10 px-3 py-1.5 text-xs font-bold text-volt transition hover:bg-volt hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -761,7 +835,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
                     </button>
                     <button
                       type="button"
-                      disabled={busy || visibleClips.every((c) => !c.kept)}
+                      disabled={busy || busyClipIds.size > 0 || visibleClips.every((c) => !c.kept)}
                       onClick={() => void bulkSetKept(false)}
                       className="cursor-pointer rounded-lg border border-white/15 bg-panel-raised px-3 py-1.5 text-xs font-bold text-muted transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -778,7 +852,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
                       <ClipCard
                         jobId={jobId}
                         clip={clip}
-                        busy={busy}
+                        busy={busy || busyClipIds.has(clip.id)}
                         captionsEnabled={job.captions}
                         onKeep={(keptNext) => void updateClip(clip.id, { kept: keptNext })}
                         onTimes={(start, end) => void updateClip(clip.id, { start, end })}

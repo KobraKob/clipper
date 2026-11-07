@@ -12,7 +12,7 @@ type SortMode = "newest" | "oldest" | "most-clips" | "top-score";
 type ViewMode = "grid" | "list";
 
 const PREFS_KEY = "library:prefs";
-const POLL_MS = 3000;
+const POLL_MS = 5000;
 
 function isActive(status: JobStatus) {
   return status === "running" || status === "queued";
@@ -100,6 +100,7 @@ export function LibraryGrid() {
   });
 
   const mounted = useRef(true);
+  const loadInFlight = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -111,35 +112,46 @@ export function LibraryGrid() {
   /* ---------- data ---------- */
 
   const load = useCallback(async (manual = false) => {
+    if (loadInFlight.current) return;
+    loadInFlight.current = true;
     if (manual) setRefreshing(true);
     try {
       const next = await fetchJobs();
       if (!mounted.current) return;
-      setJobs(next);
+      setJobs((current) =>
+        current && JSON.stringify(current) === JSON.stringify(next) ? current : next
+      );
       setError("");
     } catch (err) {
       if (!mounted.current) return;
       setError(err instanceof Error ? err.message : "Could not load the library.");
     } finally {
+      loadInFlight.current = false;
       if (manual && mounted.current) setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     let ignore = false;
+    loadInFlight.current = true;
+
     async function initLibrary() {
       try {
         const next = await fetchJobs();
-        if (!ignore) {
-          setJobs(next);
-          setError("");
-        }
+        if (ignore || !mounted.current) return;
+        setJobs((current) =>
+          current && JSON.stringify(current) === JSON.stringify(next) ? current : next
+        );
+        setError("");
       } catch (err) {
-        if (!ignore) {
+        if (!ignore && mounted.current) {
           setError(err instanceof Error ? err.message : "Could not load the library.");
         }
+      } finally {
+        loadInFlight.current = false;
       }
     }
+
     void initLibrary();
     return () => {
       ignore = true;

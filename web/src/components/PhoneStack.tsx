@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "motion/react";
 
 const PHONES = [
@@ -39,19 +39,9 @@ const SLOTS = [
 
 export function PhoneStack() {
   const [front, setFront] = useState(1);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const id = window.setInterval(() => {
-      if (document.visibilityState === "visible") setTick((t) => t + 1);
-    }, 650);
-    return () => window.clearInterval(id);
-  }, []);
 
   function bringForward(index: number) {
     setFront(index);
-    setTick(0);
   }
 
   return (
@@ -59,7 +49,7 @@ export function PhoneStack() {
       {PHONES.map((phone, index) => {
         const slot = SLOTS[(index - front + PHONES.length) % PHONES.length];
         const isFront = index === front;
-        const activeWord = isFront ? tick % phone.caption.length : phone.active;
+        const activeWord = phone.active;
 
         return (
           <motion.button

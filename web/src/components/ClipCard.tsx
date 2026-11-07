@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { formatTimecode } from "@/lib/pipeline";
 import {
   fetchClipAnalytics,
-  fetchJob,
+  fetchClipPublishStatus,
   publishClip,
   patchClip,
   rerenderClip,
@@ -15,15 +15,7 @@ import type { Clip, ClipAnalytics, ClipSchedule, Platform, TitleVariant } from "
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 import { normalizeTitleVariants } from "@/lib/titleVariants";
 
-export function ClipCard({
-  jobId,
-  clip,
-  busy,
-  onKeep,
-  onTimes,
-  onRerender,
-  captionsEnabled = true,
-}: {
+type ClipCardProps = {
   jobId: string;
   clip: Clip;
   busy?: boolean;
@@ -31,7 +23,22 @@ export function ClipCard({
   onTimes: (start: number, end: number) => void;
   onRerender?: (start: number, end: number, captionStyle?: string) => Promise<void>;
   captionsEnabled?: boolean;
-}) {
+};
+
+function toLocalDateTimeValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function ClipCardView({
+  jobId,
+  clip,
+  busy,
+  onKeep,
+  onTimes,
+  onRerender,
+  captionsEnabled = true,
+}: ClipCardProps) {
   const [start, setStart] = useState(clip.start);
   const [end, setEnd] = useState(clip.end);
   const [timeError, setTimeError] = useState("");
@@ -50,6 +57,16 @@ export function ClipCard({
   const [rerendering, setRerendering] = useState(false);
   const [rerenderMessage, setRerenderMessage] = useState("");
   const [videoKey, setVideoKey] = useState(0);
+  const publishPollTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (publishPollTimer.current !== null) {
+        window.clearInterval(publishPollTimer.current);
+        publishPollTimer.current = null;
+      }
+    };
+  }, []);
 
   // Normalize old job records before using variant IDs as React keys or selection values.
   const initialTitleVariants = normalizeTitleVariants(
@@ -78,7 +95,7 @@ export function ClipCard({
   const [scheduleTime, setScheduleTime] = useState(() => {
     const d = new Date(Date.now() + 24 * 3600 * 1000);
     d.setHours(18, 0, 0, 0);
-    return d.toISOString().slice(0, 16);
+    return toLocalDateTimeValue(d);
   });
   const [scheduling, setScheduling] = useState(false);
   const [scheduleState, setScheduleState] = useState<ClipSchedule | undefined>(clip.schedule);
@@ -262,14 +279,20 @@ export function ClipCard({
         : "Connecting to YouTube API and preparing upload...",
     );
 
-    const timer = setInterval(async () => {
+    let polling = false;
+    const pollPublishState = async () => {
+      if (polling || document.visibilityState !== "visible") return;
+      polling = true;
       try {
-        const j = await fetchJob(jobId);
-        const c = j.clips.find((x) => x.id === clip.id);
-        if (c?.publish) {
-          setPublishState(c.publish);
+        const snapshot = await fetchClipPublishStatus(jobId, clip.id);
+        const nextPublish = snapshot.publish;
+        if (snapshot.analytics) setAnalytics(snapshot.analytics);
+        if (nextPublish) {
+          setPublishState((current) =>
+            JSON.stringify(current) === JSON.stringify(nextPublish) ? current : nextPublish
+          );
           const pKey = target === "both" ? "youtube" : target;
-          const platState = c.publish[pKey];
+          const platState = nextPublish[pKey];
           if (typeof platState?.progress === "number") {
             setPublishProgress(platState.progress);
             if (platState.status === "uploading") {
@@ -278,9 +301,19 @@ export function ClipCard({
           }
         }
       } catch {
-        // ignore polling errors
+        // The publish request remains authoritative; polling is best-effort.
+      } finally {
+        polling = false;
       }
-    }, 1000);
+    };
+
+    if (publishPollTimer.current !== null) {
+      window.clearInterval(publishPollTimer.current);
+    }
+    void pollPublishState();
+    publishPollTimer.current = window.setInterval(() => {
+      void pollPublishState();
+    }, 2500);
 
     try {
       const job = await publishClip(
@@ -301,7 +334,10 @@ export function ClipCard({
       setPublishError(err instanceof Error ? err.message : "Publish failed.");
       setPublishStatusText("");
     } finally {
-      clearInterval(timer);
+      if (publishPollTimer.current !== null) {
+        window.clearInterval(publishPollTimer.current);
+        publishPollTimer.current = null;
+      }
       setTimeout(() => {
         setPublishing(null);
         setPublishProgress(0);
@@ -408,7 +444,7 @@ export function ClipCard({
                   key={videoKey}
                   controls
                   playsInline
-                  preload="metadata"
+                  preload="none"
                   src={videoSrc}
                   className="h-full w-full object-cover"
                   onError={() => setHasVideo(false)}
@@ -932,3 +968,12 @@ export function ClipCard({
     </article>
   );
 }
+
+export const ClipCard = memo(
+  ClipCardView,
+  (previous, next) =>
+    previous.jobId === next.jobId &&
+    previous.clip === next.clip &&
+    previous.busy === next.busy &&
+    previous.captionsEnabled === next.captionsEnabled,
+);
