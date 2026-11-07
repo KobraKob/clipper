@@ -29,6 +29,27 @@ function isTypingTarget(target: EventTarget | null) {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 
+function preserveUnchangedClipReferences(
+  current: JobView | null,
+  next: JobView,
+): JobView {
+  if (!current || current.id !== next.id) return next;
+  if (JSON.stringify(current) === JSON.stringify(next)) return current;
+
+  const previousById = new Map(current.clips.map((clip) => [clip.id, clip]));
+  let reusedAny = false;
+  const clips = next.clips.map((clip) => {
+    const previous = previousById.get(clip.id);
+    if (previous && JSON.stringify(previous) === JSON.stringify(clip)) {
+      reusedAny = true;
+      return previous;
+    }
+    return clip;
+  });
+
+  return reusedAny ? { ...next, clips } : next;
+}
+
 export function JobStudio({ jobId }: { jobId: string }) {
   const router = useRouter();
   const [job, setJob] = useState<JobView | null>(null);
@@ -78,9 +99,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
     refreshInFlight.current = true;
     try {
       const next = await fetchJob(jobId);
-      setJob((current) =>
-        current && JSON.stringify(current) === JSON.stringify(next) ? current : next
-      );
+      setJob((current) => preserveUnchangedClipReferences(current, next));
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load this job.");
@@ -95,7 +114,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
       try {
         const next = await fetchJob(jobId);
         if (!ignore) {
-          setJob(next);
+          setJob((current) => preserveUnchangedClipReferences(current, next));
           setError("");
         }
       } catch (err) {
@@ -245,7 +264,8 @@ export function JobStudio({ jobId }: { jobId: string }) {
   async function updateClip(clipId: string, patch: { kept?: boolean; start?: number; end?: number }) {
     setBusy(true);
     try {
-      setJob(await patchClip(jobId, clipId, patch));
+      const next = await patchClip(jobId, clipId, patch);
+      setJob((current) => preserveUnchangedClipReferences(current, next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update clip.");
     } finally {
@@ -256,7 +276,8 @@ export function JobStudio({ jobId }: { jobId: string }) {
   async function handleRerender(clipId: string, start: number, end: number, captionStyle?: string) {
     setBusy(true);
     try {
-      setJob(await rerenderClip(jobId, clipId, start, end, captionStyle));
+      const next = await rerenderClip(jobId, clipId, start, end, captionStyle);
+      setJob((current) => preserveUnchangedClipReferences(current, next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not re-render clip.");
       throw err;
@@ -275,7 +296,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
         setBulkLabel(`${i + 1}/${targets.length}`);
         latest = await patchClip(jobId, targets[i].id, { kept: keptNext });
       }
-      if (latest) setJob(latest);
+      if (latest) setJob((current) => preserveUnchangedClipReferences(current, latest));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Bulk update failed.");
       void refresh();
