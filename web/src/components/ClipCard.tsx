@@ -281,12 +281,13 @@ function ClipCardView({
       try {
         const j = await fetchJob(jobId);
         const c = j.clips.find((x) => x.id === clip.id);
-        if (c?.publish) {
+        const nextPublish = c?.publish;
+        if (nextPublish) {
           setPublishState((current) =>
-            JSON.stringify(current) === JSON.stringify(c.publish) ? current : c.publish
+            JSON.stringify(current) === JSON.stringify(nextPublish) ? current : nextPublish
           );
           const pKey = target === "both" ? "youtube" : target;
-          const platState = c.publish[pKey];
+          const platState = nextPublish[pKey];
           if (typeof platState?.progress === "number") {
             setPublishProgress(platState.progress);
             if (platState.status === "uploading") {
