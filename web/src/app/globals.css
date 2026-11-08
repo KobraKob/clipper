@@ -918,3 +918,19 @@ input:focus, textarea:focus, select:focus {
     scroll-behavior: auto !important;
   }
 }
+
+
+/* Consistent mobile interaction targets and immediate press feedback. */
+@media (max-width: 767px) {
+  :where(a, button, [role="button"]) {
+    min-height: 44px;
+  }
+
+  :where(a[aria-label], button[aria-label]) {
+    min-width: 44px;
+  }
+}
+
+:where(a, button, [role="button"]):active {
+  filter: brightness(1.08);
+}
