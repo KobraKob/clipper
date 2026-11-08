@@ -584,8 +584,18 @@ export function LibraryGrid() {
             {[1, 2, 3].map((item) => (
               <div
                 key={item}
-                className={`animate-pulse rounded-xl border border-white/10 bg-panel ${view === "grid" ? "h-64" : "h-32"}`}
-              />
+                className={`overflow-hidden rounded-xl border border-white/10 bg-panel ${view === "list" ? "flex min-h-32" : "block"}`}
+              >
+                <div
+                  className={`animate-pulse shrink-0 bg-white/[0.07] ${view === "list" ? "aspect-[16/5] w-36" : "aspect-[16/7] w-full"}`}
+                />
+                <div className="flex-1 space-y-3 p-4">
+                  <div className="h-3 w-1/3 animate-pulse rounded bg-white/10" />
+                  <div className="h-5 w-4/5 animate-pulse rounded bg-white/10" />
+                  <div className="h-3 w-1/2 animate-pulse rounded bg-white/[0.07]" />
+                  <div className="mt-4 h-9 w-full animate-pulse rounded-lg bg-white/[0.07]" />
+                </div>
+              </div>
             ))}
           </div>
         ) : jobs !== null && visibleJobs.length === 0 ? (
