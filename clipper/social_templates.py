@@ -240,7 +240,7 @@ def _draw_x_template(
     draw.line((0, footer_y, width, footer_y), fill="#29313A", width=2)
     label_font = _font("Poppins-SemiBold.ttf", _font_size(height, 0.013))
     value_font = _font("Poppins-Bold.ttf", _font_size(height, 0.016))
-    metrics = [("↻", "REPOSTS"), ("♡", "LIKES"), ("▣", "BOOKMARKS"), ("◉", "VIEWS")]
+    metrics = [("REP", "REPOSTS"), ("LIKE", "LIKES"), ("SAVE", "BOOKMARKS"), ("VIEW", "VIEWS")]
     col_w = width // len(metrics)
     for i, (symbol, label) in enumerate(metrics):
         x = int(i * col_w + col_w * 0.16)
@@ -252,7 +252,7 @@ def _draw_x_template(
     footer_label = _font("Poppins-SemiBold.ttf", _font_size(height, 0.010))
     draw.text(
         (int(width * 0.055), height - int(height * 0.025)),
-        "SOCIAL POST PREVIEW  ·  ENGAGEMENT UPDATES AFTER PUBLISHING",
+        "SOCIAL POST PREVIEW - ENGAGEMENT UPDATES AFTER PUBLISHING",
         font=footer_label,
         fill="#536471",
     )
@@ -306,10 +306,45 @@ def _draw_instagram_template(
     icon_y = footer_y + int(height * 0.035)
     icon_size = int(height * 0.022)
     _draw_heart(draw, int(width * 0.055), icon_y, icon_size, "#F4F4F5")
-    icon_font = _font("Poppins-SemiBold.ttf", _font_size(height, 0.026))
-    draw.text((int(width * 0.17), icon_y - int(height * 0.006)), "○", font=icon_font, fill="#F4F4F5")
-    draw.text((int(width * 0.29), icon_y - int(height * 0.006)), "➤", font=icon_font, fill="#F4F4F5")
-    draw.text((int(width * 0.88), icon_y - int(height * 0.006)), "▯", font=icon_font, fill="#F4F4F5")
+    comment_x = int(width * 0.19)
+    comment_y = icon_y + int(height * 0.002)
+    comment_w = int(height * 0.022)
+    comment_h = int(height * 0.017)
+    draw.rounded_rectangle(
+        (comment_x, comment_y, comment_x + comment_w, comment_y + comment_h),
+        radius=max(2, int(height * 0.003)),
+        outline="#F4F4F5",
+        width=max(2, int(height * 0.002)),
+    )
+    draw.line(
+        (comment_x + int(comment_w * 0.20), comment_y + comment_h, comment_x + int(comment_w * 0.10), comment_y + comment_h + int(height * 0.006)),
+        fill="#F4F4F5",
+        width=max(2, int(height * 0.002)),
+    )
+    plane_x = int(width * 0.44)
+    plane_y = icon_y
+    plane_w = int(height * 0.028)
+    plane_h = int(height * 0.025)
+    draw.polygon(
+        [(plane_x, plane_y), (plane_x + plane_w, plane_y + int(plane_h * 0.35)), (plane_x, plane_y + plane_h), (plane_x + int(plane_w * 0.30), plane_y + int(plane_h * 0.50))],
+        outline="#F4F4F5",
+    )
+    bookmark_x = int(width * 0.89)
+    bookmark_y = icon_y - 2
+    bookmark_w = int(height * 0.014)
+    bookmark_h = int(height * 0.029)
+    draw.line(
+        [
+            (bookmark_x, bookmark_y),
+            (bookmark_x + bookmark_w, bookmark_y),
+            (bookmark_x + bookmark_w, bookmark_y + bookmark_h),
+            (bookmark_x + bookmark_w // 2, bookmark_y + bookmark_h - int(height * 0.006)),
+            (bookmark_x, bookmark_y + bookmark_h),
+            (bookmark_x, bookmark_y),
+        ],
+        fill="#F4F4F5",
+        width=max(2, int(height * 0.002)),
+    )
 
     caption_font = _font("Poppins-SemiBold.ttf", _font_size(height, 0.014))
     caption = hook or "A moment worth sharing."
@@ -425,8 +460,8 @@ def create_social_template_canvas(
         header_h = int(height * 0.13)
         footer_h = int(height * 0.21)
     else:
-        header_h = int(height * 0.17)
-        footer_h = int(height * 0.145)
+        header_h = int(height * 0.24)
+        footer_h = int(height * 0.15)
 
     video_h = height - header_h - footer_h
     video_w = int(round(video_h * 9 / 16))
@@ -437,8 +472,14 @@ def create_social_template_canvas(
     image = Image.new("RGB", (width, height), "#080A0D")
     draw = ImageDraw.Draw(image)
 
-    # The center is intentionally left clear. FFmpeg places the rendered clip here.
-    draw.rectangle((0, video_y, width, video_y + video_h), fill="#080A0D")
+    if template == "x":
+        _draw_x_template(draw, width, height, header_h, footer_h, name, profile_handle, hook or title)
+    elif template == "instagram":
+        _draw_instagram_template(draw, width, height, header_h, footer_h, name, profile_handle, hook or title, seo)
+    elif template == "headline":
+        _draw_headline_template(draw, width, height, header_h, footer_h, title or hook, hook or title)
+
+    # Add the central mat last so template backgrounds cannot cover its outline.
     draw.rounded_rectangle(
         (
             max(0, video_x - 8),
@@ -449,15 +490,6 @@ def create_social_template_canvas(
         radius=max(10, int(height * 0.012)),
         fill="#30363D",
     )
-
-    if template == "x":
-        _draw_x_template(draw, width, height, header_h, footer_h, name, profile_handle, hook or title)
-    elif template == "instagram":
-        _draw_instagram_template(draw, width, height, header_h, footer_h, name, profile_handle, hook or title, seo)
-    elif template == "headline":
-        _draw_headline_template(draw, width, height, header_h, footer_h, title or hook, hook or title)
-
-    # Restore the central mat after the header/footer frame helpers draw separators.
     draw.rectangle((video_x, video_y, video_x + video_w, video_y + video_h), fill="#050607")
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -531,7 +563,7 @@ def apply_social_template(
             "-map",
             "0:a?",
             "-shortest",
-            *build_encoder_args(chosen_encoder, settings, preset=settings.video_preset, quality=settings.video_crf),
+            *build_encoder_args(chosen_encoder, settings),
             "-c:a",
             "copy",
             "-movflags",

@@ -52,6 +52,9 @@ class TestSocialTemplateCanvas(unittest.TestCase):
                 self.assertGreater(height, 0)
                 self.assertLessEqual(x + width, 540)
                 self.assertLessEqual(y + height, 960)
+                image = Image.open(canvas).convert("RGB")
+                self.assertEqual(image.getpixel((x + width // 2, y + height // 2)), (5, 6, 7))
+                self.assertEqual(image.getpixel((max(0, x - 4), y + height // 2)), (48, 54, 61))
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
     def test_apply_template_preserves_vertical_video_and_audio(self):
