@@ -467,7 +467,7 @@ function FramePreview({ settings, option, layoutLabel }: { settings: Settings; o
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[8px] font-bold">{profile}</span>
-                  <span className="block text-[6px] text-slate-400">Original audio · Chop Shop</span>
+                  <span className="block truncate text-[6px] text-slate-400">{settings.templateHandle} · Original audio</span>
                 </span>
                 <span className="text-[9px]">•••</span>
               </div>

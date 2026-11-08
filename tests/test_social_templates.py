@@ -58,57 +58,61 @@ class TestSocialTemplateCanvas(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
     def test_apply_template_preserves_vertical_video_and_audio(self):
-        with tempfile.TemporaryDirectory() as temp:
-            source = pathlib.Path(temp) / "source.mp4"
-            command = [
-                "ffmpeg",
-                "-loglevel",
-                "error",
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "testsrc=duration=1.2:size=360x640:rate=15",
-                "-f",
-                "lavfi",
-                "-i",
-                "sine=frequency=440:duration=1.2",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-c:a",
-                "aac",
-                str(source),
-            ]
-            subprocess.run(command, check=True, capture_output=True)
-            result = apply_social_template(
-                source,
-                "headline",
-                title="The important detail",
-                hook="Why this small detail changes everything",
-                encoder="libx264",
-            )
-            self.assertEqual(result, source)
-            self.assertGreater(source.stat().st_size, 1000)
-            probe = subprocess.run(
-                [
-                    "ffprobe",
-                    "-v",
+        for template in ("x", "instagram", "headline"):
+            with self.subTest(template=template), tempfile.TemporaryDirectory() as temp:
+                source = pathlib.Path(temp) / "source.mp4"
+                command = [
+                    "ffmpeg",
+                    "-loglevel",
                     "error",
-                    "-show_entries",
-                    "stream=codec_type,width,height",
-                    "-of",
-                    "default=noprint_wrappers=1",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "testsrc=duration=1.2:size=360x640:rate=15",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=440:duration=1.2",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    "-c:a",
+                    "aac",
                     str(source),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
-            self.assertIn("width=360", probe)
-            self.assertIn("height=640", probe)
-            self.assertIn("codec_type=audio", probe)
+                ]
+                subprocess.run(command, check=True, capture_output=True)
+                result = apply_social_template(
+                    source,
+                    template,
+                    title="The important detail",
+                    hook="Why this small detail changes everything",
+                    display_name="Sample Creator",
+                    handle="@samplecreator",
+                    seo={"hashtags": ["#CreatorTips"]},
+                    encoder="libx264",
+                )
+                self.assertEqual(result, source)
+                self.assertGreater(source.stat().st_size, 1000)
+                probe = subprocess.run(
+                    [
+                        "ffprobe",
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "stream=codec_type,width,height",
+                        "-of",
+                        "default=noprint_wrappers=1",
+                        str(source),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+                self.assertIn("width=360", probe)
+                self.assertIn("height=640", probe)
+                self.assertIn("codec_type=audio", probe)
 
 
 if __name__ == "__main__":

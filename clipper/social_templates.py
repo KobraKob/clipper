@@ -212,7 +212,7 @@ def _draw_x_template(
 
     name_font = _font("Poppins-Bold.ttf", _font_size(height, 0.020))
     meta_font = _font("Poppins-SemiBold.ttf", _font_size(height, 0.014))
-    hook_font = _font("Poppins-SemiBold.ttf", _font_size(height, 0.023))
+    hook_font = _font("Poppins-SemiBold.ttf", _font_size(height, 0.019))
 
     name_x = int(width * 0.17)
     name_y = int(height * 0.035)
@@ -293,7 +293,7 @@ def _draw_instagram_template(
 
     name_font = _font("Poppins-Bold.ttf", _font_size(height, 0.019))
     meta_font = _font("Poppins-SemiBold.ttf", _font_size(height, 0.013))
-    draw.text((int(width * 0.17), int(height * 0.035)), display_name[:26], font=name_font, fill="#F5F5F5")
+    draw.text((int(width * 0.17), int(height * 0.035)), handle[:30], font=name_font, fill="#F5F5F5")
     draw.text((int(width * 0.17), int(height * 0.075)), "Original audio  ·  Chop Shop", font=meta_font, fill="#BDBDBD")
     menu_x = int(width * 0.91)
     menu_y = int(height * 0.055)
