@@ -242,6 +242,93 @@ async function updatePost(id: string, patch: Record<string, unknown>) {
   });
 }
 
+const STORAGE_BUCKET = "scheduled-videos";
+const STORAGE_DELETED_AT_KEY = "_cloud_video_deleted_at";
+
+type StorageCleanupRow = {
+  id: string;
+  status: string;
+  metadata: Record<string, unknown> | null;
+};
+
+function isManagedScheduledVideoPath(storagePath: string): boolean {
+  const segments = storagePath.split("/");
+  return segments.length === 3
+    && /^job-[a-z0-9-]+$/i.test(segments[0])
+    && /^clip-\\d+$/i.test(segments[1])
+    && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\\.mp4$/i.test(segments[2]);
+}
+
+/**
+ * Remove a cloud copy only after every destination using that object is terminal
+ * and at least one destination is confirmed published. Failed/active destinations
+ * keep the source object available for recovery.
+ */
+async function cleanupPublishedVideo(storagePath: string): Promise<void> {
+  if (!isManagedScheduledVideoPath(storagePath)) {
+    console.warn("[storage cleanup] Refusing unexpected storage path.");
+    return;
+  }
+
+  try {
+    const rows = await db(
+      `scheduled_posts?storage_path=eq.${encodeURIComponent(storagePath)}&select=id,status,metadata`,
+    ) as StorageCleanupRow[];
+
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    if (!rows.some((row) => row.status === "published")) return;
+
+    const terminalStatuses = new Set(["published", "cancelled"]);
+    if (!rows.every((row) => terminalStatuses.has(row.status))) return;
+
+    if (rows.every((row) => Boolean(row.metadata?.[STORAGE_DELETED_AT_KEY]))) return;
+
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}`, {
+      method: "DELETE",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ prefixes: [storagePath] }),
+    });
+    if (!response.ok) {
+      throw new Error(`Storage delete failed (${response.status}): ${(await response.text()).slice(0, 400)}`);
+    }
+
+    const deletedAt = new Date().toISOString();
+    await Promise.all(rows.map((row) => updatePost(row.id, {
+      metadata: { ...(row.metadata || {}), [STORAGE_DELETED_AT_KEY]: deletedAt },
+    })));
+    console.log(`[storage cleanup] Deleted published cloud video: ${storagePath}`);
+  } catch (error) {
+    // Publishing remains successful even if cleanup fails. The scheduled worker
+    // retries cleanup on a later invocation.
+    const message = error instanceof Error ? error.message : "Unknown storage cleanup error";
+    console.warn(`[storage cleanup] Could not delete ${storagePath}: ${message}`);
+  }
+}
+
+/** Backfill old published uploads and retry transient Storage API failures. */
+async function cleanupOutstandingPublishedVideos(): Promise<void> {
+  try {
+    const params = new URLSearchParams({
+      status: "eq.published",
+      "metadata->>_cloud_video_deleted_at": "is.null",
+      select: "storage_path",
+      limit: "1000",
+    });
+    const rows = await db(`scheduled_posts?${params.toString()}`) as { storage_path: string }[];
+    const paths = [...new Set((rows || []).map((row) => row.storage_path).filter(Boolean))];
+    for (const storagePath of paths) {
+      await cleanupPublishedVideo(storagePath);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown storage cleanup sweep error";
+    console.warn(`[storage cleanup] Backfill sweep failed: ${message}`);
+  }
+}
+
 async function authorizedSchedulerRequest(req: Request): Promise<boolean> {
   const candidate = req.headers.get("x-cron-secret");
   if (!candidate) return false;
@@ -272,10 +359,10 @@ Deno.serve(async (req: Request) => {
   const [instagramPosts, youtubePosts, completedYoutube] = await Promise.all([
     db(`scheduled_posts?status=eq.queued&platform=eq.instagram&scheduled_at=lte.${encodeURIComponent(due)}&order=scheduled_at.asc&limit=3`),
     db(`scheduled_posts?status=eq.queued&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(youtubeWindow)}&order=scheduled_at.asc&limit=3`),
-    db(`scheduled_posts?status=eq.scheduled&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(due)}&select=id,provider_post_id`),
+    db(`scheduled_posts?status=eq.scheduled&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(due)}&select=id,provider_post_id,storage_path`),
   ]);
 
-  for (const row of completedYoutube as { id: string; provider_post_id: string | null }[]) {
+  for (const row of completedYoutube as { id: string; provider_post_id: string | null; storage_path: string }[]) {
     if (!row.provider_post_id) continue;
     try {
       const token = await youtubeAccessToken();
@@ -285,6 +372,7 @@ Deno.serve(async (req: Request) => {
       const data = await check.json();
       if (check.ok && data.items?.[0]?.status?.privacyStatus === "public") {
         await updatePost(row.id, { status: "published", published_at: now.toISOString(), locked_at: null });
+        await cleanupPublishedVideo(row.storage_path);
       }
     } catch {
       // Leave it in scheduled state; a later cron tick can verify publication.
@@ -308,6 +396,9 @@ Deno.serve(async (req: Request) => {
         locked_at: null,
         last_error: null,
       });
+      if (post.platform === "instagram") {
+        await cleanupPublishedVideo(post.storage_path);
+      }
       results.push({ id: post.id, status: post.platform === "youtube" ? "scheduled" : "published" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown publishing error";
@@ -319,5 +410,6 @@ Deno.serve(async (req: Request) => {
       results.push({ id: post.id, status: "failed", error: message });
     }
   }
+  await cleanupOutstandingPublishedVideos();
   return json({ checked_at: now.toISOString(), processed: results.length, results });
 });
