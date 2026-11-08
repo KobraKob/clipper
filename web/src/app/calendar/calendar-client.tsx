@@ -128,6 +128,37 @@ export default function CalendarClient({
   const [queueSort, setQueueSort] = useState<QueueSort>("asc");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [optimisticOverrides, setOptimisticOverrides] = useState<Record<string, Partial<ScheduledPost>>>({});
+
+  const allPosts = useMemo(() => {
+    return posts.map((p) => (optimisticOverrides[p.id] ? { ...p, ...optimisticOverrides[p.id] } : p));
+  }, [posts, optimisticOverrides]);
+
+  async function handleRetry(postId: string) {
+    setRetryingId(postId);
+    try {
+      const res = await fetch("/api/calendar/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Retry failed");
+        return;
+      }
+      setOptimisticOverrides((prev) => ({
+        ...prev,
+        [postId]: { status: "queued", last_error: null, attempts: 0 },
+      }));
+      router.refresh();
+    } catch {
+      alert("Network error while trying to retry post");
+    } finally {
+      setRetryingId(null);
+    }
+  }
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -210,25 +241,25 @@ export default function CalendarClient({
   // Telemetry counts across all loaded posts
   const stats = useMemo(() => {
     const counts = {
-      total: posts.length,
+      total: allPosts.length,
       scheduled: 0,
       processing: 0,
       published: 0,
       failed: 0,
     };
-    for (const p of posts) {
+    for (const p of allPosts) {
       if (p.status === "scheduled" || p.status === "queued") counts.scheduled++;
       else if (p.status === "processing") counts.processing++;
       else if (p.status === "published") counts.published++;
       else if (p.status === "failed") counts.failed++;
     }
     return counts;
-  }, [posts]);
+  }, [allPosts]);
 
   // Filtered posts
   const filteredPosts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return posts.filter((post) => {
+    return allPosts.filter((post) => {
       if (platformFilter !== "all" && post.platform !== platformFilter) {
         return false;
       }
@@ -243,7 +274,7 @@ export default function CalendarClient({
       }
       return true;
     });
-  }, [posts, platformFilter, statusFilter, searchQuery]);
+  }, [allPosts, platformFilter, statusFilter, searchQuery]);
 
   // Calendar Grid cells & day mapping for active month
   const { cells, postsByDay, daysInMonth } = useMemo(() => {
@@ -300,8 +331,8 @@ export default function CalendarClient({
   );
 
   const selectedPost = useMemo(
-    () => posts.find((p) => p.id === selectedPostId) || null,
-    [posts, selectedPostId],
+    () => allPosts.find((p) => p.id === selectedPostId) || null,
+    [allPosts, selectedPostId],
   );
 
   return (
@@ -1041,6 +1072,17 @@ export default function CalendarClient({
                           {selectedPost.last_error}
                         </p>
                       </div>
+                    )}
+
+                    {selectedPost.status === "failed" && (
+                      <button
+                        type="button"
+                        disabled={retryingId === selectedPost.id}
+                        onClick={() => handleRetry(selectedPost.id)}
+                        className="flex w-full items-center justify-center gap-2 bg-volt py-2.5 font-mono text-xs font-black uppercase text-[#080b10] transition hover:bg-ice disabled:opacity-50"
+                      >
+                        {retryingId === selectedPost.id ? "QUEUING RETRY..." : "RETRY SCHEDULED POST"}
+                      </button>
                     )}
 
                     {selectedPost.permalink && (
