@@ -255,8 +255,8 @@ function isManagedScheduledVideoPath(storagePath: string): boolean {
   const segments = storagePath.split("/");
   return segments.length === 3
     && /^job-[a-z0-9-]+$/i.test(segments[0])
-    && /^clip-\\d+$/i.test(segments[1])
-    && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\\.mp4$/i.test(segments[2]);
+    && /^clip-\d+$/i.test(segments[1])
+    && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.mp4$/i.test(segments[2]);
 }
 
 /**
