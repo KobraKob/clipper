@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "faceless": {
+      "source": "Side-Products/faceless-skill",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "cbecc7cf14b2a0f26febc2413ce4ec0008188a5359cceca76058b809e850c9cf"
+    }
+  }
+}
