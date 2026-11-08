@@ -612,27 +612,31 @@ function IndeterminateBar() {
 export function CutForm() {
   const router = useRouter();
 
-  const [settings, setSettings] = useState<Settings>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const saved = JSON.parse(raw) as Partial<Settings>;
-          const next = { ...DEFAULTS, ...saved };
-          if (!CAPTION_STYLE_OPTIONS.some((o) => o.key === next.captionStyle)) next.captionStyle = DEFAULTS.captionStyle;
-          if (!SOCIAL_TEMPLATES.some((o) => o.value === next.template)) next.template = DEFAULTS.template;
-          next.templateDisplayName = String(next.templateDisplayName || DEFAULTS.templateDisplayName).slice(0, 40);
-          next.templateHandle = String(next.templateHandle || DEFAULTS.templateHandle).replace(/\s+/g, "").slice(0, 32);
-          if (next.templateHandle && !next.templateHandle.startsWith("@")) next.templateHandle = "@" + next.templateHandle.replace(/^@+/, "");
-          next.clipCount = clamp(Number(next.clipCount) || DEFAULTS.clipCount, 1, 10);
-          return next;
-        }
-      } catch {
-        /* storage unavailable or corrupt, defaults stay */
+  const [settings, setSettings] = useState<Settings>(DEFAULTS);
+  const hasLoadedStorageRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as Partial<Settings>;
+        const next = { ...DEFAULTS, ...saved };
+        if (!CAPTION_STYLE_OPTIONS.some((o) => o.key === next.captionStyle)) next.captionStyle = DEFAULTS.captionStyle;
+        if (!SOCIAL_TEMPLATES.some((o) => o.value === next.template)) next.template = DEFAULTS.template;
+        next.templateDisplayName = String(next.templateDisplayName || DEFAULTS.templateDisplayName).slice(0, 40);
+        next.templateHandle = String(next.templateHandle || DEFAULTS.templateHandle).replace(/\s+/g, "").slice(0, 32);
+        if (next.templateHandle && !next.templateHandle.startsWith("@")) next.templateHandle = "@" + next.templateHandle.replace(/^@+/, "");
+        next.clipCount = clamp(Number(next.clipCount) || DEFAULTS.clipCount, 1, 10);
+        queueMicrotask(() => {
+          setSettings(next);
+        });
       }
+    } catch {
+      /* storage unavailable or corrupt, defaults stay */
+    } finally {
+      hasLoadedStorageRef.current = true;
     }
-    return DEFAULTS;
-  });
+  }, []);
   const hydrated = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -681,7 +685,7 @@ export function CutForm() {
 
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !hasLoadedStorageRef.current) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     } catch {

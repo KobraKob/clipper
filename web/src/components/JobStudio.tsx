@@ -61,30 +61,26 @@ export function JobStudio({ jobId }: { jobId: string }) {
   const [showLogs, setShowLogs] = useState(false);
   const [clipSearch, setClipSearch] = useState("");
   const [clipFilter, setClipFilter] = useState<Filter>("all");
-  const [clipSort, setClipSort] = useState<Sort>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = window.localStorage.getItem(PREFS_KEY);
-        if (raw) {
-          const p = JSON.parse(raw) as { view?: View; sort?: Sort };
-          if (p.sort === "score" || p.sort === "start" || p.sort === "duration") return p.sort;
-        }
-      } catch {}
+  const [clipSort, setClipSort] = useState<Sort>("score");
+  const [clipView, setClipView] = useState<View>("grid");
+  const prefsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PREFS_KEY);
+      if (raw) {
+        const p = JSON.parse(raw) as { view?: View; sort?: Sort };
+        queueMicrotask(() => {
+          if (p.sort === "score" || p.sort === "start" || p.sort === "duration") setClipSort(p.sort);
+          if (p.view === "grid" || p.view === "list") setClipView(p.view);
+        });
+      }
+    } catch {
+      // storage unavailable
+    } finally {
+      prefsLoadedRef.current = true;
     }
-    return "score";
-  });
-  const [clipView, setClipView] = useState<View>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = window.localStorage.getItem(PREFS_KEY);
-        if (raw) {
-          const p = JSON.parse(raw) as { view?: View; sort?: Sort };
-          if (p.view === "grid" || p.view === "list") return p.view;
-        }
-      } catch {}
-    }
-    return "grid";
-  });
+  }, []);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [copied, setCopied] = useState("");
 
@@ -210,6 +206,7 @@ export function JobStudio({ jobId }: { jobId: string }) {
 
 
   useEffect(() => {
+    if (!prefsLoadedRef.current) return;
     try {
       window.localStorage.setItem(PREFS_KEY, JSON.stringify({ view: clipView, sort: clipSort }));
     } catch {

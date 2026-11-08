@@ -72,32 +72,28 @@ export function LibraryGrid() {
   const [showBatchImport, setShowBatchImport] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<LibraryFilter>("all");
-  const [sort, setSort] = useState<SortMode>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = window.localStorage.getItem(PREFS_KEY);
-        if (raw) {
-          const p = JSON.parse(raw) as { view?: ViewMode; sort?: SortMode };
+  const [sort, setSort] = useState<SortMode>("newest");
+  const [view, setView] = useState<ViewMode>("grid");
+  const prefsLoadedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PREFS_KEY);
+      if (raw) {
+        const p = JSON.parse(raw) as { view?: ViewMode; sort?: SortMode };
+        queueMicrotask(() => {
           if (p.sort === "newest" || p.sort === "oldest" || p.sort === "most-clips" || p.sort === "top-score") {
-            return p.sort;
+            setSort(p.sort);
           }
-        }
-      } catch {}
+          if (p.view === "grid" || p.view === "list") setView(p.view);
+        });
+      }
+    } catch {
+      // storage unavailable
+    } finally {
+      prefsLoadedRef.current = true;
     }
-    return "newest";
-  });
-  const [view, setView] = useState<ViewMode>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = window.localStorage.getItem(PREFS_KEY);
-        if (raw) {
-          const p = JSON.parse(raw) as { view?: ViewMode; sort?: SortMode };
-          if (p.view === "grid" || p.view === "list") return p.view;
-        }
-      } catch {}
-    }
-    return "grid";
-  });
+  }, []);
 
   const mounted = useRef(true);
   const loadInFlight = useRef(false);
@@ -176,6 +172,7 @@ export function LibraryGrid() {
 
 
   useEffect(() => {
+    if (!prefsLoadedRef.current) return;
     try {
       window.localStorage.setItem(PREFS_KEY, JSON.stringify({ view, sort }));
     } catch {
