@@ -310,10 +310,27 @@ export function JobStudio({ jobId }: { jobId: string }) {
     }
   }
 
-  async function handleRerender(clipId: string, start: number, end: number, captionStyle?: string) {
+  async function handleRerender(
+    clipId: string,
+    start: number,
+    end: number,
+    captionStyle?: string,
+    template?: import("@/lib/types").SocialTemplate,
+    templateDisplayName?: string,
+    templateHandle?: string,
+  ) {
     setClipBusy(clipId, true);
     try {
-      const next = await rerenderClip(jobId, clipId, start, end, captionStyle);
+      const next = await rerenderClip(
+        jobId,
+        clipId,
+        start,
+        end,
+        captionStyle,
+        template,
+        templateDisplayName,
+        templateHandle,
+      );
       setJob((current) => preserveUnchangedClipReferences(current, next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not re-render clip.");
@@ -856,7 +873,9 @@ export function JobStudio({ jobId }: { jobId: string }) {
                         captionsEnabled={job.captions}
                         onKeep={(keptNext) => void updateClip(clip.id, { kept: keptNext })}
                         onTimes={(start, end) => void updateClip(clip.id, { start, end })}
-                        onRerender={(start, end, captionStyle) => handleRerender(clip.id, start, end, captionStyle)}
+                        onRerender={(start, end, captionStyle, template, displayName, handle) =>
+                          handleRerender(clip.id, start, end, captionStyle, template, displayName, handle)
+                        }
                       />
                     </div>
                   ))}

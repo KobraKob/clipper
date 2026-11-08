@@ -837,10 +837,6 @@ export async function rerenderClip(
     if (template !== undefined && !ALLOWED_SOCIAL_TEMPLATES.has(template)) {
       throw new Error("Choose a supported social template.");
     }
-    if (template && template !== "none" && !job.vertical && job.layout === "original") {
-      // Existing widescreen jobs may be converted to a vertical social frame on rerender.
-    }
-
     const rootDir = await resolveRootDir();
     const outDir = await resolveOutDir(jobId);
     const manifest = path.join(outDir, "metadata.json");
