@@ -9,7 +9,7 @@ const siteFramePath = path.join(componentRoot, "SiteFrame.tsx");
 
 test("site navigation and footer targets resolve to application routes", () => {
   const source = fs.readFileSync(siteFramePath, "utf8");
-  const hrefs = [...source.matchAll(/href="(\\/[^"]*)"/g)].map((match) => match[1]);
+  const hrefs = [...source.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
   const expected = ["/", "/library", "/calendar", "/privacy", "/terms", "/cookies"];
 
   for (const href of expected) {
@@ -45,12 +45,12 @@ test("reviewed frontend copy contains no Lorem Ipsum placeholder", () => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) pending.push(fullPath);
-      else if (/\\.(tsx|ts|css)$/.test(entry.name)) files.push(fullPath);
+      else if ([".tsx", ".ts", ".css"].includes(path.extname(entry.name))) files.push(fullPath);
     }
   }
 
   for (const file of files) {
     const content = fs.readFileSync(file, "utf8");
-    assert.doesNotMatch(content, /Lorem\\s+ipsum/i, "Placeholder found in " + file);
+    assert.doesNotMatch(content, /Lorem +ipsum/i, "Placeholder found in " + file);
   }
 });
