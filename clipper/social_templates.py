@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .captions import FONTS_DIR
 from .config import Settings, settings as default_settings
+from .ingest import probe_video
 from .reframe import build_encoder_args, resolve_encoder
 
 logger = logging.getLogger(__name__)
@@ -484,7 +485,6 @@ def apply_social_template(
         raise FileNotFoundError(f"Template input video not found: {video_path}")
 
     try:
-        from .utils import probe_video
         info = probe_video(video_path)
         width = int(info.width)
         height = int(info.height)
