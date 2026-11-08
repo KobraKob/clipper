@@ -57,6 +57,16 @@ The applied database migration provisions a random scheduler secret in Supabase 
 
 Confirm the `chop-shop-publishing-minute` job appears in Database → Cron. Use the SQL in `supabase/scheduler.sql` to inspect cron and pg_net execution records.
 
+## Automatic cloud-video cleanup
+
+The private `scheduled-videos` bucket is temporary transport storage, not a long-term archive.
+
+- After a platform is confirmed as published, the worker checks every scheduled-post row that references the same stored MP4.
+- The MP4 is deleted through the Supabase Storage API only when at least one destination is `published` and every other destination is either `published` or `cancelled`.
+- If another destination is still queued, processing, or scheduled, the MP4 stays available. If any destination failed, the MP4 is retained for recovery instead of being deleted prematurely.
+- A worker sweep backfills previously published objects and retries transient Storage API cleanup failures.
+- The database keeps publishing metadata, platform IDs, permalinks, and a cleanup timestamp in the existing metadata JSON. Only the cloud copy is removed; local rendered MP4 files are not deleted.
+
 ## Behaviour and limits
 
 - The laptop must stay on only until the finished MP4 upload to Supabase completes. It is not needed afterwards.
