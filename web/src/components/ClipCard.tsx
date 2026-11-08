@@ -11,7 +11,7 @@ import {
   scheduleClip,
   selectTitleVariant,
 } from "@/lib/api";
-import type { Clip, ClipAnalytics, ClipSchedule, Platform, TitleVariant } from "@/lib/types";
+import type { Clip, ClipAnalytics, ClipSchedule, Platform, SocialTemplate, TitleVariant } from "@/lib/types";
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 import { normalizeTitleVariants } from "@/lib/titleVariants";
 
@@ -21,7 +21,14 @@ type ClipCardProps = {
   busy?: boolean;
   onKeep: (kept: boolean) => void;
   onTimes: (start: number, end: number) => void;
-  onRerender?: (start: number, end: number, captionStyle?: string) => Promise<void>;
+  onRerender?: (
+    start: number,
+    end: number,
+    captionStyle?: string,
+    template?: SocialTemplate,
+    templateDisplayName?: string,
+    templateHandle?: string,
+  ) => Promise<void>;
   captionsEnabled?: boolean;
 };
 
@@ -46,6 +53,9 @@ function ClipCardView({
   const [hasCover, setHasCover] = useState(Boolean(clip.coverImage || clip.file));
   const [previewTab, setPreviewTab] = useState<"video" | "cover">("video");
   const [captionStyle, setCaptionStyle] = useState(clip.captionStyle || "bold_pop");
+  const [template, setTemplate] = useState<SocialTemplate>(clip.template || "none");
+  const [templateDisplayName, setTemplateDisplayName] = useState(clip.templateDisplayName || "Your Name");
+  const [templateHandle, setTemplateHandle] = useState(clip.templateHandle || "@yourhandle");
 
   const [publishing, setPublishing] = useState<Platform | "both" | null>(null);
   const [publishProgress, setPublishProgress] = useState(0);
@@ -111,6 +121,9 @@ function ClipCardView({
     file: clip.file,
     title: clip.title,
     captionStyle: clip.captionStyle,
+    template: clip.template,
+    templateDisplayName: clip.templateDisplayName,
+    templateHandle: clip.templateHandle,
   });
 
   if (
@@ -118,12 +131,24 @@ function ClipCardView({
     prevClip.end !== clip.end ||
     prevClip.file !== clip.file ||
     prevClip.title !== clip.title ||
-    prevClip.captionStyle !== clip.captionStyle
+    prevClip.captionStyle !== clip.captionStyle ||
+    prevClip.template !== clip.template ||
+    prevClip.templateDisplayName !== clip.templateDisplayName ||
+    prevClip.templateHandle !== clip.templateHandle
   ) {
     if (prevClip.captionStyle !== clip.captionStyle) {
       setCaptionStyle(clip.captionStyle || "bold_pop");
     }
-    setPrevClip({ start: clip.start, end: clip.end, file: clip.file, title: clip.title, captionStyle: clip.captionStyle });
+    setPrevClip({
+      start: clip.start,
+      end: clip.end,
+      file: clip.file,
+      title: clip.title,
+      captionStyle: clip.captionStyle,
+      template: clip.template,
+      templateDisplayName: clip.templateDisplayName,
+      templateHandle: clip.templateHandle,
+    });
     setStart(clip.start);
     setEnd(clip.end);
     setTimeError("");
@@ -132,6 +157,9 @@ function ClipCardView({
       setHasCover(true);
     }
     setActiveTitle(clip.title);
+    if (prevClip.template !== clip.template) setTemplate(clip.template || "none");
+    if (prevClip.templateDisplayName !== clip.templateDisplayName) setTemplateDisplayName(clip.templateDisplayName || "Your Name");
+    if (prevClip.templateHandle !== clip.templateHandle) setTemplateHandle(clip.templateHandle || "@yourhandle");
     const incomingVariants = normalizeTitleVariants(
       clip.titleVariants?.length ? clip.titleVariants : clip.seo?.title_variants || [],
     );
@@ -165,9 +193,9 @@ function ClipCardView({
     setRerenderMessage("Re-rendering clip (audio trim + reframe + caption burns)…");
     try {
       if (onRerender) {
-        await onRerender(start, end, captionStyle);
+        await onRerender(start, end, captionStyle, template, templateDisplayName, templateHandle);
       } else {
-        await rerenderClip(jobId, clip.id, start, end, captionStyle);
+        await rerenderClip(jobId, clip.id, start, end, captionStyle, template, templateDisplayName, templateHandle);
       }
       setRerenderMessage("Re-render complete!");
       setVideoKey((k) => k + 1);
@@ -506,6 +534,52 @@ function ClipCardView({
             </label>
           </div>
 
+          <div className="grid gap-3 rounded-lg border border-white/10 bg-panel-inset/50 p-3">
+            <label className="flex flex-col gap-2 text-xs font-bold uppercase tracking-wider text-muted">
+              Social media template
+              <select
+                value={template}
+                disabled={rerendering || busy}
+                onChange={(event) => setTemplate(event.target.value as SocialTemplate)}
+                className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-semibold normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
+              >
+                <option value="none">Clean 9:16</option>
+                <option value="x">Twitter / X post</option>
+                <option value="instagram">Instagram Reel</option>
+                <option value="headline">Viral headline</option>
+              </select>
+            </label>
+            {template === "x" || template === "instagram" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wider text-muted">
+                  Display name
+                  <input
+                    value={templateDisplayName}
+                    maxLength={40}
+                    disabled={rerendering || busy}
+                    onChange={(event) => setTemplateDisplayName(event.target.value.slice(0, 40))}
+                    className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wider text-muted">
+                  Handle
+                  <input
+                    value={templateHandle}
+                    maxLength={32}
+                    disabled={rerendering || busy}
+                    onChange={(event) => setTemplateHandle(event.target.value.replace(/\s+/g, "").slice(0, 32))}
+                    onBlur={() => {
+                      const value = templateHandle.trim();
+                      if (value && !value.startsWith("@")) setTemplateHandle("@" + value.replace(/^@+/, ""));
+                    }}
+                    className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
+                  />
+                </label>
+              </div>
+            ) : null}
+            <p className="text-[10px] text-muted">Changing this selection updates the rendered file after re-rendering.</p>
+          </div>
+
           {captionsEnabled ? (
             <div className="grid gap-3 rounded-lg border border-white/10 bg-panel-inset/50 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
               <label className="flex flex-col gap-2 text-xs font-bold uppercase tracking-wider text-muted">
@@ -557,7 +631,11 @@ function ClipCardView({
               onClick={handleRerenderClick}
               className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-bold text-ink rounded hover:bg-volt hover:text-white hover:border-volt transition disabled:opacity-60 cursor-pointer"
             >
-              {rerendering ? "Re-rendering…" : clip.captionStyle !== captionStyle ? "Apply style & re-render" : "Re-render Video"}
+              {rerendering
+                ? "Re-rendering…"
+                : clip.captionStyle !== captionStyle || (clip.template || "none") !== template
+                  ? "Apply changes & re-render"
+                  : "Re-render Video"}
             </button>
             {rerenderMessage ? (
               <span className="text-xs font-semibold text-volt">{rerenderMessage}</span>

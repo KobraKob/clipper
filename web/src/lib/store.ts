@@ -18,6 +18,7 @@ const ALLOWED_CAPTION_STYLES = new Set([
   "bold_pop", "beast", "one_word", "highlight_box", "neon", "karaoke", "clean",
   "mint_pop", "creator_block", "retro_wave", "editorial", "typewriter", "sunset",
 ]);
+const ALLOWED_SOCIAL_TEMPLATES = new Set(["none", "x", "instagram", "headline"]);
 
 /** Mutex ensuring all reads and mutations of jobs.json are atomic and strictly serialized. */
 class Mutex {
@@ -230,6 +231,9 @@ function mapManifestClips(manifest: any): Clip[] {
       hookOverlay: c.hook_overlay,
       progressBar: c.progress_bar,
       loudnorm: c.loudnorm,
+      template: c.template ?? "none",
+      templateDisplayName: c.template_display_name ?? "Your Name",
+      templateHandle: c.template_handle ?? "@yourhandle",
       titleVariants,
       selectedTitleVariant,
       seo: c.seo,
@@ -281,6 +285,9 @@ async function spawnClipperProcess(job: Job): Promise<void> {
 
     args.push("--caption-style", job.captionStyle || "bold_pop");
     args.push("--layout", job.layout || "fill");
+    args.push("--template", job.template || "none");
+    args.push("--template-name", job.templateDisplayName || "Your Name");
+    args.push("--template-handle", job.templateHandle || "@yourhandle");
     if (!job.vertical) args.push("--no-vertical");
     if (!job.captions) args.push("--no-captions");
     if (job.videoEncoder && job.videoEncoder !== "auto") {
@@ -613,6 +620,13 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 
   const clipCount = Math.min(10, Math.max(1, Math.round(input.clipCount) || 5));
   const soundtrackPath = input.soundtrackPath?.trim() ? await validateUploadedSoundtrack(input.soundtrackPath.trim()) : undefined;
+  const template = input.template && ALLOWED_SOCIAL_TEMPLATES.has(input.template) ? input.template : "none";
+  if (template !== "none" && !input.vertical) {
+    throw new Error("Social media templates require Vertical 9:16 to be enabled.");
+  }
+  const templateDisplayName = String(input.templateDisplayName || "Your Name").trim().slice(0, 40) || "Your Name";
+  const requestedHandle = String(input.templateHandle || "@yourhandle").replace(/\s+/g, "").slice(0, 32) || "@yourhandle";
+  const templateHandle = requestedHandle.startsWith("@") ? requestedHandle : `@${requestedHandle.replace(/^@+/, "")}`;
   const requestedSoundtrackVolume = Number(input.soundtrackVolume ?? 0.18);
   const soundtrackVolume = Number.isFinite(requestedSoundtrackVolume) ? Math.min(0.4, Math.max(0.05, requestedSoundtrackVolume)) : 0.18;
   const now = Date.now();
@@ -631,6 +645,9 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     captions: Boolean(input.captions),
     captionStyle: /^[a-z_]{2,30}$/.test(input.captionStyle || "") ? (input.captionStyle as string) : "bold_pop",
     layout: input.layout === "fit_blur" ? "fit_blur" : input.layout === "split_screen" ? "split_screen" : "fill",
+    template,
+    templateDisplayName,
+    templateHandle,
     videoEncoder,
     trimSilence: Boolean(input.trimSilence),
     hookOverlay: input.hookOverlay !== false,
@@ -803,6 +820,9 @@ export async function rerenderClip(
   start: number,
   end: number,
   captionStyle?: string,
+  template?: string,
+  templateDisplayName?: string,
+  templateHandle?: string,
 ): Promise<JobView> {
   return storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
@@ -814,7 +834,9 @@ export async function rerenderClip(
     if (captionStyle && !ALLOWED_CAPTION_STYLES.has(captionStyle)) {
       throw new Error("Choose a supported caption style.");
     }
-
+    if (template !== undefined && !ALLOWED_SOCIAL_TEMPLATES.has(template)) {
+      throw new Error("Choose a supported social template.");
+    }
     const rootDir = await resolveRootDir();
     const outDir = await resolveOutDir(jobId);
     const manifest = path.join(outDir, "metadata.json");
@@ -836,6 +858,15 @@ export async function rerenderClip(
     ];
     if (captionStyle) {
       rerenderArgs.push("--caption-style", captionStyle);
+    }
+    if (template !== undefined) {
+      rerenderArgs.push("--template", template);
+    }
+    if (templateDisplayName) {
+      rerenderArgs.push("--template-name", templateDisplayName.slice(0, 40));
+    }
+    if (templateHandle) {
+      rerenderArgs.push("--template-handle", templateHandle.slice(0, 32));
     }
     if (job.videoEncoder && job.videoEncoder !== "auto") {
       rerenderArgs.push("--encoder", job.videoEncoder);

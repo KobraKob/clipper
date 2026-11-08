@@ -1,5 +1,6 @@
 export type Provider = "local" | "groq" | "openrouter";
 export type Layout = "fill" | "fit_blur" | "split_screen";
+export type SocialTemplate = "none" | "x" | "instagram" | "headline";
 export type Platform = "youtube" | "instagram";
 export type VideoEncoder = "auto" | "h264_nvenc" | "libx264" | "h264_qsv";
 
@@ -106,6 +107,9 @@ export type Clip = {
   hookOverlay?: boolean;
   progressBar?: boolean;
   loudnorm?: boolean;
+  template?: SocialTemplate;
+  templateDisplayName?: string;
+  templateHandle?: string;
   titleVariants?: TitleVariant[];
   selectedTitleVariant?: string;
   seo?: ClipSeo;
@@ -124,6 +128,9 @@ export type Job = {
   captions: boolean;
   captionStyle: string;
   layout: Layout;
+  template: SocialTemplate;
+  templateDisplayName: string;
+  templateHandle: string;
   videoEncoder?: VideoEncoder;
   trimSilence?: boolean;
   hookOverlay?: boolean;
@@ -155,6 +162,9 @@ export type CreateJobInput = {
   captions: boolean;
   captionStyle?: string;
   layout?: Layout;
+  template?: SocialTemplate;
+  templateDisplayName?: string;
+  templateHandle?: string;
   videoEncoder?: VideoEncoder;
   trimSilence?: boolean;
   hookOverlay?: boolean;

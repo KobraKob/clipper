@@ -10,11 +10,27 @@ export async function POST(
 ) {
   const { id, clipId } = await params;
   try {
-    const body = (await request.json()) as { start: number; end: number; captionStyle?: string };
+    const body = (await request.json()) as {
+      start: number;
+      end: number;
+      captionStyle?: string;
+      template?: string;
+      templateDisplayName?: string;
+      templateHandle?: string;
+    };
     if (typeof body.start !== "number" || typeof body.end !== "number") {
       return NextResponse.json({ error: "Missing valid start and end timestamps." }, { status: 400 });
     }
-    const job = await rerenderClip(id, clipId, body.start, body.end, body.captionStyle);
+    const job = await rerenderClip(
+      id,
+      clipId,
+      body.start,
+      body.end,
+      body.captionStyle,
+      body.template,
+      body.templateDisplayName,
+      body.templateHandle,
+    );
     return NextResponse.json(job);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Re-rendering clip failed.";

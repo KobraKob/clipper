@@ -74,6 +74,9 @@ def run(
     layout: Optional[str] = typer.Option(
         None, "--layout", help="fill = face-tracked full-screen crop (default) | fit_blur = whole frame on blurred backdrop."
     ),
+    template: str = typer.Option("none", "--template", help="Social frame: none | x | instagram | headline."),
+    template_display_name: str = typer.Option("Your Name", "--template-name", help="Display name shown in social templates."),
+    template_handle: str = typer.Option("@yourhandle", "--template-handle", help="Handle shown in social templates."),
     seo: Optional[bool] = typer.Option(
         None, "--seo/--no-seo", help="Generate title, description and hashtags for every clip."
     ),
@@ -156,6 +159,9 @@ def run(
             cover_frame=cover,
             soundtrack_path=pathlib.Path(soundtrack) if soundtrack else None,
             soundtrack_volume=soundtrack_volume,
+            template=template,
+            template_display_name=template_display_name,
+            template_handle=template_handle,
         )
 
         try:
@@ -258,6 +264,9 @@ def rerender(
     end: float = typer.Option(..., "--end", "-e", help="New end timestamp in seconds."),
     layout: Optional[str] = typer.Option(None, "--layout", help="Override layout: fill | fit_blur | original."),
     caption_style: Optional[str] = typer.Option(None, "--caption-style", help="Override caption style."),
+    template: Optional[str] = typer.Option(None, "--template", help="Override social frame: none | x | instagram | headline."),
+    template_display_name: Optional[str] = typer.Option(None, "--template-name", help="Override social display name."),
+    template_handle: Optional[str] = typer.Option(None, "--template-handle", help="Override social handle."),
     encoder: Optional[str] = typer.Option(None, "--encoder", help="Override video encoder: auto | h264_nvenc | libx264 | h264_qsv."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
@@ -273,6 +282,9 @@ def rerender(
             layout=layout,
             caption_style=caption_style,
             encoder=encoder,
+            template=template,
+            template_display_name=template_display_name,
+            template_handle=template_handle,
         )
         console.print(
             f"[bold green]Re-render complete![/bold green] Clip {rank} duration: {updated['duration']}s -> {updated['file']}"

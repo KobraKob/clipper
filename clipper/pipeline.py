@@ -31,6 +31,7 @@ from .retention import (
 from .scoring import rank
 from .seo import generate_metadata
 from .soundtrack import analyze_soundtrack, mix_soundtrack
+from .social_templates import apply_social_template, validate_social_template
 from .trends import fetch_trending_topics
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,9 @@ def run_pipeline(
     cover_frame: bool = True,
     soundtrack_path: Optional[pathlib.Path] = None,
     soundtrack_volume: float = 0.18,
+    template: str = "none",
+    template_display_name: str = "Your Name",
+    template_handle: str = "@yourhandle",
 ) -> Dict[str, Any]:
     """
     Execute full automated video clipping pipeline with real stage progress tracking,
@@ -154,6 +158,9 @@ def run_pipeline(
     s = app_settings or default_settings
     style = get_style(caption_style or s.caption_style, s.caption_position or None)
     layout = layout or s.layout
+    template = validate_social_template(template)
+    if template != "none" and not vertical:
+        raise ValueError("Social media templates require Vertical 9:16 to be enabled.")
     seo_on = s.seo_enabled if seo is None else seo
     base_work_dir = pathlib.Path(work_dir or "workdir")
     base_out_dir = pathlib.Path(output_dir or "outputs")
@@ -504,6 +511,24 @@ def run_pipeline(
                 )
                 clip_record["title_variants"] = clip_record["seo"].get("title_variants", [])
                 clip_record["selected_title_variant"] = clip_record["seo"].get("selected_title_variant", "direct")
+
+            clip_record["template"] = template
+            clip_record["template_display_name"] = template_display_name
+            clip_record["template_handle"] = template_handle
+            if template != "none":
+                logger.info("  -> Applying %s social post frame...", template)
+                apply_social_template(
+                    final_clip_path,
+                    template,
+                    title=clip_record.get("seo", {}).get("youtube", {}).get("title") or clip_title,
+                    hook=clip.get("hook", ""),
+                    display_name=template_display_name,
+                    handle=template_handle,
+                    seo=clip_record.get("seo"),
+                    settings=s,
+                    encoder=encoder or s.video_encoder,
+                )
+
             _log_elapsed(f"clip {idx} total (cut, reframe, metadata)", clip_started)
             exported_clips.append(clip_record)
 
@@ -517,6 +542,9 @@ def run_pipeline(
             "clips_exported": len(exported_clips),
             "tokens_used": tokens_used,
             "source_quality": source_info,
+            "template": template,
+            "template_display_name": template_display_name,
+            "template_handle": template_handle,
             "soundtrack": {
                 "enabled": resolved_soundtrack is not None,
                 "file": str(resolved_soundtrack) if resolved_soundtrack else None,
@@ -552,6 +580,9 @@ def rerender_clip(
     layout: Optional[str] = None,
     caption_style: Optional[str] = None,
     encoder: Optional[str] = None,
+    template: Optional[str] = None,
+    template_display_name: Optional[str] = None,
+    template_handle: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Re-render an edited clip with new start/end timestamps, reusing the cached transcript.
@@ -640,6 +671,17 @@ def rerender_clip(
     style_key = (caption_style or clip.get("caption_style") or s.caption_style) if has_captions else None
     style = get_style(style_key, s.caption_position or None) if style_key else None
     current_layout = layout or clip.get("layout") or s.layout
+    current_template = validate_social_template(
+        template if template is not None else clip.get("template", "none")
+    )
+    current_template_display_name = template_display_name or clip.get(
+        "template_display_name", "Your Name"
+    )
+    current_template_handle = template_handle or clip.get(
+        "template_handle", "@yourhandle"
+    )
+    if current_template != "none" and current_layout == "original":
+        current_layout = "fill"
 
     hook_overlay = clip.get("hook_overlay", True)
     progress_bar = clip.get("progress_bar", False)
@@ -714,6 +756,20 @@ def rerender_clip(
     else:
         shutil.copy(raw_clip, final_clip_path)
 
+    if current_template != "none":
+        logger.info("[pipeline] Applying %s social template to clip %s.", current_template, rank)
+        apply_social_template(
+            final_clip_path,
+            current_template,
+            title=clip.get("seo", {}).get("youtube", {}).get("title") or clip.get("title", ""),
+            hook=clip.get("hook", ""),
+            display_name=current_template_display_name,
+            handle=current_template_handle,
+            seo=clip.get("seo"),
+            settings=s,
+            encoder=chosen_enc,
+        )
+
     # Reapply a previously selected soundtrack when a clip is manually re-rendered.
     previous_soundtrack = clip.get("soundtrack")
     if isinstance(previous_soundtrack, dict) and previous_soundtrack.get("file"):
@@ -738,6 +794,12 @@ def rerender_clip(
     clip["trim_silence"] = is_trimmed
     clip["layout"] = current_layout
     clip["encoder"] = chosen_enc
+    clip["template"] = current_template
+    clip["template_display_name"] = current_template_display_name
+    clip["template_handle"] = current_template_handle
+    manifest["template"] = current_template
+    manifest["template_display_name"] = current_template_display_name
+    manifest["template_handle"] = current_template_handle
 
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return clip

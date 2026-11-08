@@ -14,7 +14,7 @@ import {
 } from "react";
 import { createJob, providerNote, uploadSoundtrack, uploadVideo } from "@/lib/api";
 import { CAPTION_STYLE_OPTIONS, type CaptionCategory } from "@/lib/captionStyles";
-import type { Layout, Provider, VideoEncoder } from "@/lib/types";
+import type { Layout, Provider, SocialTemplate, VideoEncoder } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
 /* Types and constants                                                 */
@@ -30,6 +30,9 @@ type Settings = {
   captionStyle: string;
   captionCategory: "all" | CaptionCategory;
   layout: Layout;
+  template: SocialTemplate;
+  templateDisplayName: string;
+  templateHandle: string;
   videoEncoder: VideoEncoder;
   hookOverlay: boolean;
   loudnorm: boolean;
@@ -46,6 +49,9 @@ const DEFAULTS: Settings = {
   captionStyle: "bold_pop",
   captionCategory: "all",
   layout: "fill",
+  template: "none",
+  templateDisplayName: "Your Name",
+  templateHandle: "@yourhandle",
   videoEncoder: "auto",
   hookOverlay: true,
   loudnorm: true,
@@ -76,6 +82,13 @@ const LAYOUTS: { value: Layout; label: string; note: string }[] = [
   { value: "fill", label: "Fill screen", note: "Crops to 9:16 and follows the active speaker" },
   { value: "fit_blur", label: "Fit with blur", note: "Whole frame over a blurred backdrop, good for slides and gameplay" },
   { value: "split_screen", label: "Split screen", note: "Two speakers stacked, each with their own face framing" },
+];
+
+const SOCIAL_TEMPLATES: { value: SocialTemplate; label: string; note: string }[] = [
+  { value: "none", label: "Clean 9:16", note: "No social card. Full vertical video." },
+  { value: "x", label: "Twitter / X", note: "Post header, video, and engagement row." },
+  { value: "instagram", label: "Instagram", note: "Reel header, actions, caption, and hashtags." },
+  { value: "headline", label: "Viral headline", note: "Editorial headline, quote, and topic badges." },
 ];
 
 const PROVIDERS: { value: Provider; label: string }[] = [
@@ -400,8 +413,108 @@ function Face({ className = "h-5 w-5" }: { className?: string }) {
 }
 
 function FramePreview({ settings, option, layoutLabel }: { settings: Settings; option: CaptionOption; layoutLabel: string }) {
-  const { vertical, layout, captions, hookOverlay, progressBar } = settings;
+  const { vertical, layout, captions, hookOverlay, progressBar, template } = settings;
   const frame = vertical ? "aspect-[9/16] w-36" : "aspect-video w-full max-w-64";
+
+  if (vertical && template !== "none") {
+    const profile = settings.templateDisplayName || "Your Name";
+    const initials = profile.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+    const sampleCaption = (
+      <span className="rounded bg-black/80 px-1 py-0.5 text-[7px] font-bold text-white">
+        <CaptionSample option={option} pad="1px 3px" />
+      </span>
+    );
+    return (
+      <div
+        role="img"
+        aria-label={"Live preview: " + template + " social media video template"}
+        className="relative mx-auto flex aspect-[9/16] w-36 flex-col overflow-hidden rounded-2xl border-2 border-white/25 text-white"
+      >
+        {template === "x" ? (
+          <>
+            <div className="h-[26%] shrink-0 bg-black px-2 pt-2">
+              <div className="flex items-center gap-1.5">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-500 text-[8px] font-extrabold">{initials}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[8px] font-bold">{profile}</span>
+                  <span className="block truncate text-[6px] text-slate-400">{settings.templateHandle} · 2h</span>
+                </span>
+                <span className="font-display text-sm font-bold">X</span>
+              </div>
+              <p className="mt-2 line-clamp-3 text-[8px] leading-snug text-white">Your clip hook appears here.</p>
+            </div>
+            <div className="relative flex min-h-0 flex-1 items-center justify-center bg-[#080d12]">
+              <div className="relative flex h-full aspect-[9/16] max-w-full items-center justify-center border-x border-white/10 bg-white/10">
+                <span className="text-[8px] font-bold tracking-widest text-white/70">VIDEO</span>
+                {captions ? <span className="absolute bottom-[20%]">{sampleCaption}</span> : null}
+                {hookOverlay ? <span className="absolute top-2 rounded bg-white/80 px-1 py-0.5 text-[6px] font-bold text-black">HOOK</span> : null}
+                {progressBar ? <span className="absolute bottom-0 left-0 h-0.5 w-2/5 bg-volt" /> : null}
+              </div>
+            </div>
+            <div className="h-[17%] shrink-0 border-t border-white/15 bg-black px-2 py-2">
+              <div className="flex justify-between text-[6px] text-slate-300"><span>↻ —</span><span>♡ —</span><span>▣ —</span><span>◉ —</span></div>
+              <p className="mt-2 text-center text-[6px] text-slate-500">REPOSTS · LIKES · SAVES · VIEWS</p>
+            </div>
+          </>
+        ) : null}
+
+        {template === "instagram" ? (
+          <>
+            <div className="h-[17%] shrink-0 bg-[#101012] px-2 pt-2">
+              <div className="flex items-center gap-1.5">
+                <span className="rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#304b66] text-[7px] font-bold">{initials}</span>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[8px] font-bold">{profile}</span>
+                  <span className="block truncate text-[6px] text-slate-400">{settings.templateHandle} · Original audio</span>
+                </span>
+                <span className="text-[9px]">•••</span>
+              </div>
+            </div>
+            <div className="relative flex min-h-0 flex-1 items-center justify-center bg-[#08090b]">
+              <div className="relative flex h-full aspect-[9/16] max-w-full items-center justify-center bg-white/10">
+                <span className="text-[8px] font-bold tracking-widest text-white/70">REEL</span>
+                {captions ? <span className="absolute bottom-[20%]">{sampleCaption}</span> : null}
+                {hookOverlay ? <span className="absolute top-2 rounded bg-white/80 px-1 py-0.5 text-[6px] font-bold text-black">HOOK</span> : null}
+                {progressBar ? <span className="absolute bottom-0 left-0 h-0.5 w-2/5 bg-volt" /> : null}
+              </div>
+            </div>
+            <div className="h-[21%] shrink-0 bg-[#101012] px-2 py-1.5">
+              <div className="flex items-center justify-between text-[9px]"><span>♡　○　➤</span><span>▯</span></div>
+              <p className="mt-1 line-clamp-2 text-[6px] leading-tight"><b>{profile}</b> Your caption appears here.</p>
+              <p className="mt-1 truncate text-[6px] text-sky-300">#Reels #CreatorTips #Shorts</p>
+            </div>
+          </>
+        ) : null}
+
+        {template === "headline" ? (
+          <>
+            <div className="h-[24%] shrink-0 bg-[#090b0e] p-2">
+              <div className="h-full rounded-md bg-[#f4d35e] p-2 text-black">
+                <span className="block text-[6px] font-extrabold tracking-widest">THE MOMENT THAT MATTERS</span>
+                <span className="mt-1 block font-display text-[13px] font-black uppercase leading-[0.95]">THE IDEA THAT CHANGES EVERYTHING</span>
+              </div>
+            </div>
+            <div className="relative flex min-h-0 flex-1 items-center justify-center bg-[#050607]">
+              <div className="relative flex h-full aspect-[9/16] max-w-full items-center justify-center bg-white/10">
+                <span className="text-[8px] font-bold tracking-widest text-white/70">VIDEO</span>
+                {captions ? <span className="absolute bottom-[20%]">{sampleCaption}</span> : null}
+                {progressBar ? <span className="absolute bottom-0 left-0 h-0.5 w-2/5 bg-volt" /> : null}
+              </div>
+            </div>
+            <div className="h-[15%] shrink-0 border-t border-white/15 bg-[#090b0e] px-2 py-2">
+              <p className="line-clamp-2 text-[7px] font-semibold leading-tight">“Your strongest clip quote appears here.”</p>
+              <div className="mt-1 flex gap-1">
+                <span className="rounded-full border border-white/30 px-1 py-0.5 text-[5px] text-yellow-200">TOPIC</span>
+                <span className="rounded-full border border-white/30 px-1 py-0.5 text-[5px] text-yellow-200">QUOTE</span>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </div>
+    );
+  }
 
   let art: ReactNode;
   if (!vertical) {
@@ -507,6 +620,10 @@ export function CutForm() {
           const saved = JSON.parse(raw) as Partial<Settings>;
           const next = { ...DEFAULTS, ...saved };
           if (!CAPTION_STYLE_OPTIONS.some((o) => o.key === next.captionStyle)) next.captionStyle = DEFAULTS.captionStyle;
+          if (!SOCIAL_TEMPLATES.some((o) => o.value === next.template)) next.template = DEFAULTS.template;
+          next.templateDisplayName = String(next.templateDisplayName || DEFAULTS.templateDisplayName).slice(0, 40);
+          next.templateHandle = String(next.templateHandle || DEFAULTS.templateHandle).replace(/\s+/g, "").slice(0, 32);
+          if (next.templateHandle && !next.templateHandle.startsWith("@")) next.templateHandle = "@" + next.templateHandle.replace(/^@+/, "");
           next.clipCount = clamp(Number(next.clipCount) || DEFAULTS.clipCount, 1, 10);
           return next;
         }
@@ -728,6 +845,9 @@ export function CutForm() {
         captions: settings.captions,
         captionStyle: settings.captionStyle,
         layout: settings.layout,
+        template: settings.template,
+        templateDisplayName: settings.templateDisplayName,
+        templateHandle: settings.templateHandle,
         videoEncoder: settings.videoEncoder,
         trimSilence: settings.trimSilence,
         hookOverlay: settings.hookOverlay,
@@ -943,7 +1063,7 @@ export function CutForm() {
 
           <Toggle
             checked={settings.vertical}
-            onChange={(vertical) => patch({ vertical })}
+            onChange={(vertical) => patch({ vertical, ...(vertical ? {} : { template: "none" }) })}
             title="Vertical 9:16"
             note={
               settings.vertical
@@ -953,14 +1073,58 @@ export function CutForm() {
           />
 
           {settings.vertical ? (
-            <Segmented
-              name="layout"
-              legend="Framing"
-              value={settings.layout}
-              onChange={(layout) => patch({ layout })}
-              columns="md:grid-cols-3"
-              options={LAYOUTS.map((l) => ({ value: l.value, label: l.label, note: l.note, glyph: <LayoutGlyph kind={l.value} /> }))}
-            />
+            <>
+              <Segmented
+                name="layout"
+                legend="Framing"
+                value={settings.layout}
+                onChange={(layout) => patch({ layout })}
+                columns="md:grid-cols-3"
+                options={LAYOUTS.map((l) => ({ value: l.value, label: l.label, note: l.note, glyph: <LayoutGlyph kind={l.value} /> }))}
+              />
+              <Segmented
+                name="socialTemplate"
+                legend="Social media template"
+                value={settings.template}
+                onChange={(template) => patch({ template })}
+                columns="md:grid-cols-2"
+                options={SOCIAL_TEMPLATES.map((item) => ({
+                  value: item.value,
+                  label: item.label,
+                  note: item.note,
+                }))}
+              />
+              {settings.template === "x" || settings.template === "instagram" ? (
+                <div className="grid gap-3 rounded-xl border-2 border-white/15 bg-panel-inset p-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wider text-muted">
+                    Display name
+                    <input
+                      value={settings.templateDisplayName}
+                      maxLength={40}
+                      onChange={(event) => patch({ templateDisplayName: event.target.value.slice(0, 40) })}
+                      className="min-h-10 rounded-lg border border-white/15 bg-panel px-3 text-sm font-medium normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
+                      placeholder="Your Name"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wider text-muted">
+                    Handle
+                    <input
+                      value={settings.templateHandle}
+                      maxLength={32}
+                      onChange={(event) => patch({ templateHandle: event.target.value.replace(/\s+/g, "").slice(0, 32) })}
+                      onBlur={() => {
+                        const handle = settings.templateHandle.trim();
+                        if (handle && !handle.startsWith("@")) {
+                          patch({ templateHandle: "@" + handle.replace(/^@+/, "") });
+                        }
+                      }}
+                      className="min-h-10 rounded-lg border border-white/15 bg-panel px-3 text-sm font-medium normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
+                      placeholder="@yourhandle"
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </>
           ) : null}
 
           <div className="flex flex-col gap-2">
@@ -1234,6 +1398,11 @@ export function CutForm() {
             />
             <SummaryRow label="Clips" value={String(settings.clipCount)} onClick={() => goTo("format")} />
             <SummaryRow label="Format" value={settings.vertical ? `9:16, ${layoutLabel}` : "Widescreen"} onClick={() => goTo("format")} />
+            <SummaryRow
+              label="Template"
+              value={SOCIAL_TEMPLATES.find((item) => item.value === settings.template)?.label ?? "Clean 9:16"}
+              onClick={() => goTo("format")}
+            />
             <SummaryRow label="Captions" value={settings.captions ? selectedOption.label : "Off"} onClick={() => goTo("captions")} />
             <SummaryRow
               label="Music"
