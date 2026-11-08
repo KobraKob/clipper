@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Studio", match: (p: string) => p === "/" },
@@ -14,6 +14,48 @@ const NAV_ITEMS = [
 export function SiteFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "/";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [connectionState, setConnectionState] = useState<"offline" | "online" | null>(null);
+  const [storageNoticeOpen, setStorageNoticeOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      setStorageNoticeOpen(
+        window.localStorage.getItem("chop-shop-storage-notice-v1") !== "acknowledged",
+      );
+    } catch {
+      setStorageNoticeOpen(false);
+    }
+
+    let onlineTimer: number | undefined;
+    const handleOffline = () => {
+      if (onlineTimer !== undefined) window.clearTimeout(onlineTimer);
+      setConnectionState("offline");
+    };
+    const handleOnline = () => {
+      setConnectionState("online");
+      if (onlineTimer !== undefined) window.clearTimeout(onlineTimer);
+      onlineTimer = window.setTimeout(() => setConnectionState(null), 3500);
+    };
+
+    if (!navigator.onLine) setConnectionState("offline");
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+      if (onlineTimer !== undefined) window.clearTimeout(onlineTimer);
+    };
+  }, []);
+
+  function dismissStorageNotice() {
+    try {
+      window.localStorage.setItem("chop-shop-storage-notice-v1", "acknowledged");
+    } catch {
+      // The notice can still be dismissed for the current page session.
+    }
+    setStorageNoticeOpen(false);
+  }
 
   return (
     <div className="min-h-full flex flex-col bg-paper text-ink relative selection:bg-indigo-600 selection:text-white">
@@ -88,7 +130,7 @@ export function SiteFrame({ children }: { children: ReactNode }) {
             {/* Quick Action Button */}
             <Link
               href="/#studio"
-              className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
@@ -101,7 +143,7 @@ export function SiteFrame({ children }: { children: ReactNode }) {
           <div className="flex md:hidden items-center gap-2">
             <Link
               href="/#studio"
-              className="rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/30"
+              className="inline-flex min-h-11 items-center rounded-full bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-600/30"
             >
               + Cut
             </Link>
@@ -110,7 +152,7 @@ export function SiteFrame({ children }: { children: ReactNode }) {
               onClick={() => setMobileMenuOpen((o) => !o)}
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={mobileMenuOpen}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.08] transition-colors"
+              className="flex h-11 w-11 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.08] transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 {mobileMenuOpen ? (
@@ -136,7 +178,7 @@ export function SiteFrame({ children }: { children: ReactNode }) {
                       key={item.href}
                       href={item.href}
                       onClick={() => setMobileMenuOpen(false)}
-                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      className={`flex min-h-11 items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                         isActive
                           ? "bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold"
                           : "text-slate-300 hover:bg-white/[0.04] hover:text-white"
@@ -165,24 +207,75 @@ export function SiteFrame({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      {/* Unified Modern App Footer */}
-      <footer className="mt-auto border-t border-white/[0.08] bg-[#06070a]/90 backdrop-blur-md py-8 px-4 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-[1360px] flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div className="flex items-center gap-3">
-            <span className="font-display text-sm font-bold tracking-tight text-slate-300">CHOP SHOP</span>
-            <span className="text-slate-600">/</span>
-            <span>Intelligent vertical video cut room & clipping studio</span>
+      {/* Unified App Footer */}
+      <footer className="mt-auto border-t border-white/[0.08] bg-[#06070a]/90 px-4 py-8 backdrop-blur-md sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[1360px] flex-col gap-5 text-xs text-slate-500">
+          <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-display text-sm font-bold tracking-tight text-slate-300">CHOP SHOP</span>
+              <span className="text-slate-600">/</span>
+              <span>Intelligent vertical video cut room & clipping studio</span>
+            </div>
+            <nav aria-label="Footer navigation" className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <Link href="/" className="inline-flex min-h-11 items-center transition-colors hover:text-slate-300">Studio</Link>
+              <Link href="/library" className="inline-flex min-h-11 items-center transition-colors hover:text-slate-300">Library</Link>
+              <Link href="/calendar" className="inline-flex min-h-11 items-center transition-colors hover:text-slate-300">Calendar</Link>
+            </nav>
           </div>
 
-          <div className="flex items-center gap-6">
-            <Link href="/" className="hover:text-slate-300 transition-colors">Studio</Link>
-            <Link href="/library" className="hover:text-slate-300 transition-colors">Library</Link>
-            <Link href="/calendar" className="hover:text-slate-300 transition-colors">Calendar</Link>
-            <span className="text-slate-600">|</span>
-            <span className="text-slate-400 font-mono">100% Client & Local Precision</span>
+          <div className="flex flex-col items-start justify-between gap-3 border-t border-white/[0.07] pt-4 sm:flex-row sm:items-center">
+            <span className="text-slate-400">© {new Date().getFullYear()} Chop Shop. All rights reserved.</span>
+            <nav aria-label="Legal and privacy" className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <Link href="/privacy" className="inline-flex min-h-11 items-center transition-colors hover:text-slate-200">Privacy</Link>
+              <Link href="/terms" className="inline-flex min-h-11 items-center transition-colors hover:text-slate-200">Terms</Link>
+              <Link href="/cookies" className="inline-flex min-h-11 items-center transition-colors hover:text-slate-200">Cookies & storage</Link>
+            </nav>
+            <span className="font-mono text-slate-400">Local-first processing · Cloud publishing optional</span>
           </div>
         </div>
       </footer>
+
+      {connectionState ? (
+        <div
+          role={connectionState === "offline" ? "alert" : "status"}
+          aria-live={connectionState === "offline" ? "assertive" : "polite"}
+          aria-atomic="true"
+          className="fixed left-1/2 top-20 z-[70] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 rounded-xl border border-white/15 bg-[#11141d] px-4 py-3 text-sm text-slate-100 shadow-2xl"
+        >
+          {connectionState === "offline"
+            ? "You are offline. Existing local pages remain available; uploads and publishing need a connection."
+            : "Connection restored."}
+        </div>
+      ) : null}
+
+      {storageNoticeOpen ? (
+        <aside
+          role="region"
+          aria-label="Browser storage notice"
+          className="fixed bottom-4 right-4 z-[60] w-[calc(100%-2rem)] max-w-xl rounded-xl border border-white/15 bg-[#11141d] p-4 shadow-2xl sm:bottom-6 sm:right-6"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white">Browser storage notice</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-300">
+                Chop Shop stores editing settings and library display preferences in this browser.
+                No advertising or analytics cookies are configured in the checked-in frontend.
+                Cloud publishing, when enabled, uses the services configured by the operator.
+              </p>
+              <Link href="/cookies" className="mt-2 inline-flex min-h-11 items-center text-xs font-semibold text-cyan-300 underline underline-offset-4 hover:text-white">
+                Read storage details
+              </Link>
+            </div>
+            <button
+              type="button"
+              onClick={dismissStorageNotice}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg border border-white/20 px-4 text-xs font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
+            >
+              Dismiss
+            </button>
+          </div>
+        </aside>
+      ) : null}
     </div>
   );
 }
