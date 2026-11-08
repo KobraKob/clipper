@@ -459,6 +459,8 @@ function ClipCardView({
                 <img
                   src={coverSrc}
                   alt={`Cover thumbnail frame for ${clip.title}`}
+                  loading="lazy"
+                  decoding="async"
                   className="h-full w-full object-cover"
                   onError={() => setHasCover(false)}
                 />
