@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/store.test.mjs"
+    "test": "tsx --test tests/store.test.mjs tests/site-structure.test.mjs"
   },
   "dependencies": {
     "framer-motion": "^14.9.1",
