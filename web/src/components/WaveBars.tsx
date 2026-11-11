@@ -1,36 +1,38 @@
-"use client";
+import { HStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 
-const HEIGHTS = [28, 72, 44, 90, 36, 80, 52, 96, 40, 68, 24, 84, 48, 76, 32, 88];
+const BAR_HEIGHTS = [10, 22, 14, 28, 12, 24, 18, 26, 12, 20, 14, 22];
 
-const LIVE_CSS = `
-@keyframes wavebars-bounce { 0%, 100% { transform: scaleY(.25); } 50% { transform: scaleY(1); } }
-.wavebars-live { transform-origin: bottom; animation: wavebars-bounce 1.1s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .wavebars-live { animation: none; } }
-`;
-
-export function WaveBars({ live = false }: { live?: boolean }) {
+export function WaveBars({ active = false, label }: { active?: boolean; label?: string }) {
   return (
-    <>
-      {live ? <style>{LIVE_CSS}</style> : null}
-      <div
-        className="grid h-16 items-end gap-1 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07090e] p-2.5 shadow-inner"
-        style={{ gridTemplateColumns: "repeat(16, minmax(0, 1fr))" }}
+    <HStack gap={2} align="center">
+      <svg
+        viewBox="0 0 96 32"
+        className="h-7 w-20 shrink-0 text-accent"
         aria-hidden="true"
       >
-        {HEIGHTS.map((height, index) => (
-          <span
-            key={index}
-            className={`block w-full rounded-full transition-opacity duration-300 ${
-              index % 4 === 0 ? "bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.4)]" : "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.3)]"
-            } ${live ? "wavebars-live" : "opacity-40"}`}
-            style={{
-              height: `${height}%`,
-              animationDelay: live ? `${index * 65}ms` : undefined,
-              animationDuration: live ? `${0.85 + (index % 4) * 0.15}s` : undefined,
-            }}
-          />
-        ))}
-      </div>
-    </>
+        {BAR_HEIGHTS.map((height, idx) => {
+          const y = Math.round((32 - height) / 2);
+          return (
+            <rect
+              key={idx}
+              x={idx * 8 + 1}
+              y={y}
+              width="4"
+              height={height}
+              rx="2"
+              fill="currentColor"
+              opacity={active ? 0.95 : 0.45}
+              className={active ? "animate-pulse motion-reduce:animate-none" : undefined}
+            />
+          );
+        })}
+      </svg>
+      {label ? (
+        <Text type="code" color="secondary">
+          {label}
+        </Text>
+      ) : null}
+    </HStack>
   );
 }

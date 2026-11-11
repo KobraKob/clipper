@@ -1,110 +1,107 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Icon } from "@astryxdesign/core/Icon";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { Selector } from "@astryxdesign/core/Selector";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { useToast } from "@astryxdesign/core/Toast";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import { PlusGlyph } from "@/components/StudioIcons";
 import { fetchJobs, scheduleClip } from "@/lib/api";
 import type { JobView, Platform } from "@/lib/types";
 
+type ClipOption = {
+  value: string;
+  jobId: string;
+  clipId: string;
+  label: string;
+};
+
 function defaultScheduleTime() {
-  const value = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  value.setHours(18, 0, 0, 0);
-  const offset = value.getTimezoneOffset();
-  return new Date(value.getTime() - offset * 60_000).toISOString().slice(0, 16);
+  const date = new Date(Date.now() + 3600_000);
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function toClipOptions(jobs: JobView[]): ClipOption[] {
+  return jobs
+    .filter((job) => job.status === "done")
+    .flatMap((job) =>
+      job.clips
+        .filter((clip) => clip.kept)
+        .map((clip) => ({
+          value: `${job.id}::${clip.id}`,
+          jobId: job.id,
+          clipId: clip.id,
+          label: `${clip.title} — ${job.source}`,
+        })),
+    );
 }
 
 export function CalendarScheduler() {
+  const router = useRouter();
+  const toast = useToast();
+
   const [open, setOpen] = useState(false);
-  const [jobs, setJobs] = useState<JobView[]>([]);
   const [loading, setLoading] = useState(false);
-  const [jobsLoaded, setJobsLoaded] = useState(false);
+  const [options, setOptions] = useState<ClipOption[]>([]);
   const [jobClip, setJobClip] = useState("");
   const [platform, setPlatform] = useState<Platform | "both">("youtube");
   const [scheduledAt, setScheduledAt] = useState(defaultScheduleTime);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
-  function toggleScheduler() {
-    if (open) {
-      setOpen(false);
-      setError("");
-      return;
-    }
-
-    setOpen(true);
+  async function toggleScheduler() {
+    const next = !open;
+    setOpen(next);
     setError("");
-    if (jobsLoaded || loading) return;
+    if (!next) return;
 
     setLoading(true);
-    fetchJobs()
-      .then((items) => {
-        setJobs(items);
-        setJobsLoaded(true);
-        const first = items.find(
-          (job) =>
-            job.status === "done" &&
-            job.clips.some((clip) => clip.kept && clip.file),
-        );
-        const clip = first?.clips.find((item) => item.kept && item.file);
-        if (first && clip) setJobClip(`${first.id}::${clip.id}`);
-      })
-      .catch((reason: unknown) => {
-        setError(
-          reason instanceof Error ? reason.message : "Could not load your library.",
-        );
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    try {
+      const jobs = await fetchJobs();
+      const loaded = toClipOptions(jobs);
+      setOptions(loaded);
+      setJobClip((cur) => cur || loaded[0]?.value || "");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load library clips.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const options = useMemo(() => jobs.flatMap((job) => {
-    if (job.status !== "done") return [];
-    return job.clips
-      .filter((clip) => clip.kept && Boolean(clip.file))
-      .map((clip) => ({
-        value: `${job.id}::${clip.id}`,
-        label: `${clip.seo?.youtube?.title || clip.title} · ${job.id.slice(0, 8)}`,
-        jobId: job.id,
-        clipId: clip.id,
-        hasYoutubeCopy: Boolean(clip.seo?.youtube?.title),
-        hasInstagramCopy: Boolean(clip.seo?.instagram?.caption),
-      }));
-  }), [jobs]);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
-    setSuccess("");
-    const selected = options.find((option) => option.value === jobClip);
+    const selected = options.find((o) => o.value === jobClip);
     if (!selected) {
-      setError("Choose a finished, kept clip from your library.");
-      return;
-    }
-    if (platform !== "instagram" && !selected.hasYoutubeCopy) {
-      setError("This clip needs a YouTube title. Open the clip in Library and save its publishing details first.");
-      return;
-    }
-    if (platform !== "youtube" && !selected.hasInstagramCopy) {
-      setError("This clip needs an Instagram caption. Open the clip in Library and save its publishing details first.");
+      setError("Select a finished, kept clip from your library first.");
       return;
     }
     const date = new Date(scheduledAt);
-    if (!scheduledAt || !Number.isFinite(date.getTime()) || date.getTime() < Date.now() + 2 * 60_000) {
-      setError("Choose a time at least two minutes in the future.");
+    if (!scheduledAt || Number.isNaN(date.getTime())) {
+      setError("Enter a valid publish date and time.");
       return;
     }
 
     setBusy(true);
-    setStage("Preparing the finished clip…");
     try {
-      setStage("Uploading the MP4 to private cloud storage. Keep this tab open…");
+      setStage("Uploading MP4 to cloud storage…");
       await scheduleClip(selected.jobId, selected.clipId, platform, date.toISOString());
-      setStage("Saving the calendar entry…");
-      setSuccess("Video uploaded and added to your publishing queue.");
       setStage("");
       setOpen(false);
-      window.location.reload();
+      toast({ body: "Clip uploaded and scheduled.", uniqueID: "calendar-schedule-ok" });
+      router.refresh();
     } catch (reason) {
       setStage("");
       setError(reason instanceof Error ? reason.message : "Scheduling failed.");
@@ -114,61 +111,113 @@ export function CalendarScheduler() {
   }
 
   return (
-    <section className="calendar-scheduler rounded-xl border border-white/12 bg-panel p-4 md:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[.16em] text-ice">NEW QUEUED VIDEO</p>
-          <h2 className="display mt-1 text-2xl text-ink">Schedule a video</h2>
-          <p className="mt-1 text-xs text-muted">Choose a finished clip from your library. Chop Shop uploads its MP4 to cloud storage before adding it to the calendar.</p>
-        </div>
-        <button type="button" onClick={toggleScheduler} disabled={busy || loading}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/20 hover:brightness-110 transition-all disabled:opacity-50">
-          {open ? "Close scheduler" : "+ Schedule a video"}
-        </button>
-      </div>
+    <Card padding={5} variant="default">
+      <VStack gap={4}>
+        <HStack justify="between" align="center" wrap="wrap" gap={3}>
+          <VStack gap={1} maxWidth={640}>
+            <Text type="label" color="accent">
+              NEW QUEUED VIDEO
+            </Text>
+            <Heading level={2} type="display-3">
+              Schedule a finished clip
+            </Heading>
+            <Text type="supporting" color="secondary">
+              Pick a kept clip from your library. Chop Shop uploads the rendered MP4 to private storage before creating the dispatch slot.
+            </Text>
+          </VStack>
 
-      {success ? <p role="status" className="mt-3 rounded-lg border border-volt/30 bg-volt/10 p-3 text-sm text-volt">{success}</p> : null}
-      {open ? (
-        <form onSubmit={submit} className="schedule-form mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
-          <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted md:col-span-2">
-            Finished library clip
-            <select value={jobClip} onChange={(event) => setJobClip(event.target.value)} disabled={loading || busy || !options.length}
-              className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink">
-              <option value="">{loading ? "Loading library…" : options.length ? "Select a kept clip…" : "No finished, kept clips found"}</option>
-              {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-            Platform
-            <select value={platform} onChange={(event) => setPlatform(event.target.value as Platform | "both")} disabled={busy}
-              className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink">
-              <option value="youtube">YouTube Shorts</option>
-              <option value="instagram">Instagram Reels</option>
-              <option value="both">Both platforms</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-            Publish date and time (local)
-            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} disabled={busy}
-              className="min-h-11 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink" />
-          </label>
+          <Button
+            label={open ? "Close scheduler" : "Schedule clip"}
+            variant={open ? "secondary" : "primary"}
+            size="sm"
+            isLoading={loading}
+            isDisabled={busy}
+            icon={<Icon icon={PlusGlyph} />}
+            onClick={() => void toggleScheduler()}
+          />
+        </HStack>
 
-          {busy ? (
-            <div className="flex items-center gap-3 rounded-lg border border-ice/25 bg-ice/10 p-3 text-sm text-ice md:col-span-2" role="status" aria-live="polite">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-ice/30 border-t-ice" />
-              <span>{stage || "Scheduling…"}</span>
-            </div>
-          ) : null}
-          {error ? <p role="alert" className="rounded-lg border border-punch/40 bg-punch/10 p-3 text-sm text-punch md:col-span-2">{error}</p> : null}
-          <div className="flex flex-wrap items-center gap-3 md:col-span-2">
-            <button type="submit" disabled={busy || loading || !options.length}
-              className="min-h-11 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-500/20 hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-50">
-              {busy ? "Uploading and scheduling…" : "Upload video & schedule"}
-            </button>
-            <span className="text-xs text-muted">The MP4 upload completes before the queue entry is created.</span>
-          </div>
-        </form>
-      ) : null}
-    </section>
+        {open ? (
+          <form onSubmit={submit}>
+            <VStack gap={4}>
+              <Divider />
+
+              <Selector
+                label="Finished library clip"
+                placeholder={
+                  loading
+                    ? "Loading library…"
+                    : options.length
+                      ? "Choose a kept clip…"
+                      : "No finished kept clips found"
+                }
+                value={jobClip}
+                onChange={setJobClip}
+                isLoading={loading}
+                isDisabled={busy || !options.length}
+                hasSearch={options.length > 6}
+                options={options.map((o) => ({ value: o.value, label: o.label }))}
+                width="100%"
+              />
+
+              <Grid columns={{ minWidth: 220, max: 2 }} gap={4} align="start">
+                <Selector
+                  label="Target platform"
+                  value={platform}
+                  onChange={(v) => setPlatform(v as Platform | "both")}
+                  isDisabled={busy}
+                  options={[
+                    { value: "youtube", label: "YouTube Shorts" },
+                    { value: "instagram", label: "Instagram Reels" },
+                    { value: "both", label: "Both platforms" },
+                  ]}
+                  width="100%"
+                />
+
+                <DateTimeInput
+                  label="Publish date & time (local)"
+                  value={scheduledAt as ISODateTimeString}
+                  onChange={(val) => setScheduledAt(val ?? "")}
+                  isDisabled={busy}
+                  isRequired
+                  width="100%"
+                />
+              </Grid>
+
+              {busy ? (
+                <ProgressBar
+                  label={stage || "Scheduling clip…"}
+                  isIndeterminate
+                  variant="accent"
+                />
+              ) : null}
+
+              {error ? (
+                <Banner
+                  status="error"
+                  title="Scheduling error"
+                  description={error}
+                  isDismissable
+                  onDismiss={() => setError("")}
+                />
+              ) : null}
+
+              <HStack justify="between" align="center" wrap="wrap" gap={3}>
+                <Text type="supporting" color="secondary">
+                  The MP4 upload finishes before the queue entry is recorded.
+                </Text>
+                <Button
+                  type="submit"
+                  label={busy ? "Uploading & scheduling…" : "Upload & schedule"}
+                  variant="primary"
+                  isLoading={busy}
+                  isDisabled={loading || !options.length}
+                />
+              </HStack>
+            </VStack>
+          </form>
+        ) : null}
+      </VStack>
+    </Card>
   );
 }

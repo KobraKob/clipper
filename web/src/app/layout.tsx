@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
+import "./globals.css";
+
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { SiteFrame } from "@/components/SiteFrame";
-import "./globals.css";
-import "./hallmark.css";
 
 // Self-hosted fonts keep the interface independent of third-party font requests.
 const figtree = localFont({
@@ -21,6 +21,12 @@ const barlow = localFont({
   variable: "--font-barlow",
   display: "swap",
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   title: "Chop Shop — Find the moment. Make the cut.",
@@ -43,7 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${figtree.variable} ${barlow.variable} h-full`}
       suppressHydrationWarning
     >
-      <body className="min-h-full bg-paper text-ink antialiased" suppressHydrationWarning>
+      <body className="min-h-full antialiased" suppressHydrationWarning>
         <SiteFrame>{children}</SiteFrame>
       </body>
     </html>

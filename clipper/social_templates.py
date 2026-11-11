@@ -449,23 +449,25 @@ def create_social_template_canvas(
     template = validate_social_template(template)
     if template == "none":
         raise ValueError("A social template is required to create a template canvas.")
+    width = (int(width) // 2) * 2
+    height = (int(height) // 2) * 2
     if width < 360 or height < 640:
         raise ValueError("Social templates require an output frame of at least 360x640.")
 
     name, profile_handle = normalize_profile(display_name, handle)
     if template == "x":
-        header_h = int(height * 0.185)
-        footer_h = int(height * 0.17)
+        header_h = int(round(height * 0.185 / 2)) * 2
+        footer_h = int(round(height * 0.17 / 2)) * 2
     elif template == "instagram":
-        header_h = int(height * 0.13)
-        footer_h = int(height * 0.21)
+        header_h = int(round(height * 0.13 / 2)) * 2
+        footer_h = int(round(height * 0.21 / 2)) * 2
     else:
-        header_h = int(height * 0.24)
-        footer_h = int(height * 0.15)
+        header_h = int(round(height * 0.24 / 2)) * 2
+        footer_h = int(round(height * 0.15 / 2)) * 2
 
-    video_h = height - header_h - footer_h
-    video_w = int(round(video_h * 9 / 16))
-    video_x = (width - video_w) // 2
+    video_h = max(2, ((height - header_h - footer_h) // 2) * 2)
+    video_w = max(2, (int(round(video_h * 9 / 16)) // 2) * 2)
+    video_x = max(0, ((width - video_w) // 4) * 2)
     video_y = header_h
     video_rect = (video_x, video_y, video_w, video_h)
 
@@ -537,8 +539,12 @@ def apply_social_template(
             handle=handle,
             seo=seo,
         )
+        x = (int(x) // 2) * 2
+        y = (int(y) // 2) * 2
+        video_w = (int(video_w) // 2) * 2
+        video_h = (int(video_h) // 2) * 2
         graph = (
-            f"[0:v]scale={video_w}:{video_h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+            f"[0:v]scale={video_w}:{video_h}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,"
             f"pad={video_w}:{video_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[clip];"
             f"[1:v][clip]overlay={x}:{y}:shortest=1:format=auto,format=yuv420p[v]"
         )

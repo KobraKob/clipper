@@ -10,7 +10,7 @@ const siteFramePath = path.join(componentRoot, "SiteFrame.tsx");
 test("site navigation and footer targets resolve to application routes", () => {
   const source = fs.readFileSync(siteFramePath, "utf8");
   const hrefs = [...source.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
-  const expected = ["/", "/library", "/calendar", "/privacy", "/terms", "/cookies"];
+  const expected = ["/", "/new", "/library", "/calendar", "/privacy", "/terms", "/cookies"];
 
   for (const href of expected) {
     assert.ok(hrefs.includes(href), "Missing navigation target: " + href);
@@ -23,6 +23,15 @@ test("site navigation and footer targets resolve to application routes", () => {
       : path.join(appRoot, route.slice(1), "page.tsx");
     assert.ok(fs.existsSync(routeFile), "Broken static route link: " + href);
   }
+});
+
+test("new cut creation workflow is separated from the overview homepage onto /new", () => {
+  const homeSource = fs.readFileSync(path.join(appRoot, "page.tsx"), "utf8");
+  const newCutSource = fs.readFileSync(path.join(appRoot, "new", "page.tsx"), "utf8");
+
+  assert.doesNotMatch(homeSource, /CutForm/);
+  assert.match(homeSource, /href="\/new"/);
+  assert.match(newCutSource, /CutForm/);
 });
 
 test("the custom favicon is present in the App Router", () => {

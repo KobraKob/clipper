@@ -1,5 +1,13 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
+import { Banner } from "@astryxdesign/core/Banner";
+import { BreadcrumbItem, Breadcrumbs } from "@astryxdesign/core/Breadcrumbs";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
 
 type LegalPageProps = {
   title: string;
@@ -10,31 +18,50 @@ type LegalPageProps = {
 
 export function LegalPage({ title, intro, notice, children }: LegalPageProps) {
   return (
-    <div className="min-h-[65vh] px-4 py-10 sm:px-6 lg:px-8 lg:py-16">
-      <div className="mx-auto max-w-3xl">
-        <header className="border-b border-white/10 pb-7">
-          <p className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-cyan-300">
-            Chop Shop / Product information
-          </p>
-          <h1 className="display mt-4 text-4xl text-white sm:text-5xl">{title}</h1>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">{intro}</p>
-          <p className="mt-3 font-mono text-[11px] uppercase tracking-wider text-slate-500">
-            Updated November 8, 2026
-          </p>
-        </header>
-        <aside role="note" className="mt-7 rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-amber-200">Owner review required</p>
-          <p className="mt-1 text-sm leading-6 text-slate-300">{notice}</p>
-        </aside>
-        <article className="mt-8 space-y-7 text-sm leading-7 text-slate-300 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-white [&_li]:ml-5 [&_li]:list-disc [&_ul]:space-y-2">
-          {children}
-        </article>
-        <div className="mt-10 border-t border-white/10 pt-5">
-          <Link href="/" className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan-300 underline underline-offset-4 hover:text-white">
-            Back to Chop Shop Studio
-          </Link>
-        </div>
-      </div>
-    </div>
+    <VStack
+      gap={6}
+      paddingBlock={8}
+      paddingInline={4}
+      maxWidth={840}
+      width="100%"
+      className="mx-auto sm:px-6 lg:px-8"
+    >
+      <Section variant="transparent" padding={0}>
+        <VStack gap={6}>
+          <Breadcrumbs>
+            <BreadcrumbItem href="/">Overview</BreadcrumbItem>
+            <BreadcrumbItem isCurrent>{title}</BreadcrumbItem>
+          </Breadcrumbs>
+
+          <VStack gap={3}>
+            <Text type="label" color="accent">
+              OPERATOR DOCUMENTATION
+            </Text>
+            <Heading level={1} type="display-2">
+              {title}
+            </Heading>
+            <Text type="large" color="secondary">
+              {intro}
+            </Text>
+          </VStack>
+
+          <Banner status="warning" title="Operator notice" description={notice} />
+
+          <Card padding={6} variant="default">
+            <VStack gap={6}>
+              {children}
+            </VStack>
+          </Card>
+
+          <Divider />
+
+          <HStack gap={3} wrap="wrap">
+            <Button label="Back to overview" href="/" variant="secondary" size="sm" />
+            <Button label="Start new cut" href="/new" variant="primary" size="sm" />
+            <Button label="Open library" href="/library" variant="ghost" size="sm" />
+          </HStack>
+        </VStack>
+      </Section>
+    </VStack>
   );
 }

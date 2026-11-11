@@ -1,183 +1,261 @@
-import Link from "next/link";
-import { CutForm } from "@/components/CutForm";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
+import { HStack } from "@astryxdesign/core/HStack";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Section } from "@astryxdesign/core/Section";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Text } from "@astryxdesign/core/Text";
+import { VStack } from "@astryxdesign/core/VStack";
+import { HomeStudioPulse } from "@/components/HomeStudioPulse";
 import { PhoneStack } from "@/components/PhoneStack";
+import {
+  ArrowRightGlyph,
+  FilmGlyph,
+  ScissorsGlyph,
+  SparklesGlyph,
+} from "@/components/StudioIcons";
 import { PIPELINE_STAGES } from "@/lib/types";
 
 const STAGE_DESCRIPTIONS: Record<string, string> = {
   ingest: "Stream or import raw footage locally without compression loss.",
-  transcribe: "Whisper AI speech-to-text generating word-level timestamps.",
-  analyze: "Semantic hook scoring and attention retention analytics.",
-  rank: "Deduplication and smart ranking of viral segment candidates.",
+  transcribe: "Whisper speech-to-text generating word-level timestamps.",
+  candidates: "Sliding window segmentation isolating high-density narrative arcs.",
+  score: "Semantic hook scoring and attention retention ranking.",
   cut: "Lossless frame-accurate trimming across selected timestamps.",
-  face_track: "Active-speaker intelligent framing for 9:16 vertical viewports.",
-  caption: "Styled kinetic subtitles with animated karaoke word pop.",
+  reframe: "Active-speaker intelligent framing for 9:16 vertical viewports.",
+  captions: "Styled kinetic subtitles with animated karaoke word pop.",
   export: "Multi-platform export ready for TikTok, Shorts & Reels.",
 };
 
 const STATS = [
-  { value: "9:16", label: "Smart Vertical Re-frame" },
-  { value: "< 60s", label: "Viral Hook Detection" },
+  { value: "9:16", label: "Smart Vertical Reframe" },
+  { value: "< 60s", label: "Hook Discovery" },
   { value: "100%", label: "Local-First Privacy" },
   { value: "0", label: "Watermarks or Limits" },
 ];
 
+const WORKFLOWS = [
+  {
+    href: "/new",
+    eyebrow: "01 · CREATE",
+    title: "New Cut Studio",
+    description:
+      "Configure source URL or video upload, speaker layout, kinetic caption styles, audio mastering, and GPU encoder.",
+    cta: "Launch New Cut",
+    icon: ScissorsGlyph,
+  },
+  {
+    href: "/library",
+    eyebrow: "02 · MANAGE",
+    title: "Media Library & Batch",
+    description:
+      "Inspect completed projects, jump into the frame-accurate Cut Inspector, or batch-import an entire folder of videos.",
+    cta: "Open Library",
+    icon: FilmGlyph,
+  },
+  {
+    href: "/calendar",
+    eyebrow: "03 · DISTRIBUTE",
+    title: "Publishing Calendar",
+    description:
+      "Schedule kept shorts to YouTube and Instagram, inspect dispatch queues, and retry failed uploads.",
+    cta: "View Calendar",
+    icon: "calendar" as const,
+  },
+];
+
 export default function Home() {
   return (
-    <div className="home-page selection:bg-indigo-600 selection:text-white">
+    <VStack gap={8} paddingBlock={8} paddingInline={4} maxWidth={1360} width="100%" className="mx-auto sm:px-6 lg:px-8">
       {/* Hero Section */}
-      <section className="relative overflow-hidden pt-6 pb-16 lg:py-20" aria-labelledby="home-title">
-        {/* Subtle Ambient Background Gradients */}
-        <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-b from-indigo-600/15 via-cyan-500/10 to-transparent blur-xl -z-10" />
+      <Section variant="transparent" padding={0} aria-labelledby="home-title">
+        <Grid columns={{ minWidth: 320, max: 2 }} gap={8} align="center">
+          <VStack gap={5}>
+            <HStack gap={2} vAlign="center">
+              <Badge
+                variant="purple"
+                icon={<Icon icon={SparklesGlyph} size="xsm" />}
+                label="Next-Gen Vertical Cut Room"
+              />
+              <StatusDot variant="success" isPulsing label="Engine ready" />
+              <Text type="supporting" size="2xs">
+                Local-first processing
+              </Text>
+            </HStack>
 
-        <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
-            {/* Left Copy Column */}
-            <div
-              className="lg:col-span-7 flex flex-col gap-6">
-              <div className="inline-flex items-center gap-2.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-300 w-fit shadow-sm shadow-indigo-500/10">
-                <span className="flex h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
-                <span>Next-Gen Video Clipping Studio</span>
-              </div>
+            <Heading level={1} type="display-1" id="home-title">
+              Find the moment.{" "}
+              <Text as="span" type="inherit" color="accent">
+                Make the cut.
+              </Text>
+            </Heading>
 
-              <h1 id="home-title" className="font-display text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight uppercase leading-[0.92]">
-                <span className="block text-white">Find the moment.</span>
-                <span className="block bg-gradient-to-r from-indigo-400 via-cyan-300 to-indigo-200 bg-clip-text text-transparent">
-                  Make the cut.
-                </span>
-              </h1>
+            <VStack maxWidth={600}>
+              <Text type="large" color="secondary">
+                Transform hours of podcasts, streams, and interviews into high-converting vertical shorts.
+                AI-powered hook discovery, dynamic speaker tracking, animated captions, and direct multi-platform scheduling.
+              </Text>
+            </VStack>
 
-              <p className="text-base sm:text-lg text-slate-300 max-w-2xl leading-relaxed">
-                Transform hours of podcasts, streams, and interviews into high-converting vertical shorts. AI-powered hook discovery, dynamic speaker tracking, animated captions, and instant multi-platform scheduling.
-              </p>
+            <HStack gap={3} wrap="wrap" paddingBlockStart={2}>
+              <Button
+                href="/new"
+                label="Start New Cut"
+                variant="primary"
+                size="lg"
+                elevation="med"
+                icon={<Icon icon={ScissorsGlyph} size="sm" />}
+              />
 
-              {/* CTAs */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
-                <a
-                  href="#studio"
-                  className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-xl shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:brightness-110 transition-all">
-                  <span>Start New Project</span>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                  </svg>
-                </a>
+              <Button
+                href="/library"
+                label="Open Library"
+                variant="secondary"
+                size="lg"
+                endContent={<Icon icon={ArrowRightGlyph} size="sm" color="secondary" />}
+              />
+            </HStack>
 
-                <div>
-                  <Link
-                    href="/library"
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-6 py-3.5 text-sm font-semibold text-slate-200 hover:bg-white/[0.08] hover:text-white hover:border-white/20 transition-all"
-                  >
-                    <span>View Library</span>
-                    <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
-                  </Link>
-                </div>
-              </div>
+            <Divider />
 
-              {/* Stats Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6 border-t border-white/[0.08]">
-                {STATS.map((stat) => (
-                  <div key={stat.label} className="flex flex-col">
-                    <span className="font-display text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                      {stat.value}
-                    </span>
-                    <span className="text-xs text-slate-400 font-medium">{stat.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <Grid columns={{ minWidth: 130, max: 4 }} gap={4}>
+              {STATS.map((stat) => (
+                <VStack key={stat.label} gap={0.5}>
+                  <Text type="display-3" weight="bold" hasTabularNumbers>
+                    {stat.value}
+                  </Text>
+                  <Text type="supporting" size="2xs">
+                    {stat.label}
+                  </Text>
+                </VStack>
+              ))}
+            </Grid>
+          </VStack>
 
-            {/* Right Visual Interactive Phone Stack */}
-            <div
-              className="lg:col-span-5 flex flex-col items-center justify-center relative">
-              <div className="relative w-full max-w-[380px] p-4 rounded-3xl bg-gradient-to-b from-white/[0.08] to-white/[0.02] border border-white/[0.1] shadow-2xl shadow-indigo-950/50 backdrop-blur-md">
-                <div className="flex items-center justify-between pb-3 px-2 border-b border-white/[0.06] text-xs text-slate-400">
-                  <span className="flex items-center gap-1.5 font-medium text-slate-300">
-                    <span className="h-2 w-2 rounded-full bg-cyan-400" />
+          <Card padding={4} elevation="med" className="rounded-xl border border-border-emphasized">
+            <VStack gap={3}>
+              <HStack hAlign="between" vAlign="center" paddingBlockEnd={2} className="border-b border-border">
+                <HStack gap={2} vAlign="center">
+                  <StatusDot variant="accent" isPulsing label="Interactive preview active" />
+                  <Text type="label" size="2xs">
                     Interactive Vertical Preview
-                  </span>
-                  <span className="font-mono text-[11px] text-indigo-400">1080 × 1920</span>
-                </div>
+                  </Text>
+                </HStack>
+                <Text type="code" size="2xs" color="accent">
+                  1080 × 1920
+                </Text>
+              </HStack>
 
-                <div className="pt-2">
-                  <PhoneStack />
-                </div>
+              <PhoneStack />
 
-                <div className="mt-3 p-3 rounded-xl bg-[#090b10] border border-white/[0.06] flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Speaker Framing</span>
-                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Auto Active
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+              <Card variant="muted" padding={3}>
+                <HStack hAlign="between" vAlign="center">
+                  <Text type="supporting" size="2xs">
+                    Speaker Framing
+                  </Text>
+                  <HStack gap={1.5} vAlign="center">
+                    <StatusDot variant="success" label="Auto active" />
+                    <Text size="2xs" weight="semibold" color="primary">
+                      Auto Active
+                    </Text>
+                  </HStack>
+                </HStack>
+              </Card>
+            </VStack>
+          </Card>
+        </Grid>
+      </Section>
 
-      {/* Main Studio / Video Creation Form Section */}
-      <section id="studio" className="py-12 sm:py-16 scroll-mt-20 border-t border-white/[0.08]">
-        <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8">
-          {/* Section Header */}
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-1">
-                Project Studio
-              </p>
-              <h2 className="font-display text-3xl sm:text-4xl font-extrabold uppercase tracking-tight text-white">
-                Initialize Video Pipeline
-              </h2>
-            </div>
-            <p className="text-sm text-slate-400 max-w-md">
-              Enter any YouTube URL, paste a direct media link, or upload local video footage to begin automatic AI extraction.
-            </p>
-          </div>
+      {/* Distinct Workflow Portals */}
+      <Section variant="transparent" padding={0} aria-labelledby="workflows-title">
+        <VStack gap={4}>
+          <VStack gap={1}>
+            <Text type="label" size="2xs" color="accent" weight="bold">
+              DEDICATED WORKSPACES
+            </Text>
+            <Heading level={2} id="workflows-title">
+              Choose Your Room
+            </Heading>
+          </VStack>
 
-          {/* Form Card Container */}
-          <div className="rounded-3xl border border-white/[0.1] bg-[#0c0e15]/90 p-5 sm:p-8 shadow-2xl backdrop-blur-sm">
-            <CutForm />
-          </div>
-        </div>
-      </section>
-
-      {/* Process Pipeline Overview Section */}
-      <section id="pipeline" className="py-16 sm:py-20 border-t border-white/[0.08] bg-[#07080c]/60">
-        <div className="mx-auto max-w-[1360px] px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-12">
-            <p className="text-xs font-bold uppercase tracking-widest text-cyan-400 mb-2">
-              Autonomous Architecture
-            </p>
-            <h2 className="font-display text-3xl sm:text-4xl font-extrabold uppercase tracking-tight text-white mb-3">
-              How the Cutting Engine Works
-            </h2>
-            <p className="text-sm sm:text-base text-slate-400">
-              Each raw video travels through eight discrete, deterministic processing stages to guarantee broadcast-level results.
-            </p>
-          </div>
-
-          {/* Stages Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            {PIPELINE_STAGES.map((stage, idx) => (
-              <div
-                key={stage.id}
-                className="group relative rounded-2xl border border-white/[0.08] bg-[#0d1018] p-5 hover:border-indigo-500/40 hover:bg-[#121622] transition-colors">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-display text-sm font-bold text-slate-500 group-hover:text-cyan-400 transition-colors">
-                    0{idx + 1}
-                  </span>
-                  <span className="h-2 w-2 rounded-full bg-slate-700 group-hover:bg-indigo-400 transition-colors" />
-                </div>
-                <h3 className="text-base font-bold text-white mb-1.5 group-hover:text-indigo-200 transition-colors">
-                  {stage.label}
-                </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {STAGE_DESCRIPTIONS[stage.id] || "Automated processing stage"}
-                </p>
-              </div>
+          <Grid columns={{ minWidth: 280, max: 3 }} gap={4}>
+            {WORKFLOWS.map((flow) => (
+              <ClickableCard
+                key={flow.href}
+                href={flow.href}
+                label={`${flow.title}: ${flow.cta}`}
+                padding={5}
+                elevation="low"
+              >
+                <VStack gap={3} height="100%" vAlign="between">
+                  <VStack gap={2}>
+                    <HStack hAlign="between" vAlign="center">
+                      <Text type="code" size="2xs" color="accent" weight="semibold">
+                        {flow.eyebrow}
+                      </Text>
+                      <Icon icon={flow.icon} size="md" color="accent" />
+                    </HStack>
+                    <Heading level={3}>{flow.title}</Heading>
+                    <Text type="supporting" size="sm">
+                      {flow.description}
+                    </Text>
+                  </VStack>
+                  <HStack gap={1.5} vAlign="center" paddingBlockStart={2}>
+                    <Text size="sm" weight="semibold" color="accent">
+                      {flow.cta}
+                    </Text>
+                    <Icon icon={ArrowRightGlyph} size="xsm" color="accent" />
+                  </HStack>
+                </VStack>
+              </ClickableCard>
             ))}
-          </div>
-        </div>
-      </section>
-    </div>
+          </Grid>
+        </VStack>
+      </Section>
+
+      {/* Live Workspace Pulse */}
+      <HomeStudioPulse />
+
+      {/* 8-Stage Pipeline Overview */}
+      <Section id="pipeline" variant="section" padding={5} className="rounded-lg border border-border" aria-labelledby="pipeline-title">
+        <VStack gap={5}>
+          <VStack gap={1.5} maxWidth={680}>
+            <Text type="label" size="2xs" color="accent" weight="bold">
+              AUTONOMOUS ARCHITECTURE
+            </Text>
+            <Heading level={2} id="pipeline-title">
+              How the Cutting Engine Works
+            </Heading>
+            <Text type="supporting" size="base">
+              Every video passes through eight discrete, deterministic processing stages to ensure broadcast-grade vertical exports.
+            </Text>
+          </VStack>
+
+          <Grid columns={{ minWidth: 240, max: 4 }} gap={3}>
+            {PIPELINE_STAGES.map((stage, idx) => (
+              <Card key={stage.id} variant="muted" padding={4}>
+                <VStack gap={2}>
+                  <HStack hAlign="between" vAlign="center">
+                    <Text type="code" size="2xs" color="accent" weight="bold">
+                      {String(idx + 1).padStart(2, "0")}
+                    </Text>
+                    <StatusDot variant="neutral" label={`Stage ${idx + 1}: ${stage.label}`} />
+                  </HStack>
+                  <Heading level={3}>{stage.label}</Heading>
+                  <Text type="supporting" size="2xs">
+                    {STAGE_DESCRIPTIONS[stage.id] || "Automated processing stage."}
+                  </Text>
+                </VStack>
+              </Card>
+            ))}
+          </Grid>
+        </VStack>
+      </Section>
+    </VStack>
   );
 }

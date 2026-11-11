@@ -1,30 +1,51 @@
 "use client";
 
-import React, { useCallback, useState, useMemo, useEffect, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ScheduledPost } from "./page";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { Divider } from "@astryxdesign/core/Divider";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Kbd } from "@astryxdesign/core/Kbd";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { Selector } from "@astryxdesign/core/Selector";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { useToast } from "@astryxdesign/core/Toast";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import { ArrowRightGlyph, FilmGlyph, RefreshGlyph } from "@/components/StudioIcons";
+
+export type ScheduledPost = {
+  id: string;
+  job_id: string;
+  clip_id: string;
+  platform: "youtube" | "instagram";
+  scheduled_at: string;
+  status: "scheduled" | "queued" | "processing" | "published" | "failed" | "cancelled";
+  attempts?: number;
+  last_error?: string | null;
+  permalink?: string | null;
+  metadata?: {
+    youtube?: { title?: string; description?: string; privacy?: string };
+    instagram?: { caption?: string };
+  };
+};
 
 type ViewMode = "month" | "week" | "queue";
 type PlatformFilter = "all" | "youtube" | "instagram";
 type StatusFilter = "all" | ScheduledPost["status"];
 type QueueSort = "asc" | "desc" | "failed_first";
 
-const TZ = "Asia/Kolkata";
-const IST_PARTS_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  timeZone: TZ,
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-const IST_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-IN", {
-  timeZone: TZ,
-  dateStyle: "medium",
-  timeStyle: "short",
-});
 const MONTHS = [
   "January",
   "February",
@@ -39,71 +60,69 @@ const MONTHS = [
   "November",
   "December",
 ];
-const WEEKDAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const STATUS_STYLE: Record<
+const STATUS_META: Record<
   ScheduledPost["status"],
-  { label: string; dot: string; badge: string }
+  {
+    label: string;
+    badge: "info" | "warning" | "success" | "error" | "neutral";
+    dot: "warning" | "success" | "error" | "neutral";
+  }
 > = {
-  published: {
-    label: "PUBLISHED",
-    dot: "bg-emerald-400",
-    badge: "border-emerald-400/40 bg-emerald-950/60 text-emerald-300",
-  },
-  scheduled: {
-    label: "SCHEDULED",
-    dot: "bg-indigo-400",
-    badge: "border-indigo-400/40 bg-indigo-950/60 text-indigo-300",
-  },
-  processing: {
-    label: "PROCESSING",
-    dot: "bg-cyan-400",
-    badge: "border-cyan-400/40 bg-cyan-950/60 text-cyan-300",
-  },
-  queued: {
-    label: "QUEUED",
-    dot: "bg-amber-400",
-    badge: "border-amber-400/40 bg-amber-950/60 text-amber-300",
-  },
-  failed: {
-    label: "FAILED",
-    dot: "bg-red-500",
-    badge: "border-red-500/50 bg-red-950/70 text-red-300",
-  },
-  cancelled: {
-    label: "CANCELLED",
-    dot: "bg-white/30",
-    badge: "border-white/15 bg-white/5 text-muted",
-  },
+  scheduled: { label: "Scheduled", badge: "info", dot: "warning" },
+  queued: { label: "Queued", badge: "warning", dot: "warning" },
+  processing: { label: "Uploading", badge: "warning", dot: "warning" },
+  published: { label: "Published", badge: "success", dot: "success" },
+  failed: { label: "Failed", badge: "error", dot: "error" },
+  cancelled: { label: "Cancelled", badge: "neutral", dot: "neutral" },
 };
 
 function getISTParts(iso: string) {
-  const d = new Date(iso);
-  const parts = IST_PARTS_FORMATTER.formatToParts(d);
-
-  const map: Record<string, string> = {};
-  for (const p of parts) {
-    if (p.type !== "literal") map[p.type] = p.value;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return { year: 1970, month: 0, day: 1, time: "00:00" };
   }
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const pick = (type: string) => parts.find((p) => p.type === type)?.value || "0";
   return {
-    year: Number(map.year),
-    month: Number(map.month) - 1,
-    day: Number(map.day),
-    time: `${map.hour === "24" ? "00" : map.hour}:${map.minute}`,
+    year: Number(pick("year")),
+    month: Math.max(0, Number(pick("month")) - 1),
+    day: Number(pick("day")),
+    time: `${pick("hour")}:${pick("minute")}`,
   };
 }
 
-function displayTime(value: string) {
-  return IST_DISPLAY_FORMATTER.format(new Date(value));
+function displayTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return (
+    new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date) + " IST"
+  );
 }
 
-function getPostTitle(post: ScheduledPost) {
+function getPostTitle(post: ScheduledPost): string {
   return (
     post.metadata?.youtube?.title ||
     post.metadata?.instagram?.caption ||
     post.clip_id
   );
 }
+
+type QueueRow = ScheduledPost & Record<string, unknown>;
 
 export default function CalendarClient({
   posts,
@@ -115,6 +134,7 @@ export default function CalendarClient({
   initialNowIso: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const todayIST = useMemo(() => getISTParts(initialNowIso), [initialNowIso]);
 
   const [viewMode, setViewMode] = useState<ViewMode>("month");
@@ -126,56 +146,39 @@ export default function CalendarClient({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [queueSort, setQueueSort] = useState<QueueSort>("asc");
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [optimisticOverrides, setOptimisticOverrides] = useState<Record<string, Partial<ScheduledPost>>>({});
-
-  const allPosts = useMemo(() => {
-    return posts.map((p) => (optimisticOverrides[p.id] ? { ...p, ...optimisticOverrides[p.id] } : p));
-  }, [posts, optimisticOverrides]);
-
-  async function handleRetry(postId: string) {
-    setRetryingId(postId);
-    try {
-      const res = await fetch("/api/calendar/retry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || "Retry failed");
-        return;
-      }
-      setOptimisticOverrides((prev) => ({
-        ...prev,
-        [postId]: { status: "queued", last_error: null, attempts: 0 },
-      }));
-      router.refresh();
-    } catch {
-      alert("Network error while trying to retry post");
-    } finally {
-      setRetryingId(null);
-    }
-  }
+  const [optimisticOverrides, setOptimisticOverrides] = useState<
+    Record<string, Partial<ScheduledPost>>
+  >({});
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const stepMonth = useCallback((delta: number) => {
-    let nextMonth = cursorMonth + delta;
-    let nextYear = cursorYear;
-    if (nextMonth < 0) {
-      nextMonth = 11;
-      nextYear -= 1;
-    } else if (nextMonth > 11) {
-      nextMonth = 0;
-      nextYear += 1;
-    }
-    setCursorMonth(nextMonth);
-    setCursorYear(nextYear);
-    setSelectedDay(1);
-  }, [cursorMonth, cursorYear]);
+  const allPosts = useMemo(
+    () =>
+      posts.map((p) =>
+        optimisticOverrides[p.id] ? { ...p, ...optimisticOverrides[p.id] } : p,
+      ),
+    [posts, optimisticOverrides],
+  );
+
+  const stepMonth = useCallback(
+    (delta: number) => {
+      let nextMonth = cursorMonth + delta;
+      let nextYear = cursorYear;
+      if (nextMonth < 0) {
+        nextMonth = 11;
+        nextYear -= 1;
+      } else if (nextMonth > 11) {
+        nextMonth = 0;
+        nextYear += 1;
+      }
+      setCursorMonth(nextMonth);
+      setCursorYear(nextYear);
+      setSelectedDay(1);
+    },
+    [cursorMonth, cursorYear],
+  );
 
   const jumpToToday = useCallback(() => {
     setCursorYear(todayIST.year);
@@ -183,7 +186,6 @@ export default function CalendarClient({
     setSelectedDay(todayIST.day);
   }, [todayIST]);
 
-  // Keyboard navigation ([ / ] month step, T today, 1/2/3 view switch, / search, Esc close inspector)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -191,11 +193,12 @@ export default function CalendarClient({
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT")
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
       ) {
-        if (e.key === "Escape") target.blur();
         return;
       }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       if (e.key === "/") {
         e.preventDefault();
@@ -204,7 +207,7 @@ export default function CalendarClient({
         stepMonth(-1);
       } else if (e.key === "]") {
         stepMonth(1);
-      } else if (e.key === "t" || e.key === "T") {
+      } else if (e.key.toLowerCase() === "t") {
         jumpToToday();
       } else if (e.key === "1") {
         setViewMode("month");
@@ -220,69 +223,81 @@ export default function CalendarClient({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [stepMonth, jumpToToday]);
 
-
+  async function handleRetry(postId: string) {
+    setRetryingId(postId);
+    try {
+      const res = await fetch("/api/calendar/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        toast({ body: data.error || "Retry failed", type: "error", uniqueID: "cal-retry-err" });
+        return;
+      }
+      setOptimisticOverrides((prev) => ({
+        ...prev,
+        [postId]: { status: "queued", last_error: null, attempts: 0 },
+      }));
+      toast({ body: "Post re-queued for publishing.", uniqueID: "cal-retry-ok" });
+      router.refresh();
+    } catch {
+      toast({ body: "Network error while retrying post.", type: "error", uniqueID: "cal-retry-net" });
+    } finally {
+      setRetryingId(null);
+    }
+  }
 
   function handleRefresh() {
     setIsRefreshing(true);
     router.refresh();
-    setTimeout(() => setIsRefreshing(false), 450);
+    window.setTimeout(() => setIsRefreshing(false), 500);
   }
 
-  async function copyValue(key: string, text: string) {
+  async function copyValue(label: string, text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setCopiedKey(key);
-      window.setTimeout(() => setCopiedKey(null), 1400);
+      toast({ body: `${label} copied.`, uniqueID: `cal-copy-${label}` });
     } catch {
-      setCopiedKey(null);
+      toast({ body: "Clipboard access denied.", type: "error", uniqueID: "cal-copy-err" });
     }
   }
 
-  // Telemetry counts across all loaded posts
   const stats = useMemo(() => {
-    const counts = {
-      total: allPosts.length,
-      scheduled: 0,
-      processing: 0,
-      published: 0,
-      failed: 0,
-    };
+    const counts = { total: allPosts.length, scheduled: 0, processing: 0, published: 0, failed: 0 };
     for (const p of allPosts) {
-      if (p.status === "scheduled" || p.status === "queued") counts.scheduled++;
-      else if (p.status === "processing") counts.processing++;
-      else if (p.status === "published") counts.published++;
-      else if (p.status === "failed") counts.failed++;
+      if (p.status === "scheduled" || p.status === "queued") counts.scheduled += 1;
+      else if (p.status === "processing") counts.processing += 1;
+      else if (p.status === "published") counts.published += 1;
+      else if (p.status === "failed") counts.failed += 1;
     }
     return counts;
   }, [allPosts]);
 
-  // Filtered posts
   const filteredPosts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return allPosts.filter((post) => {
-      if (platformFilter !== "all" && post.platform !== platformFilter) {
-        return false;
-      }
-      if (statusFilter !== "all" && post.status !== statusFilter) {
-        return false;
-      }
+      if (platformFilter !== "all" && post.platform !== platformFilter) return false;
+      if (statusFilter !== "all" && post.status !== statusFilter) return false;
       if (q) {
         const title = getPostTitle(post).toLowerCase();
-        const job = post.job_id.toLowerCase();
-        const clip = post.clip_id.toLowerCase();
-        return title.includes(q) || job.includes(q) || clip.includes(q);
+        return (
+          title.includes(q) ||
+          post.job_id.toLowerCase().includes(q) ||
+          post.clip_id.toLowerCase().includes(q)
+        );
       }
       return true;
     });
   }, [allPosts, platformFilter, statusFilter, searchQuery]);
 
-  // Calendar Grid cells & day mapping for active month
   const { cells, postsByDay, daysInMonth } = useMemo(() => {
     const firstWeekday = new Date(cursorYear, cursorMonth, 1).getDay();
     const totalDays = new Date(cursorYear, cursorMonth + 1, 0).getDate();
     const gridCells: Array<number | null> = [
       ...Array.from({ length: firstWeekday }, () => null),
-      ...Array.from({ length: totalDays }, (_, index) => index + 1),
+      ...Array.from({ length: totalDays }, (_, i) => i + 1),
     ];
     while (gridCells.length % 7 !== 0) gridCells.push(null);
 
@@ -290,882 +305,622 @@ export default function CalendarClient({
     for (const post of filteredPosts) {
       const parts = getISTParts(post.scheduled_at);
       if (parts.year !== cursorYear || parts.month !== cursorMonth) continue;
-      const existing = map.get(parts.day) || [];
-      existing.push(post);
-      map.set(parts.day, existing);
+      const list = map.get(parts.day) ?? [];
+      list.push(post);
+      map.set(parts.day, list);
     }
-
     return { cells: gridCells, postsByDay: map, daysInMonth: totalDays };
   }, [filteredPosts, cursorYear, cursorMonth]);
 
-  // Active week days around selectedDay
   const activeWeekDays = useMemo(() => {
-    const clampedDay = Math.min(selectedDay, daysInMonth);
-    const date = new Date(cursorYear, cursorMonth, clampedDay);
-    const weekday = date.getDay();
-    const startDay = clampedDay - weekday;
-    return Array.from({ length: 7 }, (_, idx) => {
-      const d = startDay + idx;
-      return d >= 1 && d <= daysInMonth ? d : null;
-    });
-  }, [cursorYear, cursorMonth, selectedDay, daysInMonth]);
+    const firstWeekday = new Date(cursorYear, cursorMonth, 1).getDay();
+    const weekOffset = Math.floor((firstWeekday + selectedDay - 1) / 7) * 7;
+    return cells.slice(weekOffset, weekOffset + 7);
+  }, [cells, cursorYear, cursorMonth, selectedDay]);
 
-  // Sorted queue list
   const sortedQueue = useMemo(() => {
-    const list = [...filteredPosts];
-    list.sort((a, b) => {
-      if (queueSort === "failed_first") {
+    const copy = [...filteredPosts];
+    if (queueSort === "asc") {
+      copy.sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+    } else if (queueSort === "desc") {
+      copy.sort((a, b) => Date.parse(b.scheduled_at) - Date.parse(a.scheduled_at));
+    } else {
+      copy.sort((a, b) => {
         if (a.status === "failed" && b.status !== "failed") return -1;
         if (b.status === "failed" && a.status !== "failed") return 1;
-      }
-      const tA = new Date(a.scheduled_at).getTime();
-      const tB = new Date(b.scheduled_at).getTime();
-      return queueSort === "desc" ? tB - tA : tA - tB;
-    });
-    return list;
+        return Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at);
+      });
+    }
+    return copy;
   }, [filteredPosts, queueSort]);
 
   const selectedDayPosts = useMemo(
-    () => postsByDay.get(selectedDay) || [],
+    () => postsByDay.get(selectedDay) ?? [],
     [postsByDay, selectedDay],
   );
 
   const selectedPost = useMemo(
-    () => allPosts.find((p) => p.id === selectedPostId) || null,
+    () => (selectedPostId ? allPosts.find((p) => p.id === selectedPostId) ?? null : null),
     [allPosts, selectedPostId],
   );
 
-  return (
-    <main className="calendar-workspace mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
-      {/* Top Breadcrumb + Telemetry Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
-        <nav
-          aria-label="Breadcrumb"
-          className="flex items-center gap-2 font-mono text-xs font-semibold text-muted"
-        >
-          <Link href="/" className="transition hover:text-volt">
-            STUDIO
-          </Link>
-          <span aria-hidden="true">/</span>
-          <span aria-current="page" className="text-ink">
-            CALENDAR
-          </span>
-          <span className="ml-2 border border-white/12 bg-panel px-2 py-0.5 text-[10px] font-bold tracking-widest text-ice">
-            IST (UTC+05:30)
-          </span>
-        </nav>
+  const queueColumns: TableColumn<QueueRow>[] = [
+    {
+      key: "title",
+      header: "Post",
+      width: proportional(2, { minWidth: 200 }),
+      renderCell: (post) => (
+        <VStack gap={0.5}>
+          <Text type="body" weight="semibold" maxLines={1}>
+            {getPostTitle(post)}
+          </Text>
+          <Text type="code" color="secondary">
+            {post.platform.toUpperCase()} · {post.clip_id}
+          </Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "scheduled",
+      header: "Scheduled (IST)",
+      width: pixel(180),
+      renderCell: (post) => (
+        <Text type="supporting" hasTabularNumbers>
+          {displayTime(post.scheduled_at)}
+        </Text>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: pixel(120),
+      renderCell: (post) => {
+        const meta = STATUS_META[post.status];
+        return (
+          <HStack gap={1.5} align="center">
+            <StatusDot
+              variant={meta.dot}
+              label={meta.label}
+              isPulsing={post.status === "processing"}
+            />
+            <Badge label={meta.label} variant={meta.badge} />
+          </HStack>
+        );
+      },
+    },
+    {
+      key: "inspect",
+      header: "Action",
+      width: pixel(120),
+      renderCell: (post) => (
+        <Button
+          label="Inspect"
+          variant={selectedPostId === post.id ? "primary" : "secondary"}
+          size="sm"
+          onClick={() => {
+            const parts = getISTParts(post.scheduled_at);
+            setCursorYear(parts.year);
+            setCursorMonth(parts.month);
+            setSelectedDay(parts.day);
+            setSelectedPostId(post.id);
+          }}
+        />
+      ),
+    },
+  ];
 
-        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
-          <button
-            type="button"
-            onClick={() => setStatusFilter("all")}
-            className={`border px-2.5 py-1 font-bold uppercase transition ${
-              statusFilter === "all"
-                ? "border-volt bg-volt text-[#080b10]"
-                : "border-white/12 bg-panel text-ink hover:border-white/30"
-            }`}
-          >
-            TOTAL: {stats.total}
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              setStatusFilter(statusFilter === "scheduled" ? "all" : "scheduled")
-            }
-            className={`border px-2.5 py-1 font-bold uppercase transition ${
-              statusFilter === "scheduled"
-                ? "border-volt bg-volt text-[#080b10]"
-                : "border-white/12 bg-panel text-volt hover:border-volt/50"
-            }`}
-          >
-            SCHED: {stats.scheduled}
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              setStatusFilter(statusFilter === "published" ? "all" : "published")
-            }
-            className={`border px-2.5 py-1 font-bold uppercase transition ${
-              statusFilter === "published"
-                ? "border-emerald-400 bg-emerald-400 text-[#080b10]"
-                : "border-white/12 bg-panel text-emerald-300 hover:border-emerald-400/50"
-            }`}
-          >
-            LIVE: {stats.published}
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              setStatusFilter(statusFilter === "failed" ? "all" : "failed")
-            }
-            className={`border px-2.5 py-1 font-bold uppercase transition ${
-              statusFilter === "failed"
-                ? "border-red-500 bg-red-500 text-[#080b10]"
-                : stats.failed > 0
-                  ? "border-red-500/50 bg-red-950/60 text-red-300"
-                  : "border-white/12 bg-panel text-muted"
-            }`}
-          >
-            ERR: {stats.failed}
-          </button>
-        </div>
-      </div>
-
-      {/* Main Header */}
-      <header className="calendar-heading flex flex-col justify-between gap-5 border-b border-white/10 pb-6 lg:flex-row lg:items-end">
-        <div className="max-w-2xl">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[.2em] text-ice">
-            CHOP SHOP / DISTRIBUTION PIPELINE
-          </p>
-          <h1 className="display mt-2 text-5xl tracking-tight text-ink md:text-7xl">
-            Publishing calendar<span className="text-volt">.</span>
-          </h1>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
-            Cloud-scheduled dispatch matrix. Your workstation can go offline once
-            the rendered clip finishes uploading.
-          </p>
-        </div>
-
-        {/* Navigation & Action Controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center border border-white/12 bg-panel">
-            <button
-              type="button"
-              onClick={() => stepMonth(-1)}
-              title="Previous Month ([)"
-              className="px-3 py-2 font-mono text-xs font-bold text-ink transition hover:bg-panel-raised hover:text-volt"
-            >
-              &larr;
-            </button>
-            <span className="min-w-[155px] border-x border-white/10 px-4 py-2 text-center font-mono text-xs font-extrabold uppercase tracking-wider text-ink">
-              {MONTHS[cursorMonth]} {cursorYear}
-            </span>
-            <button
-              type="button"
-              onClick={() => stepMonth(1)}
-              title="Next Month (])"
-              className="px-3 py-2 font-mono text-xs font-bold text-ink transition hover:bg-panel-raised hover:text-volt"
-            >
-              &rarr;
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={jumpToToday}
-            title="Jump to Today (T)"
-            className="min-h-9 border border-white/12 bg-panel px-3.5 py-2 font-mono text-xs font-bold uppercase text-ink transition hover:border-volt hover:text-volt"
-          >
-            Today
-          </button>
-
-          <button
-            type="button"
+  if (error) {
+    return (
+      <Banner
+        status="error"
+        title="Cloud publishing configuration error"
+        description={`${error} Verify SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and CLOUD_PUBLISHING_ENABLED="true".`}
+        endContent={
+          <Button
+            label="Retry connection"
+            variant="secondary"
+            size="sm"
             onClick={handleRefresh}
-            className="min-h-9 border border-white/12 bg-panel px-3.5 py-2 font-mono text-xs font-bold uppercase text-ink transition hover:border-ice hover:text-ice"
-          >
-            {isRefreshing ? "Syncing..." : "Refresh"}
-          </button>
+          />
+        }
+      />
+    );
+  }
 
-          <Link
-            href="/library"
-            className="inline-flex min-h-9 items-center bg-volt px-4 py-2 font-mono text-xs font-extrabold uppercase tracking-wider text-[#080b10] transition hover:bg-white"
-          >
-            Open Library &rarr;
-          </Link>
-        </div>
-      </header>
-
-      {error ? (
-        <div className="border-2 border-red-500/60 bg-panel p-6">
-          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-            <div>
-              <p className="font-mono text-[10px] font-extrabold uppercase tracking-widest text-red-400">
-                CLOUD_PUBLISHING_CONFIG_ERROR
-              </p>
-              <p className="mt-2 text-sm font-semibold text-ink">{error}</p>
-              <p className="mt-1 font-mono text-xs text-muted">
-                Verify SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and
-                CLOUD_PUBLISHING_ENABLED=&quot;true&quot; in your environment.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              className="self-start border border-red-400/50 bg-red-950/50 px-4 py-2 font-mono text-xs font-bold uppercase text-red-200 transition hover:bg-red-900/60 md:self-center"
+  return (
+    <VStack gap={6}>
+      {/* Telemetry KPI Strip */}
+      <Grid columns={{ minWidth: 160, max: 4 }} gap={3}>
+        <Card padding={4} variant="muted">
+          <VStack gap={1}>
+            <Text type="label" color="secondary">
+              SCHEDULED / QUEUED
+            </Text>
+            <Text type="display-3" hasTabularNumbers>
+              {stats.scheduled}
+            </Text>
+          </VStack>
+        </Card>
+        <Card padding={4} variant="muted">
+          <VStack gap={1}>
+            <Text type="label" color="secondary">
+              PROCESSING
+            </Text>
+            <Text type="display-3" hasTabularNumbers>
+              {stats.processing}
+            </Text>
+          </VStack>
+        </Card>
+        <Card padding={4} variant="muted">
+          <VStack gap={1}>
+            <Text type="label" color="secondary">
+              PUBLISHED
+            </Text>
+            <Text type="display-3" hasTabularNumbers>
+              {stats.published}
+            </Text>
+          </VStack>
+        </Card>
+        <Card padding={4} variant="muted">
+          <VStack gap={1}>
+            <HStack gap={1.5} align="center">
+              {stats.failed > 0 ? <StatusDot variant="error" label="Failed dispatches" /> : null}
+              <Text type="label" color="secondary">
+                FAILED
+              </Text>
+            </HStack>
+            <Text
+              type="display-3"
+              hasTabularNumbers
+              color={stats.failed > 0 ? "accent" : "inherit"}
             >
-              Retry Connection
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Command & Filter Bar */}
-          <section className="calendar-controls flex flex-col justify-between gap-3 border border-white/12 bg-panel p-3 lg:flex-row lg:items-center">
-            {/* View Mode Switcher */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex border border-white/12 bg-[#080b10] p-0.5 font-mono text-xs">
-                {(
-                  [
-                    { id: "month", label: "1 // MONTH GRID" },
-                    { id: "week", label: "2 // WEEK MATRIX" },
-                    { id: "queue", label: "3 // QUEUE TABLE" },
-                  ] as const
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setViewMode(tab.id)}
-                    className={`px-3 py-1.5 font-bold uppercase transition ${
-                      viewMode === tab.id
-                        ? "bg-volt text-[#080b10]"
-                        : "text-muted hover:text-ink"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              {stats.failed}
+            </Text>
+          </VStack>
+        </Card>
+      </Grid>
 
-              {/* Platform Filter */}
-              <div className="inline-flex border border-white/12 bg-[#080b10] p-0.5 font-mono text-xs">
-                {(["all", "youtube", "instagram"] as const).map((plat) => (
-                  <button
-                    key={plat}
-                    type="button"
-                    onClick={() => setPlatformFilter(plat)}
-                    className={`px-2.5 py-1.5 font-bold uppercase transition ${
-                      platformFilter === plat
-                        ? "bg-panel-raised text-volt"
-                        : "text-muted hover:text-ink"
-                    }`}
-                  >
-                    {plat === "all" ? "ALL PLATFORMS" : plat}
-                  </button>
-                ))}
-              </div>
-            </div>
+      {/* Command & Filter Bar */}
+      <Card padding={4} variant="default">
+        <VStack gap={4}>
+          <HStack justify="between" align="center" wrap="wrap" gap={3}>
+            <HStack gap={2} align="center" wrap="wrap">
+              <Button label="←" variant="secondary" size="sm" onClick={() => stepMonth(-1)} />
+              <Heading level={2} type="display-3">
+                {MONTHS[cursorMonth]} {cursorYear}
+              </Heading>
+              <Button label="→" variant="secondary" size="sm" onClick={() => stepMonth(1)} />
+              <Button label="Today" variant="ghost" size="sm" onClick={jumpToToday} />
+            </HStack>
 
-            {/* Search + Status Select */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 sm:w-64 sm:flex-initial">
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter title, job_id, clip_id (Press /)"
-                  className="w-full border border-white/12 bg-[#080b10] px-3 py-1.5 font-mono text-xs text-ink placeholder:text-muted focus:border-volt focus:outline-none"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] font-bold text-muted hover:text-ink"
-                  >
-                    CLR
-                  </button>
-                )}
-              </div>
+            <HStack gap={2} align="center" wrap="wrap">
+              <Button
+                label={isRefreshing ? "Syncing…" : "Refresh"}
+                variant="secondary"
+                size="sm"
+                isLoading={isRefreshing}
+                icon={<Icon icon={RefreshGlyph} />}
+                onClick={handleRefresh}
+              />
+              <Button
+                label="Open library"
+                href="/library"
+                variant="secondary"
+                size="sm"
+                endContent={<Icon icon={ArrowRightGlyph} size="sm" />}
+              />
+            </HStack>
+          </HStack>
 
-              <select
-                aria-label="Filter by status"
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as StatusFilter)
-                }
-                className="border border-white/12 bg-[#080b10] px-3 py-1.5 font-mono text-xs font-bold uppercase text-ink focus:border-volt focus:outline-none"
-              >
-                <option value="all">STATUS: ALL</option>
-                <option value="scheduled">SCHEDULED</option>
-                <option value="queued">QUEUED</option>
-                <option value="processing">PROCESSING</option>
-                <option value="published">PUBLISHED</option>
-                <option value="failed">FAILED</option>
-                <option value="cancelled">CANCELLED</option>
-              </select>
-            </div>
-          </section>
+          <Divider />
 
-          {/* Main Workspace + Right Inspector Split */}
-          <div className="calendar-layout grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-            {/* Primary Calendar or Queue View */}
-            <div className="flex flex-col gap-6">
-              {viewMode === "month" && (
-                <section className="overflow-hidden border border-white/12 bg-panel">
-                  <div className="grid grid-cols-7 border-b border-white/10 bg-panel-raised">
-                    {WEEKDAYS.map((day) => (
-                      <div
-                        key={day}
-                        className="border-r border-white/8 px-2 py-2.5 text-center font-mono text-[10px] font-bold uppercase tracking-widest text-muted last:border-r-0"
-                      >
-                        {day}
-                      </div>
+          <Grid columns={{ minWidth: 220, max: 4 }} gap={3} align="end">
+            <SegmentedControl
+              label="Calendar view"
+              value={viewMode}
+              onChange={(v) => setViewMode(v as ViewMode)}
+              layout="fill"
+            >
+              <SegmentedControlItem value="month" label="Month" />
+              <SegmentedControlItem value="week" label="Week" />
+              <SegmentedControlItem value="queue" label="Queue" />
+            </SegmentedControl>
+
+            <SegmentedControl
+              label="Platform"
+              value={platformFilter}
+              onChange={(v) => setPlatformFilter(v as PlatformFilter)}
+              layout="fill"
+            >
+              <SegmentedControlItem value="all" label="All" />
+              <SegmentedControlItem value="youtube" label="YouTube" />
+              <SegmentedControlItem value="instagram" label="Instagram" />
+            </SegmentedControl>
+
+            <Selector
+              label="Status"
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v as StatusFilter)}
+              options={[
+                { value: "all", label: "All statuses" },
+                { value: "scheduled", label: "Scheduled" },
+                { value: "queued", label: "Queued" },
+                { value: "processing", label: "Uploading" },
+                { value: "published", label: "Published" },
+                { value: "failed", label: "Failed" },
+                { value: "cancelled", label: "Cancelled" },
+              ]}
+              width="100%"
+            />
+
+            <TextInput
+              ref={searchInputRef}
+              type="search"
+              label="Search posts"
+              placeholder="Title, job ID, clip ID… (/)"
+              value={searchQuery}
+              onChange={setSearchQuery}
+              hasClear
+              width="100%"
+            />
+          </Grid>
+        </VStack>
+      </Card>
+
+      {/* Main Split: Calendar/Queue + Inspector */}
+      <HStack gap={6} align="start" wrap="wrap">
+        <VStack gap={6} className="min-w-0 flex-[2_1_580px]">
+            {viewMode === "month" ? (
+              <Card padding={4} variant="default">
+                <VStack className="overflow-x-auto">
+                <VStack gap={3} className="min-w-[600px]">
+                  <Grid columns={7} gap={1.5}>
+                    {WEEKDAYS.map((wd) => (
+                      <Text key={wd} type="label" color="secondary" className="text-center">
+                        {wd}
+                      </Text>
                     ))}
-                  </div>
+                  </Grid>
 
-                  <div className="grid grid-cols-7">
+                  <Grid columns={7} gap={1.5}>
                     {cells.map((day, index) => {
-                      const dayPosts = day ? postsByDay.get(day) || [] : [];
+                      if (!day) {
+                        return <Card key={`empty-${index}`} padding={2} variant="muted" height={96} />;
+                      }
+                      const dayPosts = postsByDay.get(day) ?? [];
                       const isToday =
                         day === todayIST.day &&
                         cursorMonth === todayIST.month &&
                         cursorYear === todayIST.year;
-                      const isSelected = day !== null && day === selectedDay;
-                      const hasFailed = dayPosts.some(
-                        (p) => p.status === "failed",
-                      );
+                      const isSelected = day === selectedDay;
+                      const hasFailed = dayPosts.some((p) => p.status === "failed");
 
                       return (
-                        <div
-                          key={index}
+                        <ClickableCard
+                          key={`day-${day}`}
+                          label={`${MONTHS[cursorMonth]} ${day}`}
                           onClick={() => {
-                            if (day) {
-                              setSelectedDay(day);
-                              setSelectedPostId(null);
-                            }
+                            setSelectedDay(day);
+                            setSelectedPostId(null);
                           }}
-                          className={`min-h-32 border-b border-r border-white/8 p-2 transition md:min-h-40 md:p-2.5 ${
-                            day
-                              ? "cursor-pointer hover:bg-panel-raised/60"
-                              : "bg-[#080b10]/60"
-                          } ${
-                            isSelected
-                              ? "ring-2 ring-inset ring-volt bg-panel-raised/80"
-                              : ""
-                          }`}
+                          variant={isSelected ? "default" : "muted"}
+                          padding={2}
+                          height={96}
                         >
-                          {day ? (
-                            <div className="flex h-full flex-col justify-between">
-                              <div>
-                                <div className="mb-2 flex items-center justify-between">
-                                  <span
-                                    className={
-                                      isToday
-                                        ? "flex h-6 w-6 items-center justify-center bg-volt font-mono text-xs font-black text-[#080b10]"
-                                        : "font-mono text-xs font-bold text-ink"
-                                    }
-                                  >
-                                    {String(day).padStart(2, "0")}
-                                  </span>
-                                  {dayPosts.length > 0 && (
-                                    <span
-                                      className={`px-1.5 py-0.5 font-mono text-[9px] font-extrabold uppercase ${
-                                        hasFailed
-                                          ? "bg-red-500/20 text-red-300"
-                                          : "bg-white/5 text-muted"
-                                      }`}
-                                    >
-                                      {dayPosts.length}{" "}
-                                      {dayPosts.length === 1 ? "POST" : "POSTS"}
-                                    </span>
-                                  )}
-                                </div>
+                          <VStack gap={1.5} height="100%" justify="between">
+                            <HStack justify="between" align="center">
+                              <Text
+                                type="code"
+                                weight="bold"
+                                color={isToday ? "accent" : "inherit"}
+                              >
+                                {String(day).padStart(2, "0")}
+                              </Text>
+                              {hasFailed ? (
+                                <StatusDot variant="error" label="Failed dispatch" />
+                              ) : dayPosts.length > 0 ? (
+                                <Badge label={dayPosts.length} variant="info" />
+                              ) : null}
+                            </HStack>
 
-                                <div className="flex flex-col gap-1.5">
-                                  {dayPosts.slice(0, 3).map((post) => {
-                                    const st = STATUS_STYLE[post.status];
-                                    const isPostSelected =
-                                      selectedPostId === post.id;
-                                    return (
-                                      <button
-                                        key={post.id}
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedDay(day);
-                                          setSelectedPostId(post.id);
-                                        }}
-                                        className={`w-full border px-2 py-1.5 text-left transition ${
-                                          isPostSelected
-                                            ? "border-volt bg-[#080b10]"
-                                            : "border-white/10 bg-panel-raised hover:border-white/30"
-                                        }`}
-                                      >
-                                        <div className="flex items-center justify-between gap-1 font-mono text-[9px]">
-                                          <span
-                                            className={`font-extrabold uppercase ${
-                                              post.platform === "youtube"
-                                                ? "text-volt"
-                                                : "text-ice"
-                                            }`}
-                                          >
-                                            {post.platform === "youtube"
-                                              ? "YT"
-                                              : "IG"}
-                                          </span>
-                                          <span className="text-muted">
-                                            {getISTParts(post.scheduled_at).time}
-                                          </span>
-                                        </div>
-                                        <p className="mt-1 line-clamp-1 text-[11px] font-semibold text-ink">
-                                          {getPostTitle(post)}
-                                        </p>
-                                        <div className="mt-1 flex items-center gap-1.5">
-                                          <span
-                                            className={`h-1.5 w-1.5 ${st.dot}`}
-                                          />
-                                          <span className="font-mono text-[8px] font-bold uppercase tracking-wider text-muted">
-                                            {st.label}
-                                          </span>
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                            {dayPosts.slice(0, 2).map((p) => (
+                              <Text key={p.id} type="supporting" maxLines={1}>
+                                {getISTParts(p.scheduled_at).time} · {getPostTitle(p)}
+                              </Text>
+                            ))}
 
-                              {dayPosts.length > 3 && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedDay(day);
-                                    setSelectedPostId(null);
-                                  }}
-                                  className="mt-1.5 w-full border border-volt/30 bg-volt/10 py-1 text-center font-mono text-[9px] font-extrabold uppercase tracking-wider text-volt transition hover:bg-volt hover:text-[#080b10]"
-                                >
-                                  +{dayPosts.length - 3} MORE // INSPECT DAY
-                                </button>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
+                            {dayPosts.length > 2 ? (
+                              <Text type="code" color="accent">
+                                +{dayPosts.length - 2} more
+                              </Text>
+                            ) : null}
+                          </VStack>
+                        </ClickableCard>
                       );
                     })}
-                  </div>
-                </section>
-              )}
+                  </Grid>
+                </VStack>
+                </VStack>
+              </Card>
+            ) : null}
 
-              {viewMode === "week" && (
-                <section className="overflow-hidden border border-white/12 bg-panel">
-                  <div className="flex items-center justify-between border-b border-white/10 bg-panel-raised px-4 py-3">
-                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-ink">
-                      7-DAY DISPATCH MATRIX // WEEK OF {MONTHS[cursorMonth].toUpperCase()}{" "}
-                      {selectedDay}
-                    </span>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedDay(Math.max(1, selectedDay - 7))
-                        }
-                        className="border border-white/12 bg-panel px-2.5 py-1 font-mono text-xs font-bold text-ink hover:border-volt"
-                      >
-                        &larr; PREV WK
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedDay(Math.min(daysInMonth, selectedDay + 7))
-                        }
-                        className="border border-white/12 bg-panel px-2.5 py-1 font-mono text-xs font-bold text-ink hover:border-volt"
-                      >
-                        NEXT WK &rarr;
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 divide-y divide-white/10 md:grid-cols-7 md:divide-x md:divide-y-0">
+            {viewMode === "week" ? (
+              <Card padding={4} variant="default">
+                <VStack gap={4}>
+                  <HStack justify="between" align="center" wrap="wrap" gap={2}>
+                    <Text type="label" color="accent">
+                      WEEK OF {MONTHS[cursorMonth].toUpperCase()} {selectedDay}
+                    </Text>
+                    <HStack gap={2}>
+                      <Button
+                        label="← Prev week"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSelectedDay(Math.max(1, selectedDay - 7))}
+                      />
+                      <Button
+                        label="Next week →"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSelectedDay(Math.min(daysInMonth, selectedDay + 7))}
+                      />
+                    </HStack>
+                  </HStack>
+
+                  <Grid columns={{ minWidth: 140, max: 7 }} gap={2}>
                     {activeWeekDays.map((day, idx) => {
-                      const dayPosts = day ? postsByDay.get(day) || [] : [];
+                      const dayPosts = day ? postsByDay.get(day) ?? [] : [];
                       const isSelected = day !== null && day === selectedDay;
                       return (
-                        <div
+                        <Card
                           key={idx}
-                          onClick={() => day && setSelectedDay(day)}
-                          className={`min-h-[340px] p-3 ${
-                            isSelected ? "bg-panel-raised/70" : ""
-                          }`}
+                          padding={3}
+                          variant={isSelected ? "default" : "muted"}
                         >
-                          <div className="mb-3 flex items-center justify-between border-b border-white/10 pb-2">
-                            <span className="font-mono text-[10px] font-bold text-muted">
-                              {WEEKDAYS[idx]}
-                            </span>
-                            <span
-                              className={`font-mono text-xs font-extrabold ${
-                                isSelected ? "text-volt" : "text-ink"
-                              }`}
-                            >
-                              {day ? String(day).padStart(2, "0") : "--"}
-                            </span>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            {dayPosts.map((post) => {
-                              const st = STATUS_STYLE[post.status];
-                              return (
-                                <button
+                          <VStack gap={2}>
+                            <HStack justify="between" align="center">
+                              <Text type="label" color="secondary">
+                                {WEEKDAYS[idx]}
+                              </Text>
+                              <Text type="code" color={isSelected ? "accent" : "inherit"}>
+                                {day ? String(day).padStart(2, "0") : "--"}
+                              </Text>
+                            </HStack>
+                            {dayPosts.length === 0 ? (
+                              <Text type="supporting" color="secondary">
+                                Empty
+                              </Text>
+                            ) : (
+                              dayPosts.map((post) => (
+                                <ClickableCard
                                   key={post.id}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
+                                  label={getPostTitle(post)}
+                                  onClick={() => {
                                     if (day) setSelectedDay(day);
                                     setSelectedPostId(post.id);
                                   }}
-                                  className="border border-white/12 bg-panel-raised p-2 text-left transition hover:border-volt"
+                                  padding={2}
+                                  variant="default"
                                 >
-                                  <div className="flex items-center justify-between font-mono text-[9px]">
-                                    <span className="font-extrabold uppercase text-volt">
-                                      {post.platform}
-                                    </span>
-                                    <span className="text-muted">
-                                      {getISTParts(post.scheduled_at).time}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1 line-clamp-2 text-xs font-semibold text-ink">
-                                    {getPostTitle(post)}
-                                  </p>
-                                  <span
-                                    className={`mt-2 inline-block border px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase ${st.badge}`}
-                                  >
-                                    {st.label}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
+                                  <VStack gap={1}>
+                                    <HStack justify="between" align="center">
+                                      <Badge label={post.platform} variant="info" />
+                                      <Text type="code" color="secondary">
+                                        {getISTParts(post.scheduled_at).time}
+                                      </Text>
+                                    </HStack>
+                                    <Text type="supporting" maxLines={2}>
+                                      {getPostTitle(post)}
+                                    </Text>
+                                  </VStack>
+                                </ClickableCard>
+                              ))
+                            )}
+                          </VStack>
+                        </Card>
                       );
                     })}
-                  </div>
-                </section>
+                  </Grid>
+                </VStack>
+              </Card>
+            ) : null}
+
+            {/* Upcoming Queue Table */}
+            <VStack gap={3}>
+              <HStack justify="between" align="center" wrap="wrap" gap={2}>
+                <HStack gap={2} align="center">
+                  <Heading level={3} type="display-3">
+                    Upcoming queue
+                  </Heading>
+                  <Badge label={sortedQueue.length} variant="neutral" />
+                </HStack>
+
+                <SegmentedControl
+                  label="Sort queue"
+                  value={queueSort}
+                  onChange={(v) => setQueueSort(v as QueueSort)}
+                  size="sm"
+                >
+                  <SegmentedControlItem value="asc" label="Earliest" />
+                  <SegmentedControlItem value="desc" label="Latest" />
+                  <SegmentedControlItem value="failed_first" label="Errors first" />
+                </SegmentedControl>
+              </HStack>
+
+              {sortedQueue.length === 0 ? (
+                <EmptyState
+                  icon={<Icon icon={FilmGlyph} />}
+                  title="No matching scheduled posts"
+                  description="Open any rendered clip in your library or use the scheduler above to queue a post."
+                  actions={<Button label="Open library" href="/library" variant="secondary" />}
+                />
+              ) : (
+                <Card padding={0} variant="default">
+                  <Table<QueueRow>
+                    data={sortedQueue as QueueRow[]}
+                    columns={queueColumns}
+                    idKey="id"
+                    density="balanced"
+                    dividers="rows"
+                    hasHover
+                  />
+                </Card>
               )}
+            </VStack>
+        </VStack>
 
-              {/* Upcoming Queue Table (Always accessible in Queue mode or below calendar) */}
-              <section className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <h2 className="display text-2xl text-ink md:text-3xl">
-                      Upcoming queue
-                    </h2>
-                    <span className="border border-white/12 bg-panel px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-muted">
-                      {sortedQueue.length} SHOWN
-                    </span>
-                  </div>
+        {/* Right Inspector Drawer */}
+        <VStack className="w-full min-w-0 flex-[1_1_320px] lg:sticky lg:top-20">
+        <Card padding={5} variant="muted">
+          <VStack gap={4}>
+            <HStack justify="between" align="center">
+              <VStack gap={0.5}>
+                <Text type="label" color="accent">
+                  {selectedPost ? "POST TELEMETRY" : "DAILY MANIFEST"}
+                </Text>
+                <Heading level={3} type="display-3">
+                  {selectedPost
+                    ? `Post ${selectedPost.id.slice(0, 8)}`
+                    : `${String(selectedDay).padStart(2, "0")} ${MONTHS[cursorMonth]} ${cursorYear}`}
+                </Heading>
+              </VStack>
 
-                  <div className="flex items-center gap-1 font-mono text-[10px]">
-                    <span className="mr-1 text-muted">SORT:</span>
-                    {(
-                      [
-                        { id: "asc", label: "TIME ASC" },
-                        { id: "desc", label: "TIME DESC" },
-                        { id: "failed_first", label: "ERRORS FIRST" },
-                      ] as const
-                    ).map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => setQueueSort(s.id)}
-                        className={`border px-2 py-1 font-bold uppercase transition ${
-                          queueSort === s.id
-                            ? "border-volt bg-volt text-[#080b10]"
-                            : "border-white/12 bg-panel text-muted hover:text-ink"
-                        }`}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              {selectedPost ? (
+                <Button
+                  label="← Day list"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedPostId(null)}
+                />
+              ) : null}
+            </HStack>
 
-                {sortedQueue.length === 0 ? (
-                  <div className="border border-white/12 bg-panel p-6 text-sm text-muted">
-                    No matching scheduled posts. Open a rendered clip in your{" "}
-                    <Link href="/library" className="text-volt underline">
-                      library
-                    </Link>{" "}
-                    and use Schedule, or clear active filters.
-                  </div>
-                ) : (
-                  <div className="overflow-hidden border border-white/12 bg-panel">
-                    {sortedQueue.map((post) => {
-                      const st = STATUS_STYLE[post.status];
-                      const isSelected = selectedPostId === post.id;
-                      return (
-                        <article
-                          key={post.id}
-                          onClick={() => {
-                            const parts = getISTParts(post.scheduled_at);
-                            setCursorYear(parts.year);
-                            setCursorMonth(parts.month);
-                            setSelectedDay(parts.day);
-                            setSelectedPostId(post.id);
-                          }}
-                          className={`grid cursor-pointer gap-3 border-b border-white/8 p-4 transition last:border-b-0 md:grid-cols-[minmax(0,1fr)_190px_160px] md:items-center ${
-                            isSelected
-                              ? "bg-panel-raised ring-1 ring-inset ring-volt"
-                              : "hover:bg-panel-raised/60"
-                          }`}
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`font-mono text-[10px] font-extrabold uppercase ${
-                                  post.platform === "youtube"
-                                    ? "text-volt"
-                                    : "text-ice"
-                                }`}
-                              >
-                                [{post.platform}]
-                              </span>
-                              <p className="truncate text-sm font-bold text-ink">
-                                {getPostTitle(post)}
-                              </p>
-                            </div>
-                            <p className="mt-1 font-mono text-[11px] text-muted">
-                              JOB: {post.job_id} / CLIP: {post.clip_id}
-                            </p>
-                          </div>
+            <Divider />
 
-                          <div className="font-mono text-xs text-muted">
-                            {displayTime(post.scheduled_at)}
-                          </div>
+            {selectedPost ? (
+              <VStack gap={4}>
+                <HStack justify="between" align="center">
+                  <Badge label={selectedPost.platform.toUpperCase()} variant="info" />
+                  <Badge
+                    label={STATUS_META[selectedPost.status].label}
+                    variant={STATUS_META[selectedPost.status].badge}
+                  />
+                </HStack>
 
-                          <div className="flex items-center justify-start gap-2 md:justify-end">
-                            <span
-                              className={`border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide ${st.badge}`}
-                            >
-                              {st.label}
-                            </span>
-                          </div>
-
-                          {post.last_error ? (
-                            <p className="border-l-2 border-red-500 bg-red-950/40 px-3 py-1.5 font-mono text-xs text-red-300 md:col-span-3">
-                              ERR: {post.last_error}
-                            </p>
-                          ) : null}
-
-                          {post.permalink ? (
-                            <div className="md:col-span-3">
-                              <a
-                                href={post.permalink}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-block font-mono text-xs font-bold text-ice underline hover:text-volt"
-                              >
-                                OPEN PUBLISHED PERMALINK &nearr;
-                              </a>
-                            </div>
-                          ) : null}
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-            </div>
-
-            {/* Right Docked Inspector Drawer (Solves the +N more overflow & metadata inspection) */}
-            <aside className="flex flex-col border border-white/12 bg-panel xl:sticky xl:top-6 xl:h-[calc(100vh-3rem)]">
-              <div className="flex items-center justify-between border-b border-white/10 bg-panel-raised px-4 py-3">
-                <div>
-                  <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-ice">
-                    {selectedPost ? "POST TELEMETRY" : "DAILY MANIFEST"}
-                  </p>
-                  <h3 className="font-mono text-sm font-extrabold uppercase text-ink">
-                    {selectedPost
-                      ? `ID // ${selectedPost.id.slice(0, 12)}`
-                      : `${ String(selectedDay).padStart(2, "0")} ${MONTHS[cursorMonth]} ${cursorYear}`}
-                  </h3>
-                </div>
-                {selectedPost && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPostId(null)}
-                    className="border border-white/15 bg-panel px-2.5 py-1 font-mono text-[10px] font-bold uppercase text-ink hover:border-volt hover:text-volt"
+                <MetadataList title="Dispatch details" orientation="vertical" label={{ position: "start" }}>
+                  <MetadataListItem label="Scheduled (IST)">
+                    <Text type="supporting">{displayTime(selectedPost.scheduled_at)}</Text>
+                  </MetadataListItem>
+                  <MetadataListItem
+                    label={selectedPost.platform === "youtube" ? "YouTube title" : "Instagram caption"}
                   >
-                    &larr; DAY LIST
-                  </button>
-                )}
-              </div>
+                    <Text type="supporting">{getPostTitle(selectedPost)}</Text>
+                  </MetadataListItem>
+                  <MetadataListItem label="Job ID">
+                    <HStack gap={2} align="center" justify="between" width="100%">
+                      <Text type="code" maxLines={1}>
+                        {selectedPost.job_id}
+                      </Text>
+                      <Button
+                        label="Copy"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void copyValue("Job ID", selectedPost.job_id)}
+                      />
+                    </HStack>
+                  </MetadataListItem>
+                  <MetadataListItem label="Clip ID">
+                    <HStack gap={2} align="center" justify="between" width="100%">
+                      <Text type="code" maxLines={1}>
+                        {selectedPost.clip_id}
+                      </Text>
+                      <Button
+                        label="Copy"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void copyValue("Clip ID", selectedPost.clip_id)}
+                      />
+                    </HStack>
+                  </MetadataListItem>
+                </MetadataList>
 
-              <div className="flex-1 overflow-y-auto p-4">
-                {selectedPost ? (
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                      <span
-                        className={`font-mono text-xs font-extrabold uppercase ${
-                          selectedPost.platform === "youtube"
-                            ? "text-volt"
-                            : "text-ice"
-                        }`}
-                      >
-                        PLATFORM // {selectedPost.platform}
-                      </span>
-                      <span
-                        className={`border px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${
-                          STATUS_STYLE[selectedPost.status].badge
-                        }`}
-                      >
-                        {STATUS_STYLE[selectedPost.status].label}
-                      </span>
-                    </div>
+                {selectedPost.last_error ? (
+                  <Banner
+                    status="error"
+                    title="Pipeline error"
+                    description={selectedPost.last_error}
+                  />
+                ) : null}
 
-                    <div>
-                      <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">
-                        SCHEDULED AT (IST)
-                      </p>
-                      <p className="mt-1 font-mono text-sm font-bold text-ink">
-                        {displayTime(selectedPost.scheduled_at)}
-                      </p>
-                    </div>
+                {selectedPost.status === "failed" ? (
+                  <Button
+                    label={retryingId === selectedPost.id ? "Queuing retry…" : "Retry scheduled post"}
+                    variant="primary"
+                    width="100%"
+                    isLoading={retryingId === selectedPost.id}
+                    onClick={() => void handleRetry(selectedPost.id)}
+                  />
+                ) : null}
 
-                    <div>
-                      <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted">
-                        {selectedPost.platform === "youtube"
-                          ? "YOUTUBE TITLE"
-                          : "INSTAGRAM CAPTION"}
-                      </p>
-                      <div className="mt-1.5 border border-white/10 bg-[#080b10] p-3 text-xs leading-relaxed text-ink">
-                        {getPostTitle(selectedPost)}
-                      </div>
-                    </div>
+                {selectedPost.permalink ? (
+                  <Button
+                    label="Open published post"
+                    href={selectedPost.permalink}
+                    target="_blank"
+                    rel="noreferrer"
+                    variant="secondary"
+                    width="100%"
+                  />
+                ) : null}
 
-                    <div className="grid grid-cols-1 gap-2">
-                      <div className="flex items-center justify-between border border-white/10 bg-[#080b10] px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="font-mono text-[9px] uppercase text-muted">
-                            JOB_ID
-                          </p>
-                          <p className="truncate font-mono text-xs font-bold text-ink">
-                            {selectedPost.job_id}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            copyValue("job", selectedPost.job_id)
-                          }
-                          className="border border-white/15 px-2 py-1 font-mono text-[10px] font-bold uppercase text-volt hover:bg-volt hover:text-[#080b10]"
-                        >
-                          {copiedKey === "job" ? "COPIED" : "COPY"}
-                        </button>
-                      </div>
+                <Button
+                  label="Open source job studio"
+                  href={`/jobs/${selectedPost.job_id}`}
+                  variant="ghost"
+                  width="100%"
+                  endContent={<Icon icon={ArrowRightGlyph} size="sm" />}
+                />
+              </VStack>
+            ) : selectedDayPosts.length === 0 ? (
+              <EmptyState
+                title="No dispatches scheduled"
+                description="No posts are scheduled for this date."
+                actions={<Button label="Browse library" href="/library" variant="secondary" size="sm" />}
+              />
+            ) : (
+              <List hasDividers density="compact">
+                {selectedDayPosts.map((post) => {
+                  const meta = STATUS_META[post.status];
+                  return (
+                    <ListItem
+                      key={post.id}
+                      startContent={
+                        <StatusDot
+                          variant={meta.dot}
+                          label={meta.label}
+                          isPulsing={post.status === "processing"}
+                        />
+                      }
+                      label={getPostTitle(post)}
+                      description={`${post.platform.toUpperCase()} · ${getISTParts(post.scheduled_at).time} IST`}
+                      endContent={<Badge label={meta.label} variant={meta.badge} />}
+                      onClick={() => setSelectedPostId(post.id)}
+                    />
+                  );
+                })}
+              </List>
+            )}
 
-                      <div className="flex items-center justify-between border border-white/10 bg-[#080b10] px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="font-mono text-[9px] uppercase text-muted">
-                            CLIP_ID
-                          </p>
-                          <p className="truncate font-mono text-xs font-bold text-ink">
-                            {selectedPost.clip_id}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            copyValue("clip", selectedPost.clip_id)
-                          }
-                          className="border border-white/15 px-2 py-1 font-mono text-[10px] font-bold uppercase text-volt hover:bg-volt hover:text-[#080b10]"
-                        >
-                          {copiedKey === "clip" ? "COPIED" : "COPY"}
-                        </button>
-                      </div>
-                    </div>
+            <Divider />
 
-                    {selectedPost.last_error && (
-                      <div className="border border-red-500/50 bg-red-950/50 p-3">
-                        <p className="font-mono text-[10px] font-extrabold uppercase text-red-300">
-                          LAST PIPELINE ERROR
-                        </p>
-                        <p className="mt-1 font-mono text-xs text-red-200">
-                          {selectedPost.last_error}
-                        </p>
-                      </div>
-                    )}
-
-                    {selectedPost.status === "failed" && (
-                      <button
-                        type="button"
-                        disabled={retryingId === selectedPost.id}
-                        onClick={() => handleRetry(selectedPost.id)}
-                        className="flex w-full items-center justify-center gap-2 bg-volt py-2.5 font-mono text-xs font-black uppercase text-[#080b10] transition hover:bg-ice disabled:opacity-50"
-                      >
-                        {retryingId === selectedPost.id ? "QUEUING RETRY..." : "RETRY SCHEDULED POST"}
-                      </button>
-                    )}
-
-                    {selectedPost.permalink && (
-                      <a
-                        href={selectedPost.permalink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block w-full bg-ice py-2.5 text-center font-mono text-xs font-extrabold uppercase text-[#080b10] transition hover:bg-volt"
-                      >
-                        OPEN PUBLISHED POST &nearr;
-                      </a>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="font-mono text-[11px] font-bold text-muted">
-                        {selectedDayPosts.length} SCHEDULED{" "}
-                        {selectedDayPosts.length === 1 ? "ITEM" : "ITEMS"}
-                      </span>
-                      <Link
-                        href="/library"
-                        className="font-mono text-[11px] font-bold text-volt hover:underline"
-                      >
-                        + SCHEDULE CLIP
-                      </Link>
-                    </div>
-
-                    {selectedDayPosts.length === 0 ? (
-                      <div className="border border-dashed border-white/12 p-6 text-center font-mono text-xs text-muted">
-                        NO DISPATCHES SCHEDULED FOR THIS DATE.
-                      </div>
-                    ) : (
-                      selectedDayPosts.map((post) => {
-                        const st = STATUS_STYLE[post.status];
-                        return (
-                          <button
-                            key={post.id}
-                            type="button"
-                            onClick={() => setSelectedPostId(post.id)}
-                            className="w-full border border-white/12 bg-panel-raised p-3 text-left transition hover:border-volt"
-                          >
-                            <div className="flex items-center justify-between font-mono text-[10px]">
-                              <span
-                                className={`font-extrabold uppercase ${
-                                  post.platform === "youtube"
-                                    ? "text-volt"
-                                    : "text-ice"
-                                }`}
-                              >
-                                {post.platform} {"//"}{" "}
-                                {getISTParts(post.scheduled_at).time} IST
-                              </span>
-                              <span
-                                className={`border px-1.5 py-0.5 text-[9px] font-bold uppercase ${st.badge}`}
-                              >
-                                {st.label}
-                              </span>
-                            </div>
-                            <p className="mt-1.5 line-clamp-2 text-xs font-bold text-ink">
-                              {getPostTitle(post)}
-                            </p>
-                            <p className="mt-1 font-mono text-[10px] text-muted">
-                              {post.job_id} / {post.clip_id}
-                            </p>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t border-white/10 bg-panel-raised px-4 py-2.5 font-mono text-[10px] text-muted">
-                HOTKEYS: <span className="text-ink">[ ]</span> MONTH &middot;{" "}
-                <span className="text-ink">T</span> TODAY &middot;{" "}
-                <span className="text-ink">1/2/3</span> VIEW &middot;{" "}
-                <span className="text-ink">/</span> SEARCH
-              </div>
-            </aside>
-          </div>
-        </>
-      )}
-    </main>
+            <Text type="supporting" color="secondary">
+              Shortcuts: <Kbd keys="[" /> / <Kbd keys="]" /> Month · <Kbd keys="t" /> Today ·{" "}
+              <Kbd keys="1" /> / <Kbd keys="2" /> / <Kbd keys="3" /> View
+            </Text>
+          </VStack>
+        </Card>
+        </VStack>
+      </HStack>
+    </VStack>
   );
 }

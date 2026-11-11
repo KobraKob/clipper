@@ -44,17 +44,36 @@ class TestSocialTemplateCanvas(unittest.TestCase):
                     seo={"hashtags": ["#CreatorTips", "#VideoEditing"]},
                 )
                 self.assertTrue(canvas.is_file())
-                self.assertEqual(Image.open(canvas).size, (540, 960))
-                x, y, width, height = rect
-                self.assertGreater(x, 0)
-                self.assertGreater(y, 0)
-                self.assertGreater(width, 0)
-                self.assertGreater(height, 0)
-                self.assertLessEqual(x + width, 540)
-                self.assertLessEqual(y + height, 960)
-                image = Image.open(canvas).convert("RGB")
-                self.assertEqual(image.getpixel((x + width // 2, y + height // 2)), (5, 6, 7))
-                self.assertEqual(image.getpixel((max(0, x - 4), y + height // 2)), (48, 54, 61))
+                with Image.open(canvas) as img:
+                    self.assertEqual(img.size, (540, 960))
+                    image = img.convert("RGB")
+                    x, y, width, height = rect
+                    self.assertGreater(x, 0)
+                    self.assertGreater(y, 0)
+                    self.assertGreater(width, 0)
+                    self.assertGreater(height, 0)
+                    self.assertLessEqual(x + width, 540)
+                    self.assertLessEqual(y + height, 960)
+                    self.assertEqual(image.getpixel((x + width // 2, y + height // 2)), (5, 6, 7))
+                    self.assertEqual(image.getpixel((max(0, x - 4), y + height // 2)), (48, 54, 61))
+
+    def test_all_templates_have_even_geometry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for template in ("x", "instagram", "headline"):
+                for w, h in ((1080, 1920), (720, 1280), (540, 960), (360, 640)):
+                    path = pathlib.Path(temp) / f"{template}_{w}_{h}.png"
+                    _, (x, y, width, height) = create_social_template_canvas(
+                        path,
+                        template,
+                        width=w,
+                        height=h,
+                        title="Title",
+                        hook="Hook",
+                    )
+                    self.assertEqual(x % 2, 0, f"{template} {w}x{h} x is not even: {x}")
+                    self.assertEqual(y % 2, 0, f"{template} {w}x{h} y is not even: {y}")
+                    self.assertEqual(width % 2, 0, f"{template} {w}x{h} width is not even: {width}")
+                    self.assertEqual(height % 2, 0, f"{template} {w}x{h} height is not even: {height}")
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
     def test_apply_template_preserves_vertical_video_and_audio(self):
@@ -113,6 +132,59 @@ class TestSocialTemplateCanvas(unittest.TestCase):
                 self.assertIn("width=360", probe)
                 self.assertIn("height=640", probe)
                 self.assertIn("codec_type=audio", probe)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
+    def test_apply_template_on_1080x1920(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = pathlib.Path(temp) / "source_1080.mp4"
+            command = [
+                "ffmpeg",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1.0:size=1080x1920:rate=24",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=1.0",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-c:a",
+                "aac",
+                str(source),
+            ]
+            subprocess.run(command, check=True, capture_output=True)
+            result = apply_social_template(
+                source,
+                "x",
+                title="1080x1920 Test",
+                hook="Ensuring mod-2 alignment prevents pad crash",
+                encoder="libx264",
+            )
+            self.assertEqual(result, source)
+            self.assertGreater(source.stat().st_size, 1000)
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=codec_type,width,height",
+                    "-of",
+                    "default=noprint_wrappers=1",
+                    str(source),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertIn("width=1080", probe)
+            self.assertIn("height=1920", probe)
 
 
 if __name__ == "__main__":

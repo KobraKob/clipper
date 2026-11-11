@@ -1,29 +1,54 @@
 "use client";
 
-import Link from "next/link";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import { RefreshGlyph } from "@/components/StudioIcons";
 
-export default function Error({
+export default function GlobalError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
   return (
-    <section className="flex min-h-[65vh] flex-col items-center justify-center px-4 py-16 text-center">
-      <p className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-rose-300">Studio interruption</p>
-      <h1 className="display mt-4 text-4xl text-white sm:text-6xl">That did not render.</h1>
-      <p className="mt-4 max-w-lg text-sm leading-7 text-slate-300">
-        Something went wrong while loading this page. Your saved projects have not been intentionally changed.
-        Retry the page or return to the Studio.
-      </p>
-      <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-        <button type="button" onClick={() => reset()} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-indigo-500 px-5 text-sm font-bold text-white transition hover:bg-indigo-400 active:scale-[0.98]">
-          Try again
-        </button>
-        <Link href="/" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/20 px-5 text-sm font-semibold text-slate-100 transition hover:bg-white/10 active:scale-[0.98]">
-          Go to Studio
-        </Link>
-      </div>
-    </section>
+    <VStack
+      paddingBlock={10}
+      paddingInline={4}
+      maxWidth={1360}
+      width="100%"
+      className="mx-auto sm:px-6 lg:px-8"
+    >
+      <Section variant="transparent" padding={0}>
+        <VStack gap={5} maxWidth={680}>
+          <Text type="label" color="accent">
+            STUDIO ERROR
+          </Text>
+          <Heading level={1} type="display-2">
+            Something interrupted the studio
+          </Heading>
+          <Banner
+            status="error"
+            title="Unhandled workspace error"
+            description={error.message || "An unexpected client error occurred."}
+          />
+          <HStack gap={3} wrap="wrap">
+            <Button
+              label="Try again"
+              variant="primary"
+              icon={<Icon icon={RefreshGlyph} />}
+              onClick={() => reset()}
+            />
+            <Button label="Open library" href="/library" variant="secondary" />
+            <Button label="Overview" href="/" variant="ghost" />
+          </HStack>
+        </VStack>
+      </Section>
+    </VStack>
   );
 }

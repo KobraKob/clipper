@@ -1,207 +1,292 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
-import { formatTimecode } from "@/lib/pipeline";
+import { memo, useEffect, useRef, useState, type FormEvent } from "react";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Icon } from "@astryxdesign/core/Icon";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { Selector } from "@astryxdesign/core/Selector";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { useToast } from "@astryxdesign/core/Toast";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import {
+  FilmGlyph,
+  PlayGlyph,
+  RefreshGlyph,
+  SlidersGlyph,
+  SparklesGlyph,
+} from "@/components/StudioIcons";
 import {
   fetchClipAnalytics,
   fetchClipPublishStatus,
-  publishClip,
   patchClip,
-  rerenderClip,
+  publishClip,
   scheduleClip,
   selectTitleVariant,
 } from "@/lib/api";
-import type { Clip, ClipAnalytics, ClipSchedule, Platform, SocialTemplate, TitleVariant } from "@/lib/types";
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
 import { normalizeTitleVariants } from "@/lib/titleVariants";
+import type { Clip, Platform, SocialTemplate } from "@/lib/types";
 
 type ClipCardProps = {
   jobId: string;
   clip: Clip;
-  busy?: boolean;
+  busy: boolean;
+  captionsEnabled: boolean;
   onKeep: (kept: boolean) => void;
   onTimes: (start: number, end: number) => void;
-  onRerender?: (
+  onRerender: (
     start: number,
     end: number,
-    captionStyle?: string,
-    template?: SocialTemplate,
-    templateDisplayName?: string,
-    templateHandle?: string,
+    captionStyle: string,
+    template: SocialTemplate,
+    templateDisplayName: string,
+    templateHandle: string,
   ) => Promise<void>;
-  captionsEnabled?: boolean;
 };
 
-function toLocalDateTimeValue(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+type ClipTab = "trim" | "copy" | "publish";
+
+function formatTimecode(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00.0";
+  const mins = Math.floor(seconds / 60);
+  const secs = (seconds % 60).toFixed(1).padStart(4, "0");
+  return `${mins}:${secs}`;
+}
+
+function defaultScheduleIso(): string {
+  const d = new Date(Date.now() + 2 * 3600 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+}
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function CaptionPreviewSwatch({ styleKey }: { styleKey: string }) {
+  const option = CAPTION_STYLE_OPTIONS.find((o) => o.key === styleKey) || CAPTION_STYLE_OPTIONS[0];
+  const words = styleKey === "one_word" ? ["THIS"] : ["MAKE", "IT", "COUNT"];
+
+  return (
+    <svg
+      viewBox="0 0 260 56"
+      role="img"
+      aria-label={`Illustrative caption preview: ${option.label}`}
+      className="h-14 w-full rounded-lg bg-body"
+    >
+      <rect x="1" y="1" width="258" height="54" rx="8" fill="#090b12" stroke="rgba(255,255,255,0.14)" />
+      {words.length === 1 ? (
+        <text
+          x="130"
+          y="36"
+          textAnchor="middle"
+          fill={option.active}
+          stroke={option.stroke}
+          strokeWidth="3"
+          paintOrder="stroke"
+          fontSize="20"
+          fontWeight="900"
+        >
+          {option.upper ? words[0] : words[0].toLowerCase()}
+        </text>
+      ) : (
+        <g>
+          {option.activeBg ? (
+            <rect x="106" y="14" width="48" height="26" rx="4" fill={option.activeBg} />
+          ) : null}
+          <text
+            x="68"
+            y="34"
+            textAnchor="middle"
+            fill={option.base}
+            stroke={option.stroke}
+            strokeWidth="2.5"
+            paintOrder="stroke"
+            fontSize="15"
+            fontWeight="800"
+          >
+            {option.upper ? words[0] : words[0].toLowerCase()}
+          </text>
+          <text
+            x="130"
+            y="34"
+            textAnchor="middle"
+            fill={option.active}
+            stroke={option.activeBg ? "none" : option.stroke}
+            strokeWidth="2.5"
+            paintOrder="stroke"
+            fontSize="15"
+            fontWeight="800"
+          >
+            {option.upper ? words[1] : words[1].toLowerCase()}
+          </text>
+          <text
+            x="194"
+            y="34"
+            textAnchor="middle"
+            fill={option.base}
+            stroke={option.stroke}
+            strokeWidth="2.5"
+            paintOrder="stroke"
+            fontSize="15"
+            fontWeight="800"
+          >
+            {option.upper ? words[2] : words[2].toLowerCase()}
+          </text>
+        </g>
+      )}
+    </svg>
+  );
 }
 
 function ClipCardView({
   jobId,
   clip,
   busy,
+  captionsEnabled,
   onKeep,
   onTimes,
   onRerender,
-  captionsEnabled = true,
 }: ClipCardProps) {
+  const toast = useToast();
+  const [activeTab, setActiveTab] = useState<ClipTab>("trim");
+
   const [start, setStart] = useState(clip.start);
   const [end, setEnd] = useState(clip.end);
   const [timeError, setTimeError] = useState("");
-  const [hasVideo, setHasVideo] = useState(Boolean(clip.file));
-  const [hasCover, setHasCover] = useState(Boolean(clip.coverImage || clip.file));
-  const [previewTab, setPreviewTab] = useState<"video" | "cover">("video");
-  const [captionStyle, setCaptionStyle] = useState(clip.captionStyle || "bold_pop");
+  const [captionStyle, setCaptionStyle] = useState(clip.captionStyle || CAPTION_STYLE_OPTIONS[0].key);
   const [template, setTemplate] = useState<SocialTemplate>(clip.template || "none");
-  const [templateDisplayName, setTemplateDisplayName] = useState(clip.templateDisplayName || "Your Name");
+  const [templateDisplayName, setTemplateDisplayName] = useState(
+    clip.templateDisplayName || "Your Name",
+  );
   const [templateHandle, setTemplateHandle] = useState(clip.templateHandle || "@yourhandle");
 
-  const [publishing, setPublishing] = useState<Platform | "both" | null>(null);
-  const [publishProgress, setPublishProgress] = useState(0);
-  const [publishStatusText, setPublishStatusText] = useState("");
-  const [publishState, setPublishState] = useState(clip.publish || {});
-  const [publishPrivacy, setPublishPrivacy] = useState<"private" | "unlisted" | "public">("private");
-  const [publishError, setPublishError] = useState("");
-  const [copied, setCopied] = useState("");
+  const [previewTab, setPreviewTab] = useState<"video" | "cover">("video");
+  const [hasVideo, setHasVideo] = useState(true);
+  const [hasCover, setHasCover] = useState(true);
+  const [videoKey, setVideoKey] = useState(0);
   const [rerendering, setRerendering] = useState(false);
   const [rerenderMessage, setRerenderMessage] = useState("");
-  const [videoKey, setVideoKey] = useState(0);
-  const publishPollTimer = useRef<number | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (publishPollTimer.current !== null) {
-        window.clearInterval(publishPollTimer.current);
-        publishPollTimer.current = null;
-      }
-    };
-  }, []);
-
-  // Normalize old job records before using variant IDs as React keys or selection values.
-  const initialTitleVariants = normalizeTitleVariants(
-    clip.titleVariants?.length ? clip.titleVariants : clip.seo?.title_variants || [],
-  );
-  const [titleVariants, setTitleVariants] = useState<TitleVariant[]>(initialTitleVariants);
-  const [selectedVariantId, setSelectedVariantId] = useState(() => {
-    const requested = clip.selectedTitleVariant || clip.seo?.selected_title_variant || "direct";
-    return initialTitleVariants.some((variant) => variant.id === requested)
-      ? requested
-      : initialTitleVariants[0]?.id || requested;
-  });
   const [activeTitle, setActiveTitle] = useState(clip.title);
+  const [selectedVariantId, setSelectedVariantId] = useState(clip.selectedTitleVariant || "");
   const [savingTitle, setSavingTitle] = useState(false);
+  const titleVariants = normalizeTitleVariants(clip.titleVariants);
+
   const [showMetadataEditor, setShowMetadataEditor] = useState(false);
-  const [metadataTitle, setMetadataTitle] = useState(clip.seo?.youtube?.title || clip.title);
-  const [metadataDescription, setMetadataDescription] = useState(clip.seo?.youtube?.description || "");
+  const [metadataTitle, setMetadataTitle] = useState(clip.seo?.youtube?.title || clip.title || "");
+  const [metadataDescription, setMetadataDescription] = useState(
+    clip.seo?.youtube?.description || "",
+  );
   const [metadataCaption, setMetadataCaption] = useState(clip.seo?.instagram?.caption || "");
   const [metadataHashtags, setMetadataHashtags] = useState((clip.seo?.hashtags || []).join(" "));
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [metadataMessage, setMetadataMessage] = useState("");
 
-  // Scheduling state
+  const [publishPrivacy, setPublishPrivacy] = useState<"private" | "unlisted" | "public">("private");
+  const [publishing, setPublishing] = useState<Platform | "both" | null>(null);
+  const [publishProgress, setPublishProgress] = useState(0);
+  const [publishStatusText, setPublishStatusText] = useState("");
+  const [publishState, setPublishState] = useState(clip.publish || {});
+  const [publishError, setPublishError] = useState("");
+  const publishPollTimer = useRef<number | null>(null);
+
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [schedulePlatform, setSchedulePlatform] = useState<Platform | "both">("youtube");
-  const [scheduleTime, setScheduleTime] = useState(() => {
-    const d = new Date(Date.now() + 24 * 3600 * 1000);
-    d.setHours(18, 0, 0, 0);
-    return toLocalDateTimeValue(d);
-  });
+  const [scheduleTime, setScheduleTime] = useState<string>(defaultScheduleIso);
   const [scheduling, setScheduling] = useState(false);
-  const [scheduleState, setScheduleState] = useState<ClipSchedule | undefined>(clip.schedule);
-  const [scheduleMsg, setScheduleMsg] = useState("");
+  const [scheduleState, setScheduleState] = useState(clip.schedule);
 
-  // Analytics state
-  const [analytics, setAnalytics] = useState<ClipAnalytics | undefined>(clip.analytics);
+  const [analytics, setAnalytics] = useState(clip.analytics);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
-  const [prevClip, setPrevClip] = useState({
-    start: clip.start,
-    end: clip.end,
-    file: clip.file,
-    title: clip.title,
-    captionStyle: clip.captionStyle,
-    template: clip.template,
-    templateDisplayName: clip.templateDisplayName,
-    templateHandle: clip.templateHandle,
-  });
-
-  if (
-    prevClip.start !== clip.start ||
-    prevClip.end !== clip.end ||
-    prevClip.file !== clip.file ||
-    prevClip.title !== clip.title ||
-    prevClip.captionStyle !== clip.captionStyle ||
-    prevClip.template !== clip.template ||
-    prevClip.templateDisplayName !== clip.templateDisplayName ||
-    prevClip.templateHandle !== clip.templateHandle
-  ) {
-    if (prevClip.captionStyle !== clip.captionStyle) {
-      setCaptionStyle(clip.captionStyle || "bold_pop");
-    }
-    setPrevClip({
-      start: clip.start,
-      end: clip.end,
-      file: clip.file,
-      title: clip.title,
-      captionStyle: clip.captionStyle,
-      template: clip.template,
-      templateDisplayName: clip.templateDisplayName,
-      templateHandle: clip.templateHandle,
-    });
+  const [prevClip, setPrevClip] = useState(clip);
+  if (clip !== prevClip) {
+    setPrevClip(clip);
     setStart(clip.start);
     setEnd(clip.end);
-    setTimeError("");
-    if (clip.file) {
-      setHasVideo(true);
-      setHasCover(true);
-    }
+    setCaptionStyle(clip.captionStyle || CAPTION_STYLE_OPTIONS[0].key);
+    setTemplate(clip.template || "none");
+    setTemplateDisplayName(clip.templateDisplayName || "Your Name");
+    setTemplateHandle(clip.templateHandle || "@yourhandle");
     setActiveTitle(clip.title);
-    if (prevClip.template !== clip.template) setTemplate(clip.template || "none");
-    if (prevClip.templateDisplayName !== clip.templateDisplayName) setTemplateDisplayName(clip.templateDisplayName || "Your Name");
-    if (prevClip.templateHandle !== clip.templateHandle) setTemplateHandle(clip.templateHandle || "@yourhandle");
-    const incomingVariants = normalizeTitleVariants(
-      clip.titleVariants?.length ? clip.titleVariants : clip.seo?.title_variants || [],
-    );
-    if (incomingVariants.length > 0) {
-      setTitleVariants(incomingVariants);
-      const requestedSelection = clip.selectedTitleVariant || clip.seo?.selected_title_variant;
-      setSelectedVariantId(
-        requestedSelection && incomingVariants.some((variant) => variant.id === requestedSelection)
-          ? requestedSelection
-          : incomingVariants[0].id,
-      );
-    }
+    setSelectedVariantId(clip.selectedTitleVariant || "");
+    setMetadataTitle(clip.seo?.youtube?.title || clip.title || "");
+    setMetadataDescription(clip.seo?.youtube?.description || "");
+    setMetadataCaption(clip.seo?.instagram?.caption || "");
+    setMetadataHashtags((clip.seo?.hashtags || []).join(" "));
+    setPublishState(clip.publish || {});
+    setScheduleState(clip.schedule);
+    setAnalytics(clip.analytics);
   }
 
-  function handleBlur() {
-    if (start < 0 || end <= start) {
-      setTimeError("Start must be >= 0 and end must be after start.");
-      return;
+  useEffect(() => {
+    return () => {
+      if (publishPollTimer.current !== null) {
+        window.clearInterval(publishPollTimer.current);
+      }
+    };
+  }, []);
+
+  function validateTimes(nextStart = start, nextEnd = end) {
+    if (!Number.isFinite(nextStart) || !Number.isFinite(nextEnd) || nextStart < 0) {
+      setTimeError("Enter valid non-negative start and end times.");
+      return false;
+    }
+    if (nextEnd <= nextStart) {
+      setTimeError("End time must be greater than start time.");
+      return false;
     }
     setTimeError("");
-    onTimes(start, end);
+    return true;
+  }
+
+  function commitTimes(nextStart = start, nextEnd = end) {
+    if (!validateTimes(nextStart, nextEnd)) return false;
+    if (nextStart !== clip.start || nextEnd !== clip.end) {
+      onTimes(nextStart, nextEnd);
+    }
+    return true;
   }
 
   async function handleRerenderClick() {
-    if (start < 0 || end <= start) {
-      setTimeError("Invalid times for re-rendering.");
-      return;
-    }
-    setTimeError("");
+    if (!validateTimes()) return;
     setRerendering(true);
-    setRerenderMessage("Re-rendering clip (audio trim + reframe + caption burns)…");
+    setRerenderMessage("Re-rendering clip with updated settings…");
     try {
-      if (onRerender) {
-        await onRerender(start, end, captionStyle, template, templateDisplayName, templateHandle);
-      } else {
-        await rerenderClip(jobId, clip.id, start, end, captionStyle, template, templateDisplayName, templateHandle);
-      }
-      setRerenderMessage("Re-render complete!");
+      await onRerender(
+        start,
+        end,
+        captionStyle,
+        template,
+        templateDisplayName.trim() || "Your Name",
+        templateHandle.trim() || "@yourhandle",
+      );
       setVideoKey((k) => k + 1);
       setHasVideo(true);
       setHasCover(true);
-      setTimeout(() => setRerenderMessage(""), 3000);
+      setRerenderMessage("Re-render complete.");
+      toast({ body: `Re-rendered "${activeTitle}"`, uniqueID: `rerender-${clip.id}` });
     } catch (err) {
       setRerenderMessage(err instanceof Error ? err.message : "Re-render failed.");
     } finally {
@@ -214,10 +299,11 @@ function ClipCardView({
     setSavingTitle(true);
     try {
       const res = await selectTitleVariant(jobId, clip.id, variantId);
-      const updatedClip = res.clips.find((item) => item.id === clip.id);
-      setActiveTitle(updatedClip?.title ?? clip.title);
-      setMetadataTitle(updatedClip?.title ?? clip.title);
-      setSelectedVariantId(updatedClip?.selectedTitleVariant ?? variantId);
+      const updated = res.clips.find((item) => item.id === clip.id);
+      setActiveTitle(updated?.title ?? clip.title);
+      setMetadataTitle(updated?.title ?? clip.title);
+      setSelectedVariantId(updated?.selectedTitleVariant ?? variantId);
+      toast({ body: "Active title variant updated.", uniqueID: `variant-${clip.id}` });
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "Failed to select title variant.");
     } finally {
@@ -225,7 +311,7 @@ function ClipCardView({
     }
   }
 
-  async function handleSaveMetadata(e: React.FormEvent) {
+  async function handleSaveMetadata(e: FormEvent) {
     e.preventDefault();
     setSavingMetadata(true);
     setMetadataMessage("");
@@ -233,7 +319,7 @@ function ClipCardView({
       .split(/[\s,]+/)
       .map((tag) => tag.trim())
       .filter(Boolean)
-      .map((tag) => tag.startsWith("#") ? tag : `#${tag}`);
+      .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`));
     try {
       await patchClip(jobId, clip.id, {
         title: metadataTitle.trim(),
@@ -243,8 +329,9 @@ function ClipCardView({
       });
       setActiveTitle(metadataTitle.trim());
       setMetadataHashtags(hashtags.join(" "));
-      setMetadataMessage("Changes saved to this clip.");
+      setMetadataMessage("Publishing copy saved.");
       setShowMetadataEditor(false);
+      toast({ body: "Clip publishing copy saved.", uniqueID: `meta-${clip.id}` });
     } catch (err) {
       setMetadataMessage(err instanceof Error ? err.message : "Could not save clip details.");
     } finally {
@@ -252,21 +339,19 @@ function ClipCardView({
     }
   }
 
-  async function handleScheduleSubmit(e: React.FormEvent) {
+  async function handleScheduleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!scheduleTime) return;
     setScheduling(true);
-    setScheduleMsg("Scheduling clip…");
     try {
       const scheduledUtc = new Date(scheduleTime).toISOString();
       const res = await scheduleClip(jobId, clip.id, schedulePlatform, scheduledUtc);
-      const updatedClip = res.clips.find((item) => item.id === clip.id);
-      setScheduleState(updatedClip?.schedule);
-      setScheduleMsg("Scheduled successfully!");
+      const updated = res.clips.find((item) => item.id === clip.id);
+      setScheduleState(updated?.schedule);
       setShowScheduleForm(false);
-      setTimeout(() => setScheduleMsg(""), 4000);
+      toast({ body: "Clip added to publishing queue.", uniqueID: `schedule-${clip.id}` });
     } catch (err) {
-      setScheduleMsg(err instanceof Error ? err.message : "Scheduling failed.");
+      setPublishError(err instanceof Error ? err.message : "Scheduling failed.");
     } finally {
       setScheduling(false);
     }
@@ -275,11 +360,10 @@ function ClipCardView({
   async function handleRefreshAnalytics() {
     setLoadingAnalytics(true);
     try {
-      const job = await fetchClipAnalytics(jobId, clip.id);
-      const updated = job.clips.find((c) => c.id === clip.id);
-      if (updated?.analytics) {
-        setAnalytics(updated.analytics);
-      }
+      const res = await fetchClipAnalytics(jobId, clip.id);
+      const updated = res.clips.find((c) => c.id === clip.id);
+      if (updated?.analytics) setAnalytics(updated.analytics);
+      toast({ body: "Analytics refreshed.", uniqueID: `analytics-${clip.id}` });
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "Failed to fetch analytics.");
     } finally {
@@ -287,13 +371,12 @@ function ClipCardView({
     }
   }
 
-  async function copy(label: string, text: string) {
+  async function copyText(label: string, text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(label);
-      setTimeout(() => setCopied(""), 1500);
+      toast({ body: `${label} copied to clipboard.`, uniqueID: `copy-${clip.id}` });
     } catch {
-      // clipboard unavailable
+      toast({ body: "Clipboard access denied.", type: "error", uniqueID: `copy-err-${clip.id}` });
     }
   }
 
@@ -303,8 +386,8 @@ function ClipCardView({
     setPublishProgress(10);
     setPublishStatusText(
       forceReauth
-        ? "Opening browser to connect your YouTube Channel..."
-        : "Connecting to YouTube API and preparing upload...",
+        ? "Opening browser to connect YouTube Channel…"
+        : "Preparing upload to platform API…",
     );
 
     let polling = false;
@@ -313,51 +396,47 @@ function ClipCardView({
       polling = true;
       try {
         const snapshot = await fetchClipPublishStatus(jobId, clip.id);
-        const nextPublish = snapshot.publish;
         if (snapshot.analytics) setAnalytics(snapshot.analytics);
-        if (nextPublish) {
-          setPublishState((current) =>
-            JSON.stringify(current) === JSON.stringify(nextPublish) ? current : nextPublish
+        if (snapshot.publish) {
+          setPublishState((cur) =>
+            JSON.stringify(cur) === JSON.stringify(snapshot.publish) ? cur : snapshot.publish!,
           );
           const pKey = target === "both" ? "youtube" : target;
-          const platState = nextPublish[pKey];
+          const platState = snapshot.publish[pKey];
           if (typeof platState?.progress === "number") {
             setPublishProgress(platState.progress);
             if (platState.status === "uploading") {
-              setPublishStatusText(`Uploading video chunks: ${platState.progress}%`);
+              setPublishStatusText(`Uploading chunks: ${platState.progress}%`);
             }
           }
         }
       } catch {
-        // The publish request remains authoritative; polling is best-effort.
+        /* polling is best-effort */
       } finally {
         polling = false;
       }
     };
 
-    if (publishPollTimer.current !== null) {
-      window.clearInterval(publishPollTimer.current);
-    }
+    if (publishPollTimer.current !== null) window.clearInterval(publishPollTimer.current);
     void pollPublishState();
     publishPollTimer.current = window.setInterval(() => {
       void pollPublishState();
     }, 2500);
 
     try {
-      const job = await publishClip(
+      const res = await publishClip(
         jobId,
         clip.id,
         target === "both" ? ["youtube", "instagram"] : [target],
         publishPrivacy,
         forceReauth,
       );
-      const updated = job.clips.find((c) => c.id === clip.id);
+      const updated = res.clips.find((c) => c.id === clip.id);
       setPublishState(updated?.publish || {});
       setPublishProgress(100);
-      setPublishStatusText("Upload complete!");
-      if (updated?.analytics) {
-        setAnalytics(updated.analytics);
-      }
+      setPublishStatusText("Upload complete.");
+      if (updated?.analytics) setAnalytics(updated.analytics);
+      toast({ body: `Published "${activeTitle}"`, uniqueID: `pub-${clip.id}` });
     } catch (err) {
       setPublishError(err instanceof Error ? err.message : "Publish failed.");
       setPublishStatusText("");
@@ -366,686 +445,671 @@ function ClipCardView({
         window.clearInterval(publishPollTimer.current);
         publishPollTimer.current = null;
       }
-      setTimeout(() => {
+      window.setTimeout(() => {
         setPublishing(null);
         setPublishProgress(0);
         setPublishStatusText("");
-      }, 1200);
+      }, 1000);
     }
   }
 
   const videoSrc = `/api/jobs/${jobId}/clips/${clip.id}?v=${videoKey}`;
   const coverSrc = `/api/jobs/${jobId}/clips/${clip.id}?cover=1&v=${videoKey}`;
   const isYouTubePublished = publishState.youtube?.status === "published";
-  const selectedCaptionOption = CAPTION_STYLE_OPTIONS.find((option) => option.key === captionStyle) || CAPTION_STYLE_OPTIONS[0];
+  const selectedCaptionOption =
+    CAPTION_STYLE_OPTIONS.find((o) => o.key === captionStyle) || CAPTION_STYLE_OPTIONS[0];
+  const timesChanged = start !== clip.start || end !== clip.end;
+  const templateAuthorChanged =
+    (template === "x" || template === "instagram") &&
+    ((clip.templateDisplayName || "Your Name") !== templateDisplayName ||
+      (clip.templateHandle || "@yourhandle") !== templateHandle);
+  const needsRerender =
+    clip.captionStyle !== captionStyle ||
+    (clip.template || "none") !== template ||
+    timesChanged ||
+    templateAuthorChanged;
+  const effectiveTab: ClipTab =
+    activeTab === "publish" && (!hasVideo || !clip.seo) ? "trim" : activeTab;
 
   return (
-    <article className={`clip-editor-card border border-white/15 bg-panel rounded-xl overflow-hidden stamp-sm transition ${clip.kept ? "" : "opacity-60"}`}>
-      {/* Card Header */}
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] border-b border-white/12 bg-panel-raised">
-        <div className="px-4 py-3 text-volt flex items-center">
-          <div className="flex items-center gap-2">
-            <h3 className="display text-2xl md:text-3xl leading-tight">{activeTitle}</h3>
-            {savingTitle ? (
-              <span className="text-xs bg-volt text-white font-bold px-1.5 py-0.5 rounded">Saving…</span>
-            ) : null}
-          </div>
-        </div>
-        <p className="flex items-center justify-center bg-volt px-4 text-3xl font-black text-white">
-          {clip.score}
-        </p>
-      </div>
+    <Card padding={5} variant={clip.kept ? "default" : "muted"}>
+      <VStack gap={4}>
+        {/* Header */}
+        <HStack justify="between" align="start" gap={3}>
+          <VStack gap={1}>
+            <HStack gap={2} align="center" wrap="wrap">
+              <StatusDot
+                variant={clip.kept ? "success" : "neutral"}
+                label={clip.kept ? "Kept" : "Dropped"}
+              />
+              <Text type="supporting" size="2xs" weight="semibold" color={clip.kept ? "primary" : "secondary"}>
+                {clip.kept ? "Kept" : "Dropped"}
+              </Text>
+              <Badge
+                label={`Score ${clip.score}`}
+                variant={clip.score >= 80 ? "success" : clip.score >= 60 ? "info" : "neutral"}
+              />
+              {savingTitle ? <Badge label="Saving…" variant="warning" /> : null}
+            </HStack>
+            <Heading level={3} type="display-3">
+              {activeTitle}
+            </Heading>
+          </VStack>
 
-      <div className="flex flex-col gap-4 p-4 md:p-5">
-        {/* Retention Badges & Hook Callout */}
-        <div className="flex flex-wrap items-center gap-2">
-          {clip.hook ? (
-            <span className="border border-volt/40 bg-volt/10 px-2.5 py-1 text-xs font-bold text-volt rounded">
-              🎯 Hook (0–2.5s): &ldquo;{clip.hook}&rdquo;
-            </span>
-          ) : null}
-          {clip.hookOverlay !== false ? (
-            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
-              ✨ Hook Overlay
-            </span>
-          ) : null}
-          {clip.loudnorm !== false ? (
-            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
-              🔊 -14 LUFS
-            </span>
-          ) : null}
-          {clip.progressBar ? (
-            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
-              ⏱️ Progress Bar
-            </span>
-          ) : null}
-          {clip.captionStyle ? (
-            <span className="border border-white/12 bg-panel-raised px-2 py-0.5 text-[11px] font-semibold text-muted rounded">
-              💬 {clip.captionStyle}
-            </span>
-          ) : null}
-        </div>
+          <Button
+            label={clip.kept ? "Drop" : "Keep"}
+            variant={clip.kept ? "secondary" : "primary"}
+            size="sm"
+            isDisabled={busy}
+            onClick={() => onKeep(!clip.kept)}
+          />
+        </HStack>
 
-        {/* Video / Cover Frame Preview */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start">
-          <div className="flex flex-col gap-1.5 shrink-0">
-            {/* View Switcher: Video vs Cover */}
+        {/* Signals / Retention Summary */}
+        <HStack gap={2} align="center" wrap="wrap">
+          {clip.hook ? <Badge label={`Hook: "${clip.hook}"`} variant="info" /> : null}
+          <Text type="code" size="2xs" color="secondary">
+            {[
+              clip.captionStyle,
+              clip.hookOverlay !== false ? "Hook overlay" : null,
+              clip.loudnorm !== false ? "-14 LUFS" : null,
+              clip.progressBar ? "Progress bar" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Text>
+        </HStack>
+
+        {/* Preview + Reason + Transcript */}
+        <Grid columns={{ minWidth: 200, max: 2 }} gap={4} align="start">
+          <VStack gap={2} align="center">
             {hasVideo && hasCover ? (
-              <div className="flex border border-white/15 rounded overflow-hidden text-xs font-bold bg-panel-inset">
-                <button
-                  type="button"
-                  onClick={() => setPreviewTab("video")}
-                  className={`flex-1 px-3 py-1 text-center transition cursor-pointer ${
-                    previewTab === "video" ? "bg-volt text-white" : "bg-panel-raised text-muted hover:text-ink"
-                  }`}
-                >
-                  Video
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewTab("cover")}
-                  className={`flex-1 px-3 py-1 text-center transition cursor-pointer ${
-                    previewTab === "cover" ? "bg-volt text-white" : "bg-panel-raised text-muted hover:text-ink"
-                  }`}
-                >
-                  Cover
-                </button>
-              </div>
+              <SegmentedControl
+                label="Preview mode"
+                value={previewTab}
+                onChange={(val) => setPreviewTab(val as "video" | "cover")}
+                size="sm"
+                layout="fill"
+              >
+                <SegmentedControlItem value="video" label="Video" />
+                <SegmentedControlItem value="cover" label="Cover" />
+              </SegmentedControl>
             ) : null}
 
             {previewTab === "cover" && hasCover ? (
-              <div className="aspect-[9/16] max-h-80 w-44 shrink-0 overflow-hidden border border-white/20 bg-black rounded-lg relative">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={coverSrc}
-                  alt={`Cover thumbnail frame for ${clip.title}`}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover"
-                  onError={() => setHasCover(false)}
-                />
-                <span className="absolute bottom-1 right-1 bg-black/80 text-[10px] text-volt px-1.5 py-0.5 font-bold rounded">
-                  Cover Frame
-                </span>
-              </div>
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={coverSrc}
+                alt={`Cover frame for ${activeTitle}`}
+                loading="lazy"
+                decoding="async"
+                className="aspect-[9/16] max-h-72 w-40 rounded-lg border border-border object-cover"
+                onError={() => setHasCover(false)}
+              />
             ) : hasVideo ? (
-              <div className="aspect-[9/16] max-h-80 w-44 shrink-0 overflow-hidden border border-white/20 bg-black rounded-lg">
-                <video
-                  key={videoKey}
-                  controls
-                  playsInline
-                  preload="none"
-                  src={videoSrc}
-                  className="h-full w-full object-cover"
-                  onError={() => setHasVideo(false)}
-                />
-              </div>
+              <video
+                key={videoKey}
+                controls
+                playsInline
+                preload="none"
+                src={videoSrc}
+                className="aspect-[9/16] max-h-72 w-40 rounded-lg border border-border bg-body object-cover"
+                onError={() => setHasVideo(false)}
+              />
             ) : (
-              <div className="aspect-[9/16] max-h-72 w-40 shrink-0 self-start border border-white/20 bg-panel-inset p-3 text-volt rounded-lg flex flex-col justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted">9:16 Preview</p>
-                  <p className="display mt-4 text-2xl leading-tight text-ink">
-                    {clip.hook.split(" ").slice(0, 8).join(" ")}
-                  </p>
-                </div>
-                <p className="text-[10px] font-semibold text-muted font-mono">
-                  {formatTimecode(clip.start)} – {formatTimecode(clip.end)}
-                </p>
-              </div>
+              <Card padding={4} variant="muted" width={160}>
+                <VStack gap={3}>
+                  <Icon icon={FilmGlyph} size="md" />
+                  <Text type="supporting" weight="semibold">
+                    9:16 Preview unavailable
+                  </Text>
+                  <Text type="code" color="secondary">
+                    {formatTimecode(clip.start)} – {formatTimecode(clip.end)}
+                  </Text>
+                </VStack>
+              </Card>
             )}
-          </div>
+          </VStack>
 
-          <div className="flex flex-col gap-2.5">
-            <p className="font-semibold text-ice text-sm">{clip.reason}</p>
-            <p className="text-sm text-ink/90 bg-panel-inset/60 border border-white/8 p-3 rounded-lg leading-relaxed">
-              {clip.text}
-            </p>
-          </div>
-        </div>
+          <VStack gap={3}>
+            <VStack gap={1}>
+              <Text type="label" color="accent">
+                WHY THIS MOMENT WORKS
+              </Text>
+              <Text type="body">{clip.reason}</Text>
+            </VStack>
+            <Card padding={3} variant="muted">
+              <Text type="supporting" color="secondary">
+                {clip.text}
+              </Text>
+            </Card>
+          </VStack>
+        </Grid>
 
-        {/* Timestamps and Rerender */}
-        <div className="flex flex-col gap-2.5 border border-white/10 bg-panel-raised/50 p-3.5 rounded-lg">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1 text-xs font-semibold text-muted uppercase tracking-wider">
-              Start Time (s)
-              <input
-                type="number"
-                min={0}
-                step={0.1}
+        <Divider />
+
+        {/* Sub-workbench Tabs */}
+        <TabList
+          value={effectiveTab}
+          onChange={(val) => setActiveTab(val as ClipTab)}
+          aria-label="Clip workbench tools"
+          size="sm"
+          hasDivider
+        >
+          <Tab value="trim" label="Trim & Style" icon={<Icon icon={SlidersGlyph} />} />
+          <Tab value="copy" label="Copy & A/B" icon={<Icon icon={SparklesGlyph} />} />
+          {hasVideo && clip.seo ? (
+            <Tab value="publish" label="Publish" icon={<Icon icon={PlayGlyph} />} />
+          ) : null}
+        </TabList>
+
+        {/* Tab 1: Trim & Style */}
+        {effectiveTab === "trim" ? (
+          <VStack gap={4}>
+            <Grid columns={{ minWidth: 140, max: 2 }} gap={3}>
+              <NumberInput
+                label="Start (sec)"
+                description={formatTimecode(start)}
                 value={start}
-                disabled={rerendering}
-                className="border border-white/20 bg-panel-inset text-ink px-2.5 py-2 font-mono rounded text-sm focus:border-ice focus:outline-none"
-                onChange={(e) => setStart(Number(e.target.value))}
-                onBlur={handleBlur}
-              />
-              <span className="font-normal text-xs text-muted">{formatTimecode(start)}</span>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-semibold text-muted uppercase tracking-wider">
-              End Time (s)
-              <input
-                type="number"
+                onChange={(val) => setStart(Number.isFinite(val) ? val : 0)}
                 min={0}
                 step={0.1}
-                value={end}
-                disabled={rerendering}
-                className="border border-white/20 bg-panel-inset text-ink px-2.5 py-2 font-mono rounded text-sm focus:border-ice focus:outline-none"
-                onChange={(e) => setEnd(Number(e.target.value))}
-                onBlur={handleBlur}
+                isDisabled={rerendering}
+                width="100%"
               />
-              <span className="font-normal text-xs text-muted">{formatTimecode(end)}</span>
-            </label>
-          </div>
+              <NumberInput
+                label="End (sec)"
+                description={formatTimecode(end)}
+                value={end}
+                onChange={(val) => setEnd(Number.isFinite(val) ? val : 0)}
+                min={0}
+                step={0.1}
+                isDisabled={rerendering}
+                width="100%"
+              />
+            </Grid>
 
-          <div className="grid gap-3 rounded-lg border border-white/10 bg-panel-inset/50 p-3">
-            <label className="flex flex-col gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-              Social media template
-              <select
-                value={template}
-                disabled={rerendering || busy}
-                onChange={(event) => setTemplate(event.target.value as SocialTemplate)}
-                className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-semibold normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
-              >
-                <option value="none">Clean 9:16</option>
-                <option value="x">Twitter / X post</option>
-                <option value="instagram">Instagram Reel</option>
-                <option value="headline">Viral headline</option>
-              </select>
-            </label>
+            {timeError ? <Banner status="error" title={timeError} /> : null}
+
+            <Selector
+              label="Social template"
+              value={template}
+              onChange={(val) => setTemplate(val as SocialTemplate)}
+              isDisabled={rerendering || busy}
+              options={[
+                { value: "none", label: "Clean 9:16" },
+                { value: "x", label: "Twitter / X post" },
+                { value: "instagram", label: "Instagram Reel" },
+                { value: "headline", label: "Viral headline" },
+              ]}
+              width="100%"
+            />
+
             {template === "x" || template === "instagram" ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wider text-muted">
-                  Display name
-                  <input
-                    value={templateDisplayName}
-                    maxLength={40}
-                    disabled={rerendering || busy}
-                    onChange={(event) => setTemplateDisplayName(event.target.value.slice(0, 40))}
-                    className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-wider text-muted">
-                  Handle
-                  <input
-                    value={templateHandle}
-                    maxLength={32}
-                    disabled={rerendering || busy}
-                    onChange={(event) => setTemplateHandle(event.target.value.replace(/\s+/g, "").slice(0, 32))}
-                    onBlur={() => {
-                      const value = templateHandle.trim();
-                      if (value && !value.startsWith("@")) setTemplateHandle("@" + value.replace(/^@+/, ""));
-                    }}
-                    className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-medium normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
-                  />
-                </label>
-              </div>
-            ) : null}
-            <p className="text-[10px] text-muted">Changing this selection updates the rendered file after re-rendering.</p>
-          </div>
-
-          {captionsEnabled ? (
-            <div className="grid gap-3 rounded-lg border border-white/10 bg-panel-inset/50 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-              <label className="flex flex-col gap-2 text-xs font-bold uppercase tracking-wider text-muted">
-                Caption style
-                <select
-                  value={captionStyle}
-                  disabled={rerendering || busy}
-                  onChange={(event) => setCaptionStyle(event.target.value)}
-                  className="min-h-10 rounded-lg border border-white/15 bg-panel-inset px-3 text-sm font-semibold normal-case tracking-normal text-ink focus:border-ice focus:outline-none"
-                >
-                  {CAPTION_STYLE_OPTIONS.map((option) => (
-                    <option key={option.key} value={option.key}>{option.label}</option>
-                  ))}
-                </select>
-                <span className="font-normal normal-case tracking-normal text-muted">{selectedCaptionOption.description}</span>
-              </label>
-              <div className="flex min-h-24 flex-col justify-center rounded-lg border border-white/10 bg-[#07090e] px-3 py-2.5">
-                <span className="text-[9px] font-bold uppercase tracking-[.15em] text-muted">Style preview</span>
-                <div className="mt-2 flex min-h-8 flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
-                  {(captionStyle === "one_word" ? ["THIS"] : ["MAKE", "IT", "COUNT"]).map((word, index) => {
-                    const active = index === (captionStyle === "one_word" ? 0 : 1);
-                    return (
-                      <span
-                        key={word}
-                        style={{
-                          font: selectedCaptionOption.font,
-                          color: active ? selectedCaptionOption.active : selectedCaptionOption.base,
-                          background: active ? selectedCaptionOption.activeBg : undefined,
-                          padding: active && selectedCaptionOption.activeBg ? "1px 4px" : undefined,
-                          borderRadius: 3,
-                          WebkitTextStroke: `0.7px ${selectedCaptionOption.stroke}`,
-                          textShadow: selectedCaptionOption.glow ? `0 0 7px ${selectedCaptionOption.glow}` : undefined,
-                        }}
-                      >
-                        {selectedCaptionOption.upper ? word : word.toLowerCase()}
-                      </span>
+              <Grid columns={{ minWidth: 150, max: 2 }} gap={3}>
+                <TextInput
+                  label="Display name"
+                  value={templateDisplayName}
+                  onChange={(val) => setTemplateDisplayName(val.slice(0, 40))}
+                  isDisabled={rerendering || busy}
+                  width="100%"
+                />
+                <TextInput
+                  label="Handle"
+                  value={templateHandle}
+                  onChange={(val) => {
+                    const cleaned = val.replace(/\s+/g, "").slice(0, 32);
+                    setTemplateHandle(
+                      cleaned && !cleaned.startsWith("@") ? `@${cleaned.replace(/^@+/, "")}` : cleaned,
                     );
-                  })}
-                </div>
-                <p className="mt-2 text-center text-[10px] text-muted">Preview is illustrative; the rendered clip uses word timestamps.</p>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              type="button"
-              disabled={rerendering || busy}
-              onClick={handleRerenderClick}
-              className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-bold text-ink rounded hover:bg-volt hover:text-white hover:border-volt transition disabled:opacity-60 cursor-pointer"
-            >
-              {rerendering
-                ? "Re-rendering…"
-                : clip.captionStyle !== captionStyle || (clip.template || "none") !== template
-                  ? "Apply changes & re-render"
-                  : "Re-render Video"}
-            </button>
-            {rerenderMessage ? (
-              <span className="text-xs font-semibold text-volt">{rerenderMessage}</span>
+                  }}
+                  isDisabled={rerendering || busy}
+                  width="100%"
+                />
+              </Grid>
             ) : null}
-          </div>
-        </div>
 
-        {timeError ? (
-          <p role="alert" className="text-xs font-bold text-punch">
-            {timeError}
-          </p>
+            {captionsEnabled ? (
+              <VStack gap={3}>
+                <Selector
+                  label="Caption preset"
+                  description={selectedCaptionOption.description}
+                  value={captionStyle}
+                  onChange={(val) => setCaptionStyle(val)}
+                  isDisabled={rerendering || busy}
+                  options={CAPTION_STYLE_OPTIONS.map((opt) => ({
+                    value: opt.key,
+                    label: opt.label,
+                  }))}
+                  width="100%"
+                />
+                <CaptionPreviewSwatch styleKey={captionStyle} />
+              </VStack>
+            ) : null}
+
+            <HStack gap={3} align="center" wrap="wrap">
+              <Button
+                label={
+                  rerendering
+                    ? "Re-rendering…"
+                    : needsRerender
+                      ? "Apply & re-render"
+                      : "Re-render clip"
+                }
+                variant={needsRerender ? "primary" : "secondary"}
+                size="sm"
+                isLoading={rerendering}
+                isDisabled={busy}
+                icon={<Icon icon={RefreshGlyph} />}
+                onClick={handleRerenderClick}
+              />
+              {timesChanged ? (
+                <Button
+                  label="Save trim"
+                  variant="ghost"
+                  size="sm"
+                  isDisabled={busy || rerendering}
+                  onClick={() => {
+                    if (commitTimes()) {
+                      toast({ body: "Trim timestamps saved.", uniqueID: `trim-${clip.id}` });
+                    }
+                  }}
+                />
+              ) : null}
+              {rerenderMessage ? (
+                <Text type="supporting" color="accent">
+                  {rerenderMessage}
+                </Text>
+              ) : null}
+            </HStack>
+          </VStack>
         ) : null}
 
-        {/* Title A/B Variants Selector */}
-        {titleVariants.length > 0 ? (
-          <div className="flex flex-col gap-2.5 border border-white/10 bg-panel-raised/40 p-3.5 rounded-lg text-sm">
-            <div className="flex items-center justify-between">
-              <p className="font-bold text-ink">Title A/B Variants (Viral Testing)</p>
-              <span className="text-[11px] font-mono font-bold bg-volt text-white px-2 py-0.5 rounded">
-                A/B Engine
-              </span>
-            </div>
-            <div className="flex flex-col gap-2">
-              {titleVariants.map((v) => (
-                <label
-                  key={v.id}
-                  className={`flex items-start gap-2.5 p-3 border rounded-lg cursor-pointer transition ${
-                    selectedVariantId === v.id
-                      ? "border-volt bg-volt/10 font-semibold"
-                      : "border-white/10 bg-panel-raised hover:border-white/25"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name={`variant-${clip.id}`}
+        {/* Tab 2: Copy & A/B Title Variants */}
+        {effectiveTab === "copy" ? (
+          <VStack gap={4}>
+            {titleVariants.length > 0 ? (
+              <RadioList
+                label="Title A/B variants"
+                description="Select the hook title used for publishing."
+                value={selectedVariantId}
+                onChange={(val) => void handleSelectVariant(val)}
+                width="100%"
+              >
+                {titleVariants.map((v) => (
+                  <RadioListItem
+                    key={v.id}
                     value={v.id}
-                    checked={selectedVariantId === v.id}
-                    onChange={() => handleSelectVariant(v.id)}
-                    className="mt-1 h-4 w-4 accent-volt cursor-pointer"
+                    label={v.title}
+                    description={v.label || v.angle || v.id}
+                    endContent={
+                      selectedVariantId === v.id ? (
+                        <Badge label="Active" variant="info" />
+                      ) : undefined
+                    }
                   />
-                  <div className="flex flex-col flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-muted">
-                        {v.label || v.angle || v.id}
-                      </span>
-                      {selectedVariantId === v.id ? (
-                        <span className="text-[10px] font-bold bg-volt text-white px-1.5 py-0.5 rounded">
-                          ACTIVE FOR PUBLISH
-                        </span>
-                      ) : null}
-                    </div>
-                    <span className="text-sm mt-1 text-ink">{v.title}</span>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
+                ))}
+              </RadioList>
+            ) : null}
+
+            <Card padding={4} variant="muted">
+              <VStack gap={3}>
+                <HStack justify="between" align="center">
+                  <Text type="label">PUBLISHING COPY</Text>
+                  <Button
+                    label={showMetadataEditor ? "Close editor" : "Edit copy"}
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowMetadataEditor((o) => !o)}
+                  />
+                </HStack>
+
+                <Text type="body" weight="semibold">
+                  {metadataTitle || "No title set"}
+                </Text>
+                {metadataDescription ? (
+                  <Text type="supporting" color="secondary">
+                    {metadataDescription}
+                  </Text>
+                ) : null}
+                {metadataCaption ? (
+                  <Text type="supporting">{metadataCaption}</Text>
+                ) : null}
+                {metadataHashtags ? (
+                  <Text type="code" color="accent">
+                    {metadataHashtags}
+                  </Text>
+                ) : null}
+
+                <HStack gap={2} wrap="wrap">
+                  <Button
+                    label="Copy YouTube text"
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={!metadataTitle.trim() && !metadataDescription.trim()}
+                    onClick={() => void copyText("YouTube text", `${metadataTitle}\n\n${metadataDescription}`)}
+                  />
+                  <Button
+                    label="Copy Instagram caption"
+                    variant="secondary"
+                    size="sm"
+                    isDisabled={!metadataCaption.trim() && !metadataHashtags.trim()}
+                    onClick={() =>
+                      void copyText(
+                        "Instagram caption",
+                        [metadataCaption, metadataHashtags].filter(Boolean).join("\n\n"),
+                      )
+                    }
+                  />
+                </HStack>
+
+                {showMetadataEditor ? (
+                  <form onSubmit={handleSaveMetadata}>
+                    <VStack gap={3} paddingBlockStart={3}>
+                      <Divider />
+                      <TextInput
+                        label="Clip title"
+                        value={metadataTitle}
+                        onChange={(v) => setMetadataTitle(v.slice(0, 100))}
+                        width="100%"
+                      />
+                      <TextArea
+                        label="YouTube description"
+                        value={metadataDescription}
+                        rows={3}
+                        maxLength={5000}
+                        onChange={setMetadataDescription}
+                        width="100%"
+                      />
+                      <TextArea
+                        label="Instagram / Reels caption"
+                        value={metadataCaption}
+                        rows={3}
+                        maxLength={2200}
+                        onChange={setMetadataCaption}
+                        width="100%"
+                      />
+                      <TextArea
+                        label="Hashtags"
+                        description="Space or comma separated"
+                        value={metadataHashtags}
+                        rows={2}
+                        onChange={setMetadataHashtags}
+                        width="100%"
+                      />
+                      <HStack gap={2}>
+                        <Button
+                          type="submit"
+                          label={savingMetadata ? "Saving…" : "Save copy"}
+                          variant="primary"
+                          size="sm"
+                          isLoading={savingMetadata}
+                        />
+                        <Button
+                          label="Cancel"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowMetadataEditor(false)}
+                        />
+                      </HStack>
+                    </VStack>
+                  </form>
+                ) : null}
+
+                {metadataMessage ? (
+                  <Text type="supporting" color="accent">
+                    {metadataMessage}
+                  </Text>
+                ) : null}
+              </VStack>
+            </Card>
+          </VStack>
         ) : null}
 
-        {/* Editable publishing copy */}
-        <section className="flex flex-col gap-3 border border-white/10 bg-panel-raised/40 p-3.5 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="font-bold text-ink">Publishing copy</p>
-              <p className="text-xs text-muted">Title, description, caption and hashtags for this clip</p>
-            </div>
-            <button type="button" onClick={() => setShowMetadataEditor((open) => !open)} className="border border-volt bg-volt px-3 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-[#e0e7ff] transition cursor-pointer">
-              {showMetadataEditor ? "Close editor" : "Edit details"}
-            </button>
-          </div>
-          <p className="font-semibold text-volt">{metadataTitle || "No title set"}</p>
-          {metadataDescription ? <p className="whitespace-pre-line text-muted text-xs leading-relaxed">{metadataDescription}</p> : null}
-          {metadataCaption ? <p className="whitespace-pre-line text-ink/80 text-xs leading-relaxed">{metadataCaption}</p> : null}
-          {metadataHashtags ? <p className="text-xs text-volt break-words">{metadataHashtags}</p> : null}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button type="button" disabled={!metadataTitle.trim() && !metadataDescription.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-white transition cursor-pointer disabled:opacity-40" onClick={() => copy("yt", `${metadataTitle}\\n\\n${metadataDescription}`)}>
-              {copied === "yt" ? "Copied" : "Copy YouTube text"}
-            </button>
-            <button type="button" disabled={!metadataCaption.trim() && !metadataHashtags.trim()} className="border border-white/20 bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:bg-volt hover:text-white transition cursor-pointer disabled:opacity-40" onClick={() => copy("ig", [metadataCaption, metadataHashtags].filter(Boolean).join("\\n\\n"))}>
-              {copied === "ig" ? "Copied" : "Copy Instagram caption"}
-            </button>
-          </div>
-          {showMetadataEditor ? (
-            <form onSubmit={handleSaveMetadata} className="grid gap-3 border-t border-white/10 pt-3">
-              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-                Clip title <span className="font-normal normal-case tracking-normal">Up to 100 characters</span>
-                <input value={metadataTitle} maxLength={100} onChange={(event) => setMetadataTitle(event.target.value)} className="min-h-10 border border-white/20 bg-panel-inset px-3 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
-              </label>
-              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-                Description
-                <textarea value={metadataDescription} maxLength={5000} rows={4} onChange={(event) => setMetadataDescription(event.target.value)} placeholder="Write a YouTube description…" className="border border-white/20 bg-panel-inset px-3 py-2 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
-              </label>
-              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-                Caption
-                <textarea value={metadataCaption} maxLength={2200} rows={4} onChange={(event) => setMetadataCaption(event.target.value)} placeholder="Write an Instagram or Reels caption…" className="border border-white/20 bg-panel-inset px-3 py-2 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
-              </label>
-              <label className="grid gap-1 text-xs font-bold uppercase tracking-wide text-muted">
-                Hashtags
-                <textarea value={metadataHashtags} rows={2} onChange={(event) => setMetadataHashtags(event.target.value)} placeholder="#creator #shorts #reels" className="border border-white/20 bg-panel-inset px-3 py-2 text-sm normal-case tracking-normal text-ink outline-none focus:border-volt" />
-                <span className="font-normal normal-case tracking-normal">Separate hashtags with spaces, commas or new lines. The # is added automatically.</span>
-              </label>
-              <div className="flex flex-wrap items-center gap-3">
-                <button type="submit" disabled={savingMetadata} className="bg-volt px-4 py-2 text-xs font-black uppercase tracking-wide text-white hover:bg-[#e0e7ff] disabled:opacity-50 cursor-pointer">
-                  {savingMetadata ? "Saving…" : "Save clip details"}
-                </button>
-                <button type="button" onClick={() => setShowMetadataEditor(false)} className="px-3 py-2 text-xs font-bold text-muted hover:text-ink cursor-pointer">Cancel</button>
-                <span aria-live="polite" className="text-xs text-muted">{metadataMessage}</span>
-              </div>
-            </form>
-          ) : null}
-          {metadataMessage && !showMetadataEditor ? <p role="status" className="text-xs text-volt">{metadataMessage}</p> : null}
-        </section>
+        {/* Tab 3: Publish & Schedule */}
+        {effectiveTab === "publish" && hasVideo && clip.seo ? (
+          <VStack gap={4}>
+            <HStack justify="between" align="end" wrap="wrap" gap={3}>
+              <Selector
+                label="YouTube visibility"
+                value={publishPrivacy}
+                onChange={(v) => setPublishPrivacy(v as "private" | "unlisted" | "public")}
+                options={[
+                  { value: "private", label: "Private" },
+                  { value: "unlisted", label: "Unlisted" },
+                  { value: "public", label: "Public" },
+                ]}
+              />
 
-        {/* Publish & Distribution Hub */}
-        {hasVideo && clip.seo ? (
-          <div className="flex flex-col gap-3.5 border border-white/10 p-3.5 bg-panel-raised/30 rounded-lg">
-            <div className="flex items-center justify-between">
-              <p className="font-bold text-ink">Publish &amp; Distribution</p>
-              <button
-                type="button"
-                onClick={() => setShowScheduleForm(!showScheduleForm)}
-                className="text-xs font-bold underline text-muted hover:text-volt transition cursor-pointer"
-              >
-                {showScheduleForm ? "Hide Scheduling" : "Schedule in Posting Queue"}
-              </button>
-            </div>
+              <Button
+                label={showScheduleForm ? "Hide scheduler" : "Schedule post"}
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowScheduleForm((o) => !o)}
+              />
+            </HStack>
 
-            {/* Instant Publish */}
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs font-semibold text-muted">
-                Visibility:
-                <select
-                  value={publishPrivacy}
-                  onChange={(e) =>
-                    setPublishPrivacy(e.target.value as "private" | "unlisted" | "public")
-                  }
-                  className="border border-white/20 p-1.5 text-xs bg-panel-inset text-ink rounded font-normal"
-                >
-                  <option value="private">Private</option>
-                  <option value="unlisted">Unlisted</option>
-                  <option value="public">Public</option>
-                </select>
-              </label>
-              {(["youtube", "instagram", "both"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  disabled={publishing !== null}
-                  onClick={() => doPublish(t)}
-                  className="border border-white/20 bg-panel text-ink px-3.5 py-2 text-xs font-bold rounded-lg hover:bg-volt hover:text-white hover:border-volt transition disabled:opacity-60 disabled:cursor-wait cursor-pointer"
-                >
-                  {publishing === t
-                    ? "Uploading…"
-                    : t === "youtube"
-                    ? "YouTube Shorts"
-                    : t === "instagram"
-                    ? "Instagram Reels"
-                    : "Publish Both"}
-                </button>
-              ))}
-            </div>
+            <HStack gap={2} wrap="wrap">
+              <Button
+                label="YouTube Shorts"
+                variant="primary"
+                size="sm"
+                isLoading={publishing === "youtube"}
+                isDisabled={publishing !== null}
+                onClick={() => void doPublish("youtube")}
+              />
+              <Button
+                label="Instagram Reels"
+                variant="secondary"
+                size="sm"
+                isLoading={publishing === "instagram"}
+                isDisabled={publishing !== null}
+                onClick={() => void doPublish("instagram")}
+              />
+              <Button
+                label="Publish both"
+                variant="secondary"
+                size="sm"
+                isLoading={publishing === "both"}
+                isDisabled={publishing !== null}
+                onClick={() => void doPublish("both")}
+              />
+            </HStack>
 
-            {/* Live Upload Progress Feedback */}
             {publishing !== null ? (
-              <div className="border border-volt/30 bg-volt/10 p-3 rounded-lg flex flex-col gap-2 animate-pulse">
-                <div className="flex items-center justify-between text-xs font-bold text-volt">
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-volt animate-ping" />
-                    {publishing === "youtube"
-                      ? "Uploading YouTube Short"
-                      : publishing === "instagram"
-                      ? "Uploading Instagram Reel"
-                      : "Publishing to Platforms"}
-                  </span>
-                  <span>{publishProgress}%</span>
-                </div>
-                <div className="w-full bg-black/40 h-2 rounded overflow-hidden">
-                  <div
-                    className="bg-volt h-full transition-all duration-300 ease-out"
-                    style={{ width: `${Math.max(5, publishProgress)}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted font-medium">
-                  {publishStatusText || "Streaming media chunks to platform API..."}
-                </p>
-              </div>
+              <VStack gap={2}>
+                <ProgressBar
+                  label={publishStatusText || "Uploading clip…"}
+                  value={Math.max(5, publishProgress)}
+                  max={100}
+                  hasValueLabel
+                  variant="accent"
+                />
+              </VStack>
             ) : null}
 
-            {/* Schedule Post Form */}
             {showScheduleForm ? (
-              <form
-                onSubmit={handleScheduleSubmit}
-                className="flex flex-col gap-3 p-3.5 border border-white/12 bg-panel-inset rounded-lg"
-              >
-                <p className="text-xs font-bold uppercase tracking-wider text-volt">
-                  Posting Queue Scheduler
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <label className="flex flex-col text-xs font-semibold text-muted">
-                    Target Platform
-                    <select
+              <Card padding={4} variant="muted">
+                <form onSubmit={handleScheduleSubmit}>
+                  <VStack gap={3}>
+                    <Text type="label" color="accent">
+                      QUEUE SCHEDULER
+                    </Text>
+                    <Selector
+                      label="Target platform"
                       value={schedulePlatform}
-                      onChange={(e) => setSchedulePlatform(e.target.value as Platform | "both")}
-                      className="border border-white/20 p-2 mt-1 text-sm bg-panel text-ink rounded"
-                    >
-                      <option value="youtube">YouTube Shorts</option>
-                      <option value="instagram">Instagram Reels</option>
-                      <option value="both">Both Platforms</option>
-                    </select>
-                  </label>
-                  <label className="flex flex-col text-xs font-semibold text-muted">
-                    Scheduled Time
-                    <input
-                      type="datetime-local"
-                      value={scheduleTime}
-                      onChange={(e) => setScheduleTime(e.target.value)}
-                      className="border border-white/20 p-2 mt-1 text-sm bg-panel text-ink rounded font-mono"
+                      onChange={(v) => setSchedulePlatform(v as Platform | "both")}
+                      options={[
+                        { value: "youtube", label: "YouTube Shorts" },
+                        { value: "instagram", label: "Instagram Reels" },
+                        { value: "both", label: "Both platforms" },
+                      ]}
+                      width="100%"
                     />
-                  </label>
-                </div>
-                <div className="flex items-center gap-2 pt-1">
-                  <button
-                    type="submit"
-                    disabled={scheduling}
-                    className="bg-volt px-4 py-1.5 text-xs font-bold text-white rounded hover:bg-[#a5b4fc] transition disabled:opacity-60 cursor-pointer"
-                  >
-                    {scheduling ? "Scheduling…" : "Confirm Schedule"}
-                  </button>
-                  {scheduleMsg ? (
-                    <span className="text-xs font-semibold text-volt">{scheduleMsg}</span>
-                  ) : null}
-                </div>
-              </form>
+                    <DateTimeInput
+                      label="Publish date & time"
+                      value={scheduleTime as ISODateTimeString}
+                      onChange={(val) => setScheduleTime(val ?? "")}
+                      isRequired
+                      width="100%"
+                    />
+                    <Button
+                      type="submit"
+                      label={scheduling ? "Scheduling…" : "Confirm schedule"}
+                      variant="primary"
+                      size="sm"
+                      isLoading={scheduling}
+                    />
+                  </VStack>
+                </form>
+              </Card>
             ) : null}
 
-            {/* Schedule State Badge */}
             {scheduleState ? (
-              <div className="flex items-center gap-2 border border-volt/30 bg-volt/10 p-2.5 rounded-lg text-xs font-semibold text-ink">
-                <span>📅 Scheduled:</span>
-                <span className="font-mono text-volt">
-                  {new Date(
-                    scheduleState.scheduled_at ||
-                      scheduleState.publishAt ||
-                      scheduleState.published_at ||
-                      "",
-                  ).toLocaleString()}
-                </span>
-                <span className="bg-volt text-white px-1.5 py-0.5 text-[10px] font-bold uppercase rounded">
-                  {scheduleState.status}
-                </span>
-              </div>
+              <Banner
+                status="info"
+                title={`Scheduled (${scheduleState.status})`}
+                description={new Date(
+                  scheduleState.scheduled_at || scheduleState.publishAt || scheduleState.published_at || "",
+                ).toLocaleString()}
+              />
             ) : null}
 
-            {/* Publishing Results & Errors */}
-            {(["youtube", "instagram"] as const).map((p) => {
-              const r = publishState[p];
+            {(["youtube", "instagram"] as const).map((plat) => {
+              const r = publishState[plat];
               if (!r) return null;
-              return r.status === "published" ? (
-                <p key={p} className="text-xs font-semibold text-volt">
-                  {p === "youtube" ? "YouTube" : "Instagram"}: published{" "}
-                  {r.url ? (
-                    <a href={r.url} target="_blank" rel="noreferrer" className="underline font-bold text-ice">
-                      open post ↗
-                    </a>
-                  ) : null}
-                </p>
-              ) : (
-                <div
-                  key={p}
-                  role="alert"
-                  className="border border-punch/50 bg-punch/10 p-3 rounded-lg text-xs font-semibold text-punch flex flex-col gap-2"
-                >
-                  <div>
-                    <p className="font-bold">
-                      {p === "youtube" ? "YouTube Shorts" : "Instagram Reels"} Publish Notice:
-                    </p>
-                    <p className="mt-1">{r.error}</p>
-                  </div>
-                  {p === "youtube" ? (
-                    <button
-                      type="button"
-                      disabled={publishing !== null}
-                      onClick={() => doPublish("youtube", true)}
-                      className="self-start border border-punch bg-panel px-3 py-1.5 text-xs font-bold text-punch hover:bg-punch hover:text-white rounded transition disabled:opacity-60 cursor-pointer"
-                    >
-                      Sign In with Another Google Account ↗
-                    </button>
-                  ) : null}
-                </div>
+              if (r.status === "published") {
+                return (
+                  <Banner
+                    key={plat}
+                    status="success"
+                    title={`${plat === "youtube" ? "YouTube Shorts" : "Instagram Reels"} published`}
+                    endContent={
+                      r.url ? (
+                        <Button
+                          label="Open post"
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          variant="secondary"
+                          size="sm"
+                        />
+                      ) : undefined
+                    }
+                  />
+                );
+              }
+              return (
+                <Banner
+                  key={plat}
+                  status="error"
+                  title={`${plat === "youtube" ? "YouTube Shorts" : "Instagram Reels"} notice`}
+                  description={r.error}
+                  endContent={
+                    plat === "youtube" ? (
+                      <Button
+                        label="Re-auth Google"
+                        variant="secondary"
+                        size="sm"
+                        isDisabled={publishing !== null}
+                        onClick={() => void doPublish("youtube", true)}
+                      />
+                    ) : undefined
+                  }
+                />
               );
             })}
 
-            {publishError ? (
-              <div
-                role="alert"
-                className="border border-punch/50 bg-punch/10 p-3 rounded-lg text-xs font-bold text-punch"
-              >
-                {publishError}
-              </div>
-            ) : null}
+            {publishError ? <Banner status="error" title="Publish failed" description={publishError} /> : null}
 
-            {/* Analytics Loop Card (When published on YouTube or analytics present) */}
             {isYouTubePublished || analytics ? (
-              <div className="flex flex-col gap-2.5 border border-white/12 bg-panel p-3.5 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <p className="font-bold text-ink text-xs uppercase tracking-wider">
-                    YouTube Performance Analytics
-                  </p>
-                  <button
-                    type="button"
-                    disabled={loadingAnalytics}
-                    onClick={handleRefreshAnalytics}
-                    className="border border-white/20 bg-panel-raised px-2.5 py-1 text-[11px] font-semibold text-muted hover:text-ink rounded transition disabled:opacity-60 cursor-pointer"
-                  >
-                    {loadingAnalytics ? "Refreshing…" : "Refresh Stats"}
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                  <div className="border border-white/10 bg-panel-inset p-2.5 rounded">
-                    <span className="text-[10px] text-muted uppercase block font-semibold">
-                      Views
-                    </span>
-                    <span className="text-lg font-extrabold text-volt">
-                      {analytics?.view_count ?? analytics?.views ?? 0}
-                    </span>
-                  </div>
-                  <div className="border border-white/10 bg-panel-inset p-2.5 rounded">
-                    <span className="text-[10px] text-muted uppercase block font-semibold">
-                      Likes
-                    </span>
-                    <span className="text-lg font-extrabold text-volt">
-                      {analytics?.like_count ?? analytics?.likes ?? 0}
-                    </span>
-                  </div>
-                  <div className="border border-white/10 bg-panel-inset p-2.5 rounded">
-                    <span className="text-[10px] text-muted uppercase block font-semibold">
-                      Comments
-                    </span>
-                    <span className="text-lg font-extrabold text-volt">
-                      {analytics?.comment_count ?? analytics?.comments ?? 0}
-                    </span>
-                  </div>
-                </div>
-                {(analytics?.retention_seconds || analytics?.retentionSeconds) ? (
-                  <p className="text-[11px] text-muted">
-                    Average retention: {analytics.retention_seconds ?? analytics.retentionSeconds}s
-                  </p>
-                ) : null}
-              </div>
+              <Card padding={4} variant="muted">
+                <VStack gap={3}>
+                  <HStack justify="between" align="center">
+                    <Text type="label">YOUTUBE ANALYTICS</Text>
+                    <Button
+                      label="Refresh"
+                      variant="ghost"
+                      size="sm"
+                      isLoading={loadingAnalytics}
+                      icon={<Icon icon={RefreshGlyph} />}
+                      onClick={handleRefreshAnalytics}
+                    />
+                  </HStack>
+                  <MetadataList title="Clip performance" orientation="horizontal" label={{ position: "top" }}>
+                    <MetadataListItem label="Views">
+                      <Text type="supporting">
+                        {String(analytics?.view_count ?? analytics?.views ?? 0)}
+                      </Text>
+                    </MetadataListItem>
+                    <MetadataListItem label="Likes">
+                      <Text type="supporting">
+                        {String(analytics?.like_count ?? analytics?.likes ?? 0)}
+                      </Text>
+                    </MetadataListItem>
+                    <MetadataListItem label="Comments">
+                      <Text type="supporting">
+                        {String(analytics?.comment_count ?? analytics?.comments ?? 0)}
+                      </Text>
+                    </MetadataListItem>
+                    {analytics?.retention_seconds || analytics?.retentionSeconds ? (
+                      <MetadataListItem label="Avg retention">
+                        <Text type="supporting">
+                          {`${analytics.retention_seconds ?? analytics.retentionSeconds}s`}
+                        </Text>
+                      </MetadataListItem>
+                    ) : null}
+                  </MetadataList>
+                </VStack>
+              </Card>
             ) : null}
-
-            <p className="text-xs text-muted">
-              YouTube uploads default to private (selectable above or via YOUTUBE_PRIVACY in .env). Instagram requires INSTAGRAM_ACCESS_TOKEN.
-            </p>
-          </div>
+          </VStack>
         ) : null}
 
-        {/* Card Footer Actions */}
-        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/10">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onKeep(!clip.kept)}
-            className="bg-volt px-4 py-2 font-bold text-xs text-white hover:bg-[#a5b4fc] rounded-lg transition cursor-pointer"
-          >
-            {clip.kept ? "Drop this clip" : "Keep this clip"}
-          </button>
+        <Divider />
 
-          {hasVideo ? (
-            <a
-              href={videoSrc}
-              download={`${activeTitle.replace(/\s+/g, "_").toLowerCase()}.mp4`}
-              className="bg-punch text-white px-4 py-2 font-bold text-xs hover:bg-punch/90 rounded-lg transition inline-block text-center cursor-pointer"
-            >
-              Download MP4
-            </a>
-          ) : null}
+        {/* Footer Actions */}
+        <HStack gap={2} wrap="wrap" justify="between" align="center">
+          <HStack gap={2} wrap="wrap">
+            {hasVideo ? (
+              <Button
+                label="Download MP4"
+                variant="primary"
+                size="sm"
+                onClick={() =>
+                  triggerDownload(videoSrc, `${activeTitle.replace(/\s+/g, "_").toLowerCase()}.mp4`)
+                }
+              />
+            ) : null}
+            {hasCover ? (
+              <Button
+                label="Cover JPG"
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  triggerDownload(
+                    coverSrc,
+                    `${activeTitle.replace(/\s+/g, "_").toLowerCase()}_cover.jpg`,
+                  )
+                }
+              />
+            ) : null}
+          </HStack>
 
-          {hasCover ? (
-            <a
-              href={coverSrc}
-              download={`${activeTitle.replace(/\s+/g, "_").toLowerCase()}_cover.jpg`}
-              className="border border-white/20 bg-panel px-4 py-2 font-semibold text-xs text-ink hover:bg-panel-raised rounded-lg transition inline-block text-center cursor-pointer"
-            >
-              Download Cover JPEG
-            </a>
-          ) : null}
-
-          <button
-            type="button"
-            className="border border-white/20 bg-panel px-4 py-2 font-semibold text-xs text-ink hover:bg-panel-raised rounded-lg transition cursor-pointer"
+          <Button
+            label="Metadata JSON"
+            variant="ghost"
+            size="sm"
             onClick={() => {
-              const blob = new Blob([JSON.stringify(clip, null, 2)], {
-                type: "application/json",
-              });
+              const blob = new Blob([JSON.stringify(clip, null, 2)], { type: "application/json" });
               const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `${activeTitle.replace(/\s+/g, "-").toLowerCase()}.json`;
-              a.click();
+              triggerDownload(url, `${activeTitle.replace(/\s+/g, "-").toLowerCase()}.json`);
               URL.revokeObjectURL(url);
             }}
-          >
-            Metadata JSON
-          </button>
-        </div>
-      </div>
-    </article>
+          />
+        </HStack>
+      </VStack>
+    </Card>
   );
 }
 
