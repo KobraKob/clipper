@@ -19,12 +19,14 @@ ran on a 360p source. Here we:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -64,10 +66,58 @@ def is_url(source: str) -> bool:
 
 def is_youtube_url(url: str) -> bool:
     try:
-        host = (urlparse(url.strip()).hostname or "").lower()
+        host = (urlparse(url.strip()).hostname or "").lower().rstrip(".")
     except Exception:
         return False
-    return host == "youtu.be" or host.endswith("youtube.com") or host.endswith("youtube-nocookie.com")
+    return (
+        host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
+        or host == "youtube-nocookie.com" or host.endswith(".youtube-nocookie.com")
+    )
+
+
+def validate_public_media_url(url: str) -> None:
+    """Reject unsafe destinations before invoking yt-dlp.
+
+    DNS rebinding and redirects still require network-level egress filtering.
+    """
+    value = url.strip()
+    if not value or len(value) > 2048:
+        raise ValueError("Source URL is empty or too long.")
+    try:
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Source URL is malformed.") from exc
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or not host:
+        raise ValueError("Only public HTTP and HTTPS source URLs are supported.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Source URLs must not contain embedded credentials.")
+    if port not in (None, 80, 443):
+        raise ValueError("Custom URL ports are not allowed.")
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(
+        (".localhost", ".local", ".internal", ".test", ".invalid", ".example")
+    ):
+        raise ValueError("Private and local network hosts are not allowed.")
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            records = socket.getaddrinfo(
+                host, port or (443 if scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
+        except OSError as exc:
+            raise ValueError("Source host could not be resolved to a public IP address.") from exc
+        addresses = []
+        for record in records:
+            try:
+                addresses.append(ipaddress.ip_address(record[4][0]))
+            except ValueError:
+                continue
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError("Private, reserved, loopback, and link-local network addresses are not allowed.")
 
 
 def _get_ytdlp_cmd() -> List[str]:
@@ -543,6 +593,7 @@ def download(
     If the video simply does not offer that much, the best available is used and the shortfall
     is recorded in ``source_info.json`` (``below_target: true``) instead of failing.
     """
+    validate_public_media_url(url)
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 

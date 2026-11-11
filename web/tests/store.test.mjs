@@ -142,7 +142,9 @@ test("createJob supports URLs without errors", async () => {
 test("createJob supports valid local file and rejects non-existent or disallowed files", async () => {
   // 1. Create a real temporary mp4 file
   const tmpDir = os.tmpdir();
-  const validFile = path.join(tmpDir, `test_${Date.now()}.mp4`);
+  const uploadsDir = path.resolve(process.cwd(), "..", "workdir", "uploads");
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  const validFile = path.join(uploadsDir, `test_${Date.now()}.mp4`);
   fs.writeFileSync(validFile, Buffer.from("fake-mp4-data"));
 
   try {
@@ -169,14 +171,14 @@ test("createJob supports valid local file and rejects non-existent or disallowed
   await assert.rejects(
     async () => {
       await createJob({
-        sourceUrl: path.join(tmpDir, "non_existent_video_12345.mp4"),
+        sourceUrl: path.join(uploadsDir, "non_existent_video_12345.mp4"),
         clipCount: 2,
         provider: "local",
         vertical: true,
         captions: false,
       });
     },
-    { message: /not found at/ }
+    { message: /could not be found/ }
   );
 
   // 3. Reject disallowed extension (e.g. .exe / .sh)
@@ -190,7 +192,7 @@ test("createJob supports valid local file and rejects non-existent or disallowed
         captions: false,
       });
     },
-    { message: /Invalid or prohibited file path/ }
+    { message: /Unsupported video file type/ }
   );
 });
 
