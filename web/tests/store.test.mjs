@@ -147,7 +147,7 @@ test("createJob supports valid local file and rejects non-existent or disallowed
   fs.writeFileSync(validFile, Buffer.from("fake-mp4-data"));
 
   try {
-    const job = await createTestJob({
+    const job = await createJob({
       sourceUrl: validFile,
       clipCount: 2,
       provider: "local",
