@@ -17,7 +17,7 @@
     "@stylexjs/stylex": "^0.19.1",
     "framer-motion": "^14.9.1",
     "motion": "^14.9.1",
-    "next": "16.4.0",
+    "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
@@ -31,5 +31,10 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.7"
+    }
   }
 }

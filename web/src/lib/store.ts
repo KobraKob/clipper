@@ -192,28 +192,6 @@ export async function getJobLogs(jobId: string, maxLines = 100): Promise<string>
   }
 }
 
-function isAllowedLocalVideoPath(filePath: string): boolean {
-  const resolved = path.resolve(filePath);
-  const ext = path.extname(resolved).toLowerCase();
-  if (!ALLOWED_VIDEO_EXTS.has(ext)) {
-    return false;
-  }
-  const lower = resolved.toLowerCase();
-  // Disallow critical OS system directories
-  if (
-    lower.startsWith("c:\\windows") ||
-    lower.startsWith("c:\\program files") ||
-    lower.startsWith("/etc") ||
-    lower.startsWith("/sys") ||
-    lower.startsWith("/proc") ||
-    lower.startsWith("/root")
-  ) {
-    return false;
-  }
-  return true;
-}
-
-
 async function validateUploadedVideoPath(filePath: string): Promise<string> {
   const resolved = path.resolve(filePath);
   if (!ALLOWED_VIDEO_EXTS.has(path.extname(resolved).toLowerCase())) {
