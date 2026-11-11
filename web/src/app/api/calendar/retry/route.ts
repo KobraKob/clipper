@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
     const { postId } = (await req.json()) as { postId?: string };
-    if (!postId) {
-      return NextResponse.json({ error: "postId is required" }, { status: 400 });
+    if (typeof postId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(postId)) {
+      return NextResponse.json({ error: "A valid scheduled post id is required." }, { status: 400 });
     }
 
     const url = process.env.SUPABASE_URL;
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     }
 
     // 3. Reset status to queued
-    const updateRes = await fetch(`${cleanUrl}/rest/v1/scheduled_posts?id=eq.${encodeURIComponent(postId)}`, {
+    const updateRes = await fetch(`${cleanUrl}/rest/v1/scheduled_posts?id=eq.${encodeURIComponent(postId)}&status=in.(failed,cancelled)`, {
       method: "PATCH",
       headers,
       body: JSON.stringify({
@@ -65,7 +65,13 @@ export async function POST(req: Request) {
     }
 
     const updated = await updateRes.json();
-    return NextResponse.json({ success: true, post: updated[0] || post });
+    if (!Array.isArray(updated) || updated.length !== 1) {
+      return NextResponse.json(
+        { error: "This post changed while the retry was being requested. Refresh the calendar and try again." },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ success: true, post: updated[0] });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Retry request failed";
     return NextResponse.json({ error: message }, { status: 500 });

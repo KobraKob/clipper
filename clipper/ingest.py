@@ -19,14 +19,17 @@ ran on a 360p source. Here we:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -64,10 +67,72 @@ def is_url(source: str) -> bool:
 
 def is_youtube_url(url: str) -> bool:
     try:
-        host = (urlparse(url.strip()).hostname or "").lower()
+        host = (urlparse(url.strip()).hostname or "").lower().rstrip(".")
     except Exception:
         return False
-    return host == "youtu.be" or host.endswith("youtube.com") or host.endswith("youtube-nocookie.com")
+    return (
+        host == "youtu.be"
+        or host == "youtube.com"
+        or host.endswith(".youtube.com")
+        or host == "youtube-nocookie.com"
+        or host.endswith(".youtube-nocookie.com")
+    )
+
+
+def validate_public_media_url(url: str) -> None:
+    """Reject non-public destinations before yt-dlp is allowed to make network requests.
+
+    yt-dlp supports many public sites, so this is an address-safety check rather than
+    a service allowlist. Network egress rules should still block private ranges because
+    DNS can change between this check and a later downloader request.
+    """
+    value = url.strip()
+    if not value or len(value) > 2048:
+        raise ValueError("Source URL is empty or too long.")
+
+    try:
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Source URL is malformed.") from exc
+
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("Only public HTTP and HTTPS video URLs are supported.")
+    if not host or parsed.username is not None or parsed.password is not None:
+        raise ValueError("Source URL must contain a public host and no embedded credentials.")
+    if port not in (None, 80, 443):
+        raise ValueError("Custom URL ports are not allowed.")
+
+    if (
+        host in {"localhost", "localhost.localdomain"}
+        or host.endswith((".localhost", ".local", ".internal", ".test", ".invalid", ".example"))
+    ):
+        raise ValueError("Private and local network hosts are not allowed.")
+
+    try:
+        literal = ipaddress.ip_address(host)
+        addresses = [literal]
+    except ValueError:
+        try:
+            records = socket.getaddrinfo(
+                host,
+                port or (443 if parsed.scheme.lower() == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
+        except OSError as exc:
+            raise ValueError("Source host could not be resolved to a public address.") from exc
+        addresses = []
+        for record in records:
+            try:
+                addresses.append(ipaddress.ip_address(record[4][0]))
+            except ValueError:
+                continue
+
+    if not addresses:
+        raise ValueError("Source host did not resolve to a public IP address.")
+    if any(not address.is_global for address in addresses):
+        raise ValueError("Private, reserved, loopback, and link-local network addresses are not allowed.")
 
 
 def _get_ytdlp_cmd() -> List[str]:
@@ -114,10 +179,11 @@ _PCT_RE = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%")
 def _run_streaming(
     cmd: List[str],
     on_progress: Optional[Callable[[float, str], None]] = None,
+    timeout_seconds: Optional[float] = None,
 ) -> Tuple[int, str]:
     """
-    Run a command and stream its output into the log (throttled to ~5% steps for downloads),
-    so long downloads show visible progress in clipper.log / the web studio.
+    Run a command and stream output to the log. A watchdog kills stalled or
+    excessively long transfers without blocking progress reporting.
     Returns (returncode, tail_of_output).
     """
     proc = subprocess.Popen(
@@ -130,29 +196,52 @@ def _run_streaming(
     )
     tail: List[str] = []
     last_bucket = -1
+    timed_out = False
+
+    def terminate_on_timeout() -> None:
+        nonlocal timed_out
+        timed_out = True
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    timer = None
+    if timeout_seconds and timeout_seconds > 0:
+        timer = threading.Timer(timeout_seconds, terminate_on_timeout)
+        timer.daemon = True
+        timer.start()
+
     assert proc.stdout is not None
-    for line in proc.stdout:
-        line = line.rstrip()
-        if not line:
-            continue
-        tail.append(line)
-        if len(tail) > 40:
-            tail.pop(0)
-        m = _PCT_RE.search(line)
-        if m:
-            pct = float(m.group(1))
-            bucket = int(pct // 5)
-            if bucket != last_bucket:
-                last_bucket = bucket
-                logger.info("[ingest] %s", line)
-                if on_progress:
-                    try:
-                        on_progress(pct, line)
-                    except Exception:
-                        pass
-        elif not line.startswith("[download]"):
-            logger.debug("[ingest] %s", line)
+    try:
+        for line in proc.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            tail.append(line)
+            if len(tail) > 40:
+                tail.pop(0)
+            match = _PCT_RE.search(line)
+            if match:
+                percent = float(match.group(1))
+                bucket = int(percent // 5)
+                if bucket != last_bucket:
+                    last_bucket = bucket
+                    logger.info("[ingest] %s", line)
+                    if on_progress:
+                        try:
+                            on_progress(percent, line)
+                        except Exception:
+                            pass
+            elif not line.startswith("[download]"):
+                logger.debug("[ingest] %s", line)
+    finally:
+        if timer is not None:
+            timer.cancel()
+
     proc.wait()
+    if timed_out:
+        tail.append(f"Download timed out after {timeout_seconds:g} seconds.")
     return proc.returncode, "\n".join(tail)
 
 
@@ -543,6 +632,7 @@ def download(
     If the video simply does not offer that much, the best available is used and the shortfall
     is recorded in ``source_info.json`` (``below_target: true``) instead of failing.
     """
+    validate_public_media_url(url)
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -566,6 +656,20 @@ def download(
         except (ValueError, TypeError):
             retries = 5
 
+    try:
+        max_source_bytes = max(64 * 1024 * 1024, int(os.getenv("CLIPPER_MAX_SOURCE_BYTES", str(4 * 1024**3))))
+    except (ValueError, TypeError):
+        max_source_bytes = 4 * 1024**3
+    try:
+        max_download_seconds = max(60, int(os.getenv("CLIPPER_DOWNLOAD_TIMEOUT_SECONDS", "7200")))
+    except (ValueError, TypeError):
+        max_download_seconds = 7200
+    try:
+        max_source_duration = max(60, int(os.getenv("CLIPPER_MAX_SOURCE_DURATION_SECONDS", "14400")))
+    except (ValueError, TypeError):
+        max_source_duration = 14400
+    max_filesize_arg = f"{max_source_bytes / (1024**3):.2f}G"
+
     # ---- Reuse a cached download only if it already meets the quality target ----
     existing = _find_source_file(out_dir)
     stale_backup: Optional[pathlib.Path] = None
@@ -574,7 +678,12 @@ def download(
             have = probe_video(existing)
         except Exception:
             have = None
-        if have is not None and have.short_side >= min_height:
+        if (
+            have is not None
+            and have.short_side >= min_height
+            and existing.stat().st_size <= max_source_bytes
+            and (have.duration <= 0 or have.duration <= max_source_duration)
+        ):
             logger.info("[ingest] Reusing cached source %s (%dx%d).", existing.name, have.width, have.height)
             return existing
         logger.info(
@@ -644,6 +753,8 @@ def download(
         str(retries),
         "--fragment-retries",
         "10",
+        "--max-filesize",
+        max_filesize_arg,
         "-N",
         "4",
         "-o",
@@ -665,11 +776,15 @@ def download(
         try:
             if progress_callback is not None:
                 try:
-                    code, tail = _run_streaming(cmd, on_progress=progress_callback)
+                    code, tail = _run_streaming(
+                        cmd,
+                        on_progress=progress_callback,
+                        timeout_seconds=max_download_seconds,
+                    )
                 except TypeError:
                     code, tail = _run_streaming(cmd)
             else:
-                code, tail = _run_streaming(cmd)
+                code, tail = _run_streaming(cmd, timeout_seconds=max_download_seconds)
         except FileNotFoundError as exc:
             raise RuntimeError("Neither the yt-dlp executable nor `python -m yt_dlp` could be run.") from exc
         if code == 0 and _find_source_file(out_dir) is not None:
@@ -712,11 +827,16 @@ def download(
     out_path = _find_source_file(out_dir)
     assert out_path is not None
 
-    if stale_backup is not None:
-        try:
-            stale_backup.unlink()
-        except OSError:
-            pass
+    # Enforce actual downloaded bytes and duration even when the extractor did
+    # not provide a reliable filesize before transfer.
+    if out_path.stat().st_size > max_source_bytes:
+        out_path.unlink(missing_ok=True)
+        if stale_backup is not None and stale_backup.exists():
+            stale_backup.replace(stale_backup.with_name(stale_backup.name[: -len(".old")]))
+        raise RuntimeError(
+            f"Downloaded source exceeds the configured {max_source_bytes} byte limit "
+            "(CLIPPER_MAX_SOURCE_BYTES)."
+        )
 
     # ---- Verify what we really got ----
     got: Optional[VideoInfo] = None
@@ -724,6 +844,20 @@ def download(
         got = probe_video(out_path)
     except Exception as exc:
         logger.warning("[ingest] Could not probe downloaded file: %s", exc)
+    if got is not None and got.duration > max_source_duration:
+        out_path.unlink(missing_ok=True)
+        if stale_backup is not None and stale_backup.exists():
+            stale_backup.replace(stale_backup.with_name(stale_backup.name[: -len(".old")]))
+        raise RuntimeError(
+            f"Source duration exceeds the configured {max_source_duration} second limit "
+            "(CLIPPER_MAX_SOURCE_DURATION_SECONDS)."
+        )
+
+    if stale_backup is not None:
+        try:
+            stale_backup.unlink()
+        except OSError:
+            pass
 
     below = bool(got and got.short_side < min_height)
     if got:

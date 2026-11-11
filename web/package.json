@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/store.test.mjs tests/site-structure.test.mjs",
+    "test": "tsx --test tests/store.test.mjs tests/site-structure.test.mjs tests/auth.test.mjs",
     "sync:secrets": "node scripts/sync-youtube-secrets.mjs"
   },
   "dependencies": {
