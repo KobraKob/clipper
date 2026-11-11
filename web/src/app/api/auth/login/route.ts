@@ -45,9 +45,32 @@ export async function POST(request: NextRequest) {
 
   let password = "";
   try {
+    if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
+      return NextResponse.json({ error: "Login requests must use application/json." }, { status: 415 });
+    }
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > 4096) return NextResponse.json({ error: "Invalid login request." }, { status: 413 });
-    const body = await request.json();
+    const reader = request.body?.getReader();
+    if (!reader) return NextResponse.json({ error: "Invalid login request." }, { status: 400 });
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > 4096) {
+        await reader.cancel();
+        return NextResponse.json({ error: "Invalid login request." }, { status: 413 });
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const body = JSON.parse(new TextDecoder().decode(bytes));
     password = typeof body?.password === "string" ? body.password : "";
   } catch {
     return NextResponse.json({ error: "Invalid login request." }, { status: 400 });
