@@ -345,6 +345,22 @@ async function authorizedSchedulerRequest(req: Request): Promise<boolean> {
   return await response.json() === true;
 }
 
+async function processConcurrently<T>(
+  items: T[],
+  limit: number,
+  handler: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const count = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(Array.from({ length: count }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      await handler(items[index]);
+    }
+  }));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
@@ -381,8 +397,10 @@ Deno.serve(async (req: Request) => {
 
   const posts = [...(instagramPosts as ScheduledPost[]), ...(youtubePosts as ScheduledPost[])];
   const results: Array<{ id: string; status: string; error?: string }> = [];
-  for (const post of posts) {
-    if (!(await claim(post))) continue;
+  // Provider polling can take up to 100 seconds. A bounded pool prevents one
+  // slow Instagram container from blocking other due posts in this batch.
+  await processConcurrently(posts, 3, async (post) => {
+    if (!(await claim(post))) return;
     try {
       const videoUrl = await signedVideoUrl(post.storage_path);
       const published = post.platform === "youtube"
@@ -396,20 +414,14 @@ Deno.serve(async (req: Request) => {
         locked_at: null,
         last_error: null,
       });
-      if (post.platform === "instagram") {
-        await cleanupPublishedVideo(post.storage_path);
-      }
+      if (post.platform === "instagram") await cleanupPublishedVideo(post.storage_path);
       results.push({ id: post.id, status: post.platform === "youtube" ? "scheduled" : "published" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown publishing error";
-      await updatePost(post.id, {
-        status: "failed",
-        last_error: message.slice(0, 2000),
-        locked_at: null,
-      });
+      await updatePost(post.id, { status: "failed", last_error: message.slice(0, 2000), locked_at: null });
       results.push({ id: post.id, status: "failed", error: message });
     }
-  }
+  });
   await cleanupOutstandingPublishedVideos();
   return json({ checked_at: now.toISOString(), processed: results.length, results });
 });

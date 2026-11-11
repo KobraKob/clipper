@@ -7,7 +7,6 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const MAX_SOUNDTRACK_BYTES = 100 * 1024 * 1024;
-const MAX_MULTIPART_OVERHEAD = 1024 * 1024;
 const ALLOWED_EXTS = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"]);
 
 async function resolveRootDir(): Promise<string> {
@@ -33,42 +32,21 @@ function decodeFileName(value: string | null): string {
 export async function POST(request: Request) {
   let targetPath: string | undefined;
   try {
-    const isRawUpload =
-      request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ===
-      "application/octet-stream";
-    const contentLength = Number(request.headers.get("content-length"));
-    const requestLimit = isRawUpload
-      ? MAX_SOUNDTRACK_BYTES
-      : MAX_SOUNDTRACK_BYTES + MAX_MULTIPART_OVERHEAD;
-
-    if (Number.isFinite(contentLength) && contentLength > requestLimit) {
+    const contentType = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/octet-stream") {
+      return NextResponse.json({ error: "Upload soundtrack as application/octet-stream." }, { status: 415 });
+    }
+    const lengthHeader = request.headers.get("content-length");
+    const contentLength = lengthHeader ? Number(lengthHeader) : null;
+    if (contentLength !== null && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
+      return NextResponse.json({ error: "Invalid Content-Length header." }, { status: 400 });
+    }
+    if (contentLength !== null && contentLength > MAX_SOUNDTRACK_BYTES) {
       return NextResponse.json({ error: "Soundtrack exceeds the 100 MB upload limit." }, { status: 413 });
     }
-
-    let originalName: string;
-    let bodyStream: ReadableStream<Uint8Array>;
-    if (isRawUpload) {
-      originalName = decodeFileName(request.headers.get("x-file-name"));
-      if (!request.body) {
-        return NextResponse.json({ error: "No soundtrack file provided." }, { status: 400 });
-      }
-      bodyStream = request.body;
-    } else {
-      const formData = await request.formData();
-      const file = formData.get("file");
-      if (!file || typeof file === "string" || !(file instanceof Blob)) {
-        return NextResponse.json({ error: "No soundtrack file provided." }, { status: 400 });
-      }
-      originalName = (file as File).name || "soundtrack.mp3";
-      if (file.size === 0) {
-        return NextResponse.json({ error: "The selected soundtrack is empty." }, { status: 400 });
-      }
-      if (file.size > MAX_SOUNDTRACK_BYTES) {
-        return NextResponse.json({ error: "Soundtrack exceeds the 100 MB upload limit." }, { status: 413 });
-      }
-      bodyStream = file.stream();
-    }
-
+    const originalName = decodeFileName(request.headers.get("x-file-name"));
+    if (!request.body) return NextResponse.json({ error: "No soundtrack file provided." }, { status: 400 });
+    const bodyStream = request.body;
     const extension = path.extname(originalName).toLowerCase();
     if (!ALLOWED_EXTS.has(extension)) {
       return NextResponse.json(
@@ -81,8 +59,10 @@ export async function POST(request: Request) {
     const rootDir = await resolveRootDir();
     const soundtrackDir = path.join(rootDir, "workdir", "soundtracks");
     await fs.mkdir(soundtrackDir, { recursive: true });
+    const resolvedDir = await fs.realpath(soundtrackDir);
+    if (resolvedDir !== path.resolve(soundtrackDir)) throw new Error("Soundtrack directory must not be a symbolic link.");
 
-    const uniquePrefix = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const uniquePrefix = `${Date.now()}_${crypto.randomUUID()}`;
     const targetFileName = `${uniquePrefix}_${cleanName}`;
     targetPath = path.join(soundtrackDir, targetFileName);
 
@@ -101,7 +81,7 @@ export async function POST(request: Request) {
     // Stream raw browser uploads to disk with a bounded byte counter.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nodeStream = Readable.fromWeb(bodyStream as any);
-    await pipeline(nodeStream, limiter, createWriteStream(targetPath, { flags: "wx" }));
+    await pipeline(nodeStream, limiter, createWriteStream(targetPath, { flags: "wx", mode: 0o600 }));
 
     if (totalBytes === 0) {
       throw new Error("The selected soundtrack is empty.");
