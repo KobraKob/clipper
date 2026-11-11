@@ -1,41 +1,49 @@
-# Backend security and deployment hardening
+# Security and deployment setup
 
-## Production access control
+Clipper is a private, single-workspace application. The web app now fails closed unless the shared studio password and session signing secret are configured.
 
-Clipper currently uses a shared studio-password session, not individual accounts. Configure the server-side access password and signing secret in the hosting environment. Never expose this single-workspace model as a multi-tenant service: it has no per-user job ownership boundary. Keep the session signing secret private and rotate it after exposure.
+## Required production secrets
 
-The login throttle is process-local. Apply a platform/WAF rate limit to the login endpoint when multiple web instances are used.
+Set these server-side environment variables on the web service. Never prefix them with `NEXT_PUBLIC_` or commit real values.
+
+- `CLIPPER_ACCESS_PASSWORD`: unique password with at least 16 characters.
+- `CLIPPER_AUTH_SECRET`: signing secret with at least 32 characters. Generate with `openssl rand -hex 32`.
+- `CLIPPER_MAX_RUNNING_JOBS`: optional processing cap from 1 to 4 (default 2).
+
+Redeploy after configuring them. Sessions are signed, HttpOnly, SameSite=Strict, Secure in production, and expire after eight hours. Rotate both secrets after suspected exposure. Login attempts are throttled in-process; add platform/WAF rate limiting for multi-instance deployments.
+
+This is shared-password access, not individual accounts or per-job ownership. Do not expose it as a multi-tenant SaaS boundary.
 
 ## Upload handling
 
-The video and soundtrack endpoints accept raw `application/octet-stream` streams. This avoids parsing a multi-gigabyte multipart body into application memory. Video upload is capped at 4 GB and soundtrack upload at 100 MB; the byte stream is checked even when Content-Length is missing. Files receive unique names and restrictive permissions. Video container signatures are checked after upload.
+Video and soundtrack endpoints accept raw `application/octet-stream` streams. This avoids parsing multi-gigabyte multipart bodies into application memory. Videos are capped at 4 GB and soundtracks at 100 MB; byte counts are checked even without Content-Length. Files use unique names and restrictive permissions. Video container signatures are checked after upload.
 
-The hosting platform must support the configured body sizes. Some serverless hosts impose smaller limits before the application receives the request. Set a matching proxy limit and disk quota.
+The hosting platform must support these body sizes and persistent disk. Configure matching proxy limits and disk quotas.
 
 ## Filesystem boundaries
 
-Local video sources must be under the application-managed `workdir/uploads` directory. Canonical paths are checked and symlink escapes rejected. Soundtrack paths are likewise restricted to their managed directory. Clip video and cover files must be constrained to the job output directory before they are served; keep this as a required follow-up if external output directories are configured.
+Local video sources must be under `workdir/uploads`; soundtrack sources must be under `workdir/soundtracks`. Canonical paths are checked and symlink escapes rejected. Served clip videos and cover images must resolve inside each job's output directory. Job deletion removes its uploaded source and generated work/output directories.
 
 ## URL ingestion / SSRF
 
 Before yt-dlp starts, the downloader rejects non-HTTP(S) schemes, URL credentials, non-standard ports, localhost/private hostnames, and DNS answers that are not globally routable. This is defense in depth, not a complete network sandbox: DNS rebinding and redirects can change the eventual destination.
 
-For any public deployment, run media processing in an isolated worker/container with outbound firewall rules denying loopback, link-local, RFC1918, IPv6 ULA, cloud metadata, and internal service ranges. Do not rely on DNS preflight alone to secure arbitrary URL downloads.
+For public deployments, run media processing in an isolated worker/container with outbound firewall rules denying loopback, link-local, RFC1918, IPv6 ULA, cloud metadata, and internal service ranges. DNS preflight alone cannot secure arbitrary URL downloads.
 
 ## Processing performance
 
-Rerender, schedule, and analytics subprocesses now run under per-job locks. The global jobs JSON mutex is held only for short reads/writes, so one long FFmpeg/API operation no longer blocks unrelated job reads and updates. Delete filesystem cleanup also runs outside the global store lock.
+Rerender, schedule, and analytics subprocesses run under per-job locks. The global JSON-store mutex is held only for short reads/writes, so long FFmpeg/API operations no longer block unrelated job requests. Filesystem cleanup after deletion also runs outside the global lock.
 
-The scheduled publishing function uses a bounded concurrency pool of three posts. This prevents a slow Instagram readiness poll from serially blocking all other due posts. Do not increase concurrency without checking Meta/YouTube quotas and Supabase edge-function execution limits.
+Scheduled publishing uses a bounded concurrency pool of three posts. This prevents one slow Instagram readiness poll from serially blocking other due posts. Do not increase concurrency without checking provider quotas and Supabase execution limits.
 
 ## Remaining architecture constraints
 
 - JSON-file persistence is single-instance only. Multiple replicas require a transactional database and distributed queue/locks.
-- Shared-password authentication is not user identity or per-job authorization.
+- Shared-password authentication is not individual identity or per-job authorization.
 - DNS preflight must be paired with network egress controls.
 - Provider success followed by a lost response can leave an ambiguous publish state. Reconcile provider IDs before retrying to avoid duplicate publication.
-- Uploaded source files are retained independently from job records. Add a retention job and disk quota before running at scale.
-- Large uploads need a persistent disk. Ephemeral serverless filesystems will not preserve local processing artifacts.
+- Uploaded files need retention and disk-quota policies for long-running deployments.
+- Large uploads require persistent storage; ephemeral serverless filesystems will not preserve processing artifacts.
 
 ## Verification
 

@@ -227,6 +227,7 @@ async function validateUploadedVideoPath(filePath: string): Promise<string> {
   }
   try {
     const realRoot = await fs.realpath(allowedRoot);
+    if (realRoot !== allowedRoot) throw new Error("Upload directory must not be a symbolic link.");
     const realFile = await fs.realpath(resolved);
     const realRelative = path.relative(realRoot, realFile);
     if (!realRelative || realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
@@ -238,6 +239,23 @@ async function validateUploadedVideoPath(filePath: string): Promise<string> {
   } catch (error) {
     if (error instanceof Error && /escapes|regular file/.test(error.message)) throw error;
     throw new Error("Uploaded video file could not be found.");
+  }
+}
+
+async function resolveContainedOutputFile(outputDir: string, candidate: string, extension: string): Promise<string | null> {
+  try {
+    const expectedRoot = path.resolve(outputDir);
+    const realRoot = await fs.realpath(expectedRoot);
+    if (realRoot !== expectedRoot) return null;
+    const resolvedCandidate = path.isAbsolute(candidate) ? candidate : path.resolve(expectedRoot, candidate);
+    const realFile = await fs.realpath(resolvedCandidate);
+    const relative = path.relative(realRoot, realFile);
+    if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+    if (path.extname(realFile).toLowerCase() !== extension) return null;
+    const stat = await fs.stat(realFile);
+    return stat.isFile() ? realFile : null;
+  } catch {
+    return null;
   }
 }
 
@@ -725,25 +743,35 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 }
 
 export async function deleteJob(id: string): Promise<boolean> {
-  const deleted = await storeMutex.runExclusive(async () => {
+  const deletedJob = await storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
-    if (!jobs.some((job) => job.id === id)) return false;
-    await writeJobs(jobs.filter((job) => job.id !== id));
-    return true;
+    const index = jobs.findIndex((job) => job.id === id);
+    if (index === -1) return null;
+    const [job] = jobs.splice(index, 1);
+    await writeJobs(jobs);
+    return job;
   });
-  if (!deleted) return false;
+  if (!deletedJob) return false;
+
   const workDir = await resolveWorkDir(id);
   const outDir = await resolveOutDir(id);
   const progressFile = path.join(DATA_DIR, `progress-${id}.json`);
-  // Filesystem cleanup no longer holds the global JSON-store mutex.
-  await Promise.allSettled([
+  const cleanup: Promise<unknown>[] = [
     fs.rm(workDir, { recursive: true, force: true }),
     fs.rm(outDir, { recursive: true, force: true }),
     fs.unlink(progressFile),
-  ]);
+  ];
+  if (deletedJob.sourceKind === "file") {
+    cleanup.push(
+      validateUploadedVideoPath(deletedJob.source)
+        .then((safePath) => fs.unlink(safePath))
+        .catch(() => undefined),
+    );
+  }
+  // Slow disk cleanup is intentionally outside the global JSON-store mutex.
+  await Promise.allSettled(cleanup);
   return true;
 }
-
 export async function setJobClips(jobId: string, clips: Clip[]): Promise<JobView> {
   return storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
