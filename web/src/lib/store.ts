@@ -749,6 +749,7 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 }
 
 export async function deleteJob(id: string): Promise<boolean> {
+  return runForJob(id, async () => {
   const deletedJob = await storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
     const index = jobs.findIndex((job) => job.id === id);
@@ -777,6 +778,7 @@ export async function deleteJob(id: string): Promise<boolean> {
   // Slow disk cleanup is intentionally outside the global JSON-store mutex.
   await Promise.allSettled(cleanup);
   return true;
+  });
 }
 export async function setJobClips(jobId: string, clips: Clip[]): Promise<JobView> {
   return storeMutex.runExclusive(async () => {
@@ -1011,6 +1013,7 @@ export async function publishClip(
   privacy?: "private" | "unlisted" | "public",
   reauth?: boolean,
 ): Promise<JobView> {
+  return runForJob(jobId, async () => {
   const jobs = await readJobs();
   const index = jobs.findIndex((j) => j.id === jobId);
   if (index === -1) throw new Error("Job not found.");
@@ -1098,6 +1101,7 @@ export async function publishClip(
       return hydrateJob(current[i]);
     }
     throw new Error("Job not found.");
+  });
   });
 }
 
