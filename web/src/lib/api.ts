@@ -185,6 +185,20 @@ export async function selectTitleVariant(
   return res.json();
 }
 
+export async function selectThumbnailOption(
+  jobId: string,
+  clipId: string,
+  optionId: string,
+): Promise<JobView> {
+  const res = await fetch(`/api/jobs/${jobId}/clips/${clipId}/thumbnail`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ optionId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 export async function deleteJob(id: string): Promise<void> {
   const res = await fetch(`/api/jobs/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await parseError(res));

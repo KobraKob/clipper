@@ -284,6 +284,8 @@ function mapManifestClips(manifest: any): Clip[] {
       kept: true,
       file: c.file,
       coverImage: c.cover_image || c.cover_path || undefined,
+      thumbnailOptions: Array.isArray(c.thumbnail_options) ? c.thumbnail_options : undefined,
+      selectedThumbnailOption: c.selected_thumbnail_option || undefined,
       captionStyle: c.caption_style ?? null,
       encoder: c.encoder ?? undefined,
       hookOverlay: c.hook_overlay,
@@ -948,13 +950,24 @@ export async function getClipVideoFile(jobId: string, clipId: string): Promise<s
   return null;
 }
 
-export async function getClipCoverFile(jobId: string, clipId: string): Promise<string | null> {
+export async function getClipCoverFile(
+  jobId: string,
+  clipId: string,
+  optionId?: string,
+): Promise<string | null> {
   if (!/^clip-\d+$/.test(clipId)) return null;
   const jobs = await readJobs();
   const job = jobs.find((item) => item.id === jobId);
   if (!job) return null;
   const outputDir = await resolveOutDir(jobId);
   const clip = job.clips.find((item) => item.id === clipId);
+  if (optionId && clip?.thumbnailOptions?.length) {
+    const chosen = clip.thumbnailOptions.find((opt) => opt.id === optionId);
+    if (chosen?.file) {
+      const safeOption = await resolveContainedOutputFile(outputDir, chosen.file, ".jpg");
+      if (safeOption) return safeOption;
+    }
+  }
   if (clip?.coverImage) {
     const safeCover = await resolveContainedOutputFile(outputDir, clip.coverImage, ".jpg");
     if (safeCover) return safeCover;
@@ -962,6 +975,15 @@ export async function getClipCoverFile(jobId: string, clipId: string): Promise<s
   try {
     const rank = Number(clipId.slice("clip-".length));
     const files = await fs.readdir(/*turbopackIgnore: true*/ outputDir);
+    if (optionId && /^option_[abc]$/.test(optionId)) {
+      const suffix = `_thumb_${optionId.slice(-1)}.jpg`;
+      const optMatch = files.find(
+        (file) =>
+          (file.startsWith(`${String(rank).padStart(2, "0")}_`) || file.startsWith(`${rank}_`)) &&
+          file.toLowerCase().endsWith(suffix),
+      );
+      if (optMatch) return await resolveContainedOutputFile(outputDir, optMatch, ".jpg");
+    }
     const match = files.find((file) =>
       (file.startsWith(`${String(rank).padStart(2, "0")}_`) || file.startsWith(`${rank}_`)) &&
       file.toLowerCase().endsWith("_cover.jpg"),
@@ -1164,11 +1186,13 @@ export async function selectClipTitleVariant(
     const i = current.findIndex((j) => j.id === jobId);
     if (i === -1) throw new Error("Job not found.");
 
+    let updatedTitle: string | undefined;
     current[i].clips = current[i].clips.map((c) => {
       if (c.id !== clipId) return c;
       const variants = normalizeTitleVariants(c.titleVariants?.length ? c.titleVariants : c.seo?.title_variants || []);
       const targetVar = variants.find((v) => v.id === variantId);
       if (!targetVar) return c;
+      updatedTitle = targetVar.title;
       return {
         ...c,
         title: targetVar.title,
@@ -1189,6 +1213,117 @@ export async function selectClipTitleVariant(
           : c.seo,
       };
     });
+
+    if (updatedTitle !== undefined) {
+      try {
+        const manifestPath = path.join(await resolveOutDir(jobId), "metadata.json");
+        const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+        const rank = Number(clipId.replace("clip-", ""));
+        const item = Array.isArray(manifest.clips)
+          ? manifest.clips.find((entry: { rank?: number }) => Number(entry.rank) === rank)
+          : undefined;
+        if (item) {
+          item.title = updatedTitle;
+          item.selected_title_variant = variantId;
+          if (item.seo) {
+            item.seo.selected_title_variant = variantId;
+            if (item.seo.youtube) {
+              item.seo.youtube.title = updatedTitle;
+              item.seo.youtube.selected_variant = variantId;
+            }
+          }
+          await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+
+    await writeJobs(current);
+    return hydrateJob(current[i]);
+  });
+}
+
+/** Switch the active thumbnail option (A/B/C) for a clip and sync cover_image for publishing. */
+export async function selectClipThumbnailOption(
+  jobId: string,
+  clipId: string,
+  optionId: string,
+): Promise<JobView> {
+  return storeMutex.runExclusive(async () => {
+    const current = await readJobs();
+    const i = current.findIndex((j) => j.id === jobId);
+    if (i === -1) throw new Error("Job not found.");
+
+    const targetClip = current[i].clips.find((c) => c.id === clipId);
+    if (!targetClip) throw new Error(`Clip ${clipId} not found.`);
+
+    const options = targetClip.thumbnailOptions || [];
+    const chosen = options.find((opt) => opt.id === optionId);
+    if (!chosen) throw new Error(`Thumbnail option ${optionId} not found.`);
+
+    const outputDir = await resolveOutDir(jobId);
+    const safeChosenFile = await resolveContainedOutputFile(outputDir, chosen.file, ".jpg");
+    if (!safeChosenFile) {
+      throw new Error("Selected thumbnail file could not be found.");
+    }
+
+    const optionFileSet = new Set<string>();
+    for (const opt of options) {
+      const safeOpt = await resolveContainedOutputFile(outputDir, opt.file, ".jpg");
+      if (safeOpt) optionFileSet.add(safeOpt);
+    }
+
+    let coverTargetPath: string | null = null;
+    if (targetClip.coverImage) {
+      const resolvedExisting = path.isAbsolute(targetClip.coverImage)
+        ? targetClip.coverImage
+        : path.resolve(outputDir, targetClip.coverImage);
+      const rel = path.relative(outputDir, resolvedExisting);
+      if (rel && !rel.startsWith("..") && !path.isAbsolute(rel) && resolvedExisting.toLowerCase().endsWith("_cover.jpg")) {
+        const realExisting = await resolveContainedOutputFile(outputDir, resolvedExisting, ".jpg");
+        if (realExisting && !optionFileSet.has(realExisting)) {
+          coverTargetPath = realExisting;
+        }
+      }
+    }
+    if (!coverTargetPath) {
+      const derivedCoverName = path.basename(safeChosenFile).replace(/_thumb_[abc]\.jpg$/i, "_cover.jpg");
+      const candidateCover = path.join(outputDir, derivedCoverName);
+      if (!optionFileSet.has(candidateCover) && candidateCover !== safeChosenFile) {
+        coverTargetPath = candidateCover;
+      }
+    }
+
+    let updatedCoverPath = safeChosenFile;
+    if (coverTargetPath && !optionFileSet.has(coverTargetPath)) {
+      if (coverTargetPath !== safeChosenFile) {
+        await fs.copyFile(safeChosenFile, coverTargetPath);
+      }
+      updatedCoverPath = coverTargetPath;
+    }
+
+    current[i].clips = current[i].clips.map((c) =>
+      c.id === clipId
+        ? { ...c, selectedThumbnailOption: optionId, coverImage: updatedCoverPath }
+        : c,
+    );
+
+    try {
+      const manifestPath = path.join(outputDir, "metadata.json");
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      const rank = Number(clipId.replace("clip-", ""));
+      const item = Array.isArray(manifest.clips)
+        ? manifest.clips.find((entry: { rank?: number }) => Number(entry.rank) === rank)
+        : undefined;
+      if (item) {
+        item.selected_thumbnail_option = optionId;
+        item.cover_image = updatedCoverPath;
+        await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
 
     await writeJobs(current);
     return hydrateJob(current[i]);

@@ -28,12 +28,15 @@ YOUTUBE_SCOPES = [
 PLATFORMS = ("youtube", "instagram")
 
 
-def _append_hashtags(text: str, hashtags: List[str], limit: int) -> str:
+def _append_hashtags(text: str, hashtags: List[str], limit: int, max_tags: Optional[int] = None) -> str:
     caption = str(text or "").strip()
     existing = caption.casefold()
+    existing_count = caption.count("#")
     additions: List[str] = []
     seen = set()
     for value in hashtags or []:
+        if max_tags is not None and existing_count + len(additions) >= max_tags:
+            break
         tag = "#" + "".join(str(value or "").split()).lstrip("#")
         if tag == "#" or tag.casefold() in existing or tag.casefold() in seen:
             continue
@@ -156,13 +159,26 @@ def build_youtube_body(meta: Dict[str, Any], s: Settings, privacy: Optional[str]
     yt = meta["youtube"]
     title = yt["title"][:100]
     description = yt["description"]
-    if "#shorts" not in description.lower():
-        description = description.rstrip() + "\n#Shorts"
+    format_tags = meta.get("hashtag_groups", {}).get("format")
+    is_short = "Shorts" in (format_tags if format_tags is not None else ["Shorts"])
+    if is_short and "#shorts" not in description.lower():
+        description = description.rstrip() + " #Shorts"
+    tags: List[str] = []
+    used_chars = 0
+    for raw_tag in yt.get("tags", []):
+        tag = " ".join(str(raw_tag).split()).strip()
+        if not tag or tag in tags:
+            continue
+        projected = used_chars + len(tag) + (1 if tags else 0)
+        if projected > 500:
+            break
+        tags.append(tag)
+        used_chars = projected
     return {
         "snippet": {
             "title": title,
             "description": description[:5000],
-            "tags": yt.get("tags", []),
+            "tags": tags,
             "categoryId": str(s.youtube_category_id),
         },
         "status": {
@@ -232,7 +248,10 @@ def upload_youtube(
             except Exception as thumb_exc:
                 logger.warning("[publish] YouTube thumbnail set skipped/failed: %s", thumb_exc)
 
-    return {"id": vid, "url": f"https://youtube.com/shorts/{vid}", "privacy": (privacy or s.youtube_privacy)}
+    format_tags = meta.get("hashtag_groups", {}).get("format")
+    is_short = "Shorts" in (format_tags if format_tags is not None else ["Shorts"])
+    url = f"https://youtube.com/shorts/{vid}" if is_short else f"https://www.youtube.com/watch?v={vid}"
+    return {"id": vid, "url": url, "privacy": (privacy or s.youtube_privacy)}
 
 
 # --------------------------------------------------------------------------------------
@@ -274,9 +293,10 @@ def upload_instagram(
 
     base = _graph_base(s)
     token = s.instagram_access_token
+    ig_tags = meta.get("instagram", {}).get("hashtags") or meta.get("hashtags", [])
     params: Dict[str, Any] = {
         "media_type": "REELS",
-        "caption": _append_hashtags(meta["instagram"]["caption"], meta.get("hashtags", []), 2200),
+        "caption": _append_hashtags(meta["instagram"]["caption"], ig_tags, 2200, max_tags=5),
         "share_to_feed": "true",
         "access_token": token,
     }

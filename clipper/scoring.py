@@ -17,14 +17,15 @@ from .providers.base import LLM
 logger = logging.getLogger(__name__)
 
 WEIGHTS = {
-    "hook_strength": 0.18,
-    "standalone_context": 0.14,
+    "hook_strength": 0.17,
+    "intro_retention": 0.14,
+    "standalone_context": 0.13,
     "payoff": 0.15,
-    "emotional_resonance": 0.12,
-    "specificity": 0.12,
-    "clarity": 0.12,
-    "pacing": 0.09,
-    "originality": 0.08,
+    "emotional_resonance": 0.11,
+    "specificity": 0.11,
+    "clarity": 0.10,
+    "pacing": 0.05,
+    "originality": 0.04,
 }
 _STOP = set(
     """a an the and or but if so to of in on at for with from by as is are was were be been being
@@ -38,53 +39,62 @@ _HOOK_CUES = (
     "why", "how", "stop", "never", "secret", "mistake", "truth", "because", "but", "until",
     "instead", "imagine", "what if", "the problem", "the reason", "most people", "nobody",
     "the biggest", "here is", "here's", "watch", "listen", "remember", "surprising",
+    "before you", "what nobody", "quietly", "cost", "lose", "actually",
+)
+_THROAT_CLEARING_RE = re.compile(
+    r"^(hey guys|hello everyone|what's up|what is up|welcome back|welcome to|before we start|before i begin|"
+    r"so basically|so today|today we're going|let's get into|okay so|in this video|um+\b|uh+\b|you know)\b",
+    re.IGNORECASE,
 )
 _EMOTION_CUES = (
     "surprising", "shocking", "funny", "fear", "love", "hate", "fail", "win", "secret",
     "danger", "risk", "mistake", "believe", "incredible", "important", "regret", "change",
-    "money", "easy", "hard", "never", "always", "success", "why",
+    "money", "easy", "hard", "never", "always", "success", "why", "lose", "quietly", "cost",
 )
 _BAD_ENDINGS = ("and", "but", "because", "with", "to", "for", "or", "of", "that", "which")
+_KEEP_UPPER_ACRONYMS = {"AI", "API", "SEO", "ROI", "ETF", "GDP", "USD", "EUR", "CPU", "GPU", "SQL", "USA", "UK", "TV", "CEO", "CTO", "CFO", "SaaS"}
 
 
-FAST_PROMPT = """You are a strict short-form video editor screening candidate excerpts for standalone watchability.
+FAST_PROMPT = """You are a strict short-form video editor screening candidate excerpts for retention, search clarity, and standalone watchability.
 Score each excerpt from 0 to 100. Use the full range. Most ordinary excerpts should score below 60.
-Evaluate: opening hook, self-contained context, concrete insight/story, payoff, clarity, emotional
-response, pacing, and whether the ending feels complete. Penalize unfinished setup, vague claims,
-repetition, long throat-clearing, missing context, and cut-off sentences. Do not reward buzzwords
-or invent context. Judge only the supplied excerpt.
+Evaluate:
+- immediate curiosity gap / stakes in the opening seconds (without misleading clickbait)
+- intro retention & trust window: delivers on the opening premise quickly with zero throat-clearing
+- standalone context and clear searchable subject/entities (no vague "this thing" without context)
+- concrete insight/story, payoff, emotional resonance, tight pacing, and complete ending.
+Penalize slow intros ("hey guys", filler), unfinished setup, vague claims, repetition, and cut-off sentences. Judge only the supplied excerpt.
 
 Return ONLY JSON: {"scores":[{"id":0,"score":48},{"id":1,"score":76}]}
 
 Candidate excerpts:
 """
 
-DETAIL_PROMPT = """You are a senior editor selecting short-form clips that work on their own.
-Score only what is evidenced in the supplied transcript. Do not mistake sensational language for
-a strong hook. Penalize a missing payoff, unclear pronouns/context, repetition, a dead opening,
-a cut-off ending, unsupported claims, and content requiring the full source to make sense.
+DETAIL_PROMPT = """You are a senior retention and SEO editor selecting short-form clips that rank well and hold audience watch time.
+Score only what is evidenced in the supplied transcript. Do not mistake sensational language for a strong hook.
+Penalize slow throat-clearing, unfulfilled opening promises, unclear pronouns/context, repetition, cut-off endings, and unsupported claims.
 
 Score each dimension 0-10:
-- hook_strength: immediate attention in the opening
+- hook_strength: immediate curiosity gap, stakes, or specific tension in the opening lines
+- intro_retention: pays off the opening hook quickly with zero greeting/filler (strong 30-60s trust window)
 - standalone_context: understandable without the long video
-- payoff: satisfying answer, story turn, or useful conclusion
-- emotional_resonance: meaningful surprise, humor, empathy, tension, or insight
-- specificity: concrete names, examples, actions, numbers, or details
-- clarity: easy to follow and one coherent idea
-- pacing: useful content density without rushed or dead sections
+- payoff: satisfying answer, story turn, or actionable conclusion
+- emotional_resonance: meaningful surprise, tension, empathy, humor, or insight
+- specificity: concrete names, searchable entities, examples, actions, or numbers
+- clarity: easy to follow with one clear, searchable core topic
+- pacing: high information density without dead air or rushed delivery
 - originality: non-obvious angle or distinctive explanation
 
 Return ONLY valid JSON:
 {{
  "score": 0-100,
  "dimension_scores": {{
-  "hook_strength": 0-10, "standalone_context": 0-10, "payoff": 0-10,
+  "hook_strength": 0-10, "intro_retention": 0-10, "standalone_context": 0-10, "payoff": 0-10,
   "emotional_resonance": 0-10, "specificity": 0-10, "clarity": 0-10,
   "pacing": 0-10, "originality": 0-10
  }},
- "hook": "a hook grounded in the first lines",
- "title": "a specific, relevant title of 3-8 words",
- "reason": "one evidence-based sentence explaining the score"
+ "hook": "an accurate opening hook grounded in the first lines",
+ "title": "35-55 char title front-loading the core topic + curiosity gap/stakes (no ALL CAPS, no !!!, no hashtags)",
+ "reason": "one evidence-based sentence explaining retention, search clarity, and payoff"
 }}
 
 Candidate title (may be empty): {title}
@@ -128,8 +138,36 @@ def _ordered_tokens(text: str) -> List[str]:
     return result
 
 
+def _capitalize_word_preserving_punct(word: str) -> str:
+    chars = list(word.lower())
+    for i, ch in enumerate(chars):
+        if ch.isalpha():
+            chars[i] = ch.upper()
+            break
+    return "".join(chars)
+
+
+def _sanitize_candidate_title(value: str, limit: int = 70) -> str:
+    """Normalize candidate title: strip hashtags, excessive punctuation, and shouting ALL CAPS."""
+    cleaned = re.sub(r"#\w+", "", str(value or ""))
+    cleaned = " ".join(cleaned.split())
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"!{2,}", "", cleaned)
+    cleaned = re.sub(r"\?{2,}", "?", cleaned)
+    words: List[str] = []
+    for word in cleaned.split():
+        bare = word.strip(".,!?:;\"'()-")
+        if bare.isupper() and len(bare) > 2 and bare not in _KEEP_UPPER_ACRONYMS:
+            words.append(_capitalize_word_preserving_punct(word))
+        else:
+            words.append(word)
+    cleaned = " ".join(words).rstrip("!")
+    return _truncate_text(cleaned, limit)
+
+
 def heuristic_quality_score(cand: Dict[str, Any]) -> tuple[int, Dict[str, int]]:
-    """Score observable quality signals without an LLM; returns 0–100 and breakdown."""
+    """Score observable retention, curiosity, and SEO clarity signals without an LLM; returns 0–100 and breakdown."""
     text = " ".join(str(cand.get("text") or "").split())
     first = " ".join(str(cand.get("first_text") or text).split())
     words = re.findall(r"\b[\w']+\b", text)
@@ -138,6 +176,7 @@ def heuristic_quality_score(cand: Dict[str, Any]) -> tuple[int, Dict[str, int]]:
     wps = len(words) / duration
     lower = text.lower()
     opening = first.lower()[:220]
+    intro_slice = " ".join(words[: max(12, len(words) // 3)]).lower()
 
     hook = 42
     if any(cue in opening for cue in _HOOK_CUES):
@@ -151,6 +190,20 @@ def heuristic_quality_score(cand: Dict[str, Any]) -> tuple[int, Dict[str, int]]:
     if len(first.split()) > 35:
         hook -= 12
     hook = max(0, min(100, hook))
+
+    # Intro retention (30-60s trust window): immediate topical hook + early payoff without throat-clearing
+    intro_retention = 56
+    if _THROAT_CLEARING_RE.search(opening):
+        intro_retention -= 26
+    if len(_tokens(first[:160])) >= 3:
+        intro_retention += 14
+    elif len(first.split()) >= 4:
+        intro_retention -= 12
+    if any(cue in intro_slice for cue in ("because", "means", "how", "reason", "mistake", "instead", "actually", "turns out")):
+        intro_retention += 16
+    if re.search(r"\b\d+(?:\.\d+)?%?\b", intro_slice):
+        intro_retention += 8
+    intro_retention = max(0, min(100, intro_retention))
 
     standalone = 72
     if re.match(r"^(and|but|so|because|which|this|that|it|they|he|she)\b", lower):
@@ -182,6 +235,9 @@ def heuristic_quality_score(cand: Dict[str, Any]) -> tuple[int, Dict[str, int]]:
     specificity = 42
     specificity += min(28, len(re.findall(r"\b\d+(?:\.\d+)?%?\b", text)) * 8)
     specificity += min(24, len(_tokens(text)) * 1.2)
+    # Named entities / capitalized subjects mid-sentence boost search specificity
+    mid_caps = re.findall(r"(?<=\s)[A-Z][a-z]{2,}\b", text)
+    specificity += min(10, len(set(mid_caps)) * 3)
     specificity = max(0, min(100, int(specificity)))
 
     clarity = 72
@@ -211,6 +267,7 @@ def heuristic_quality_score(cand: Dict[str, Any]) -> tuple[int, Dict[str, int]]:
 
     components = {
         "hook_strength": hook,
+        "intro_retention": intro_retention,
         "standalone_context": standalone,
         "payoff": payoff,
         "emotional_resonance": emotion,
@@ -344,13 +401,13 @@ def stage2(
             first_text.split(".")[0].strip() or text[:100]
         )
 
-        raw_title = str(output.get("title") or "").strip()
+        raw_title = _sanitize_candidate_title(str(output.get("title") or "").strip(), limit=60)
         if raw_title and _relevant(raw_title, f"{cand['hook']} {text}"):
-            cand["title"] = raw_title[:100]
+            cand["title"] = raw_title
         else:
             topical_words = _ordered_tokens(first_text or text)
             if topical_words:
-                cand["title"] = " ".join(word.title() for word in topical_words[:5])
+                cand["title"] = _truncate_text(" ".join(word.title() for word in topical_words[:5]), 60)
             else:
                 cand["title"] = _truncate_text(first_text or text, 60)
 
@@ -362,9 +419,9 @@ def stage2(
         logger.warning("[scoring] Stage 2 failed: %s; using blended local scores.", exc)
         cand["score"] = round(0.65 * fast_score + 0.35 * local_score)
         cand["hook"] = first_text.split(".")[0].strip() or text[:100]
-        topical_words = list(_tokens(first_text or text))
-        cand["title"] = " ".join(word.title() for word in topical_words[:5]) or _truncate_text(text, 60) or "Clip Highlight"
-        cand["reason"] = f"Ranked by hook, context, payoff, clarity, pacing and specificity signals."
+        topical_words = _ordered_tokens(first_text or text)
+        cand["title"] = _truncate_text(" ".join(word.title() for word in topical_words[:5]), 60) or _truncate_text(text, 60) or "Clip Highlight"
+        cand["reason"] = "Ranked by hook, intro retention, context, payoff, clarity, pacing and specificity signals."
         cand["score_breakdown"] = {
             **local_components,
             "heuristic": local_score,

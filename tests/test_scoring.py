@@ -4,7 +4,7 @@ Unit tests for two-stage scoring, prompt formatting, and top selection.
 
 import unittest
 from typing import Any, Dict
-from clipper.scoring import rank, select_top, stage1, stage2
+from clipper.scoring import heuristic_quality_score, rank, select_top, stage1, stage2
 
 
 class MockScoringLLM:
@@ -111,6 +111,41 @@ class TestScoring(unittest.TestCase):
         self.assertEqual(scored[0]["fast_model_score"], 100)
         self.assertIsNone(scored[1]["fast_model_score"])
         self.assertEqual(scored[1]["fast_score"], scored[1]["heuristic_quality_score"])
+
+    def test_intro_retention_penalizes_throat_clearing_and_sanitizes_title(self):
+        strong_cand = {
+            "start": 0.0,
+            "end": 28.0,
+            "duration": 28.0,
+            "first_text": "Why keeping 100 percent of your savings in checking quietly loses 4 percent yearly.",
+            "text": "Why keeping 100 percent of your savings in checking quietly loses 4 percent yearly. Because inflation compounds against idle cash, moving reserves to treasury bills protects purchasing power.",
+        }
+        weak_cand = {
+            "start": 30.0,
+            "end": 58.0,
+            "duration": 28.0,
+            "first_text": "Hey guys welcome back to the channel so basically um today we talk about stuff.",
+            "text": "Hey guys welcome back to the channel so basically um today we talk about stuff and things and maybe later we will see.",
+        }
+        strong_score, strong_parts = heuristic_quality_score(strong_cand)
+        weak_score, weak_parts = heuristic_quality_score(weak_cand)
+        self.assertIn("intro_retention", strong_parts)
+        self.assertGreater(strong_parts["intro_retention"], weak_parts["intro_retention"])
+        self.assertGreater(strong_score, weak_score)
+
+        class LoudTitleLLM:
+            def complete_json(self, prompt: str, tier: str = "strong") -> Dict[str, Any]:
+                return {
+                    "score": 88,
+                    "hook": "Why keeping 100 percent of your savings in checking loses value",
+                    "title": "SAVINGS INFLATION TRAP YOU MUST AVOID!!! #viral",
+                    "reason": "Clear savings and inflation payoff with specific numbers.",
+                }
+
+        enriched = stage2(dict(strong_cand), LoudTitleLLM())
+        self.assertNotIn("TRAP", enriched["title"])
+        self.assertNotIn("!!!", enriched["title"])
+        self.assertNotIn("#viral", enriched["title"])
 
 
 if __name__ == "__main__":

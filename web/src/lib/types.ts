@@ -11,15 +11,57 @@ export type TitleVariant = {
   angle?: string;
 };
 
+export type ThumbnailOption = {
+  id: string;
+  concept: string;
+  label: string;
+  hook_text: string;
+  file: string;
+  frame_time?: number;
+  score?: number;
+  rationale?: string;
+  safe_zones?: { bottom_right_clear?: boolean; max_words?: number };
+};
+
+export type ClipChapter = {
+  time: string;
+  label: string;
+};
+
 export type ClipSeo = {
-  youtube: { title: string; description: string; tags: string[]; title_variants?: TitleVariant[]; selected_variant?: string };
-  instagram: { caption: string };
+  primary_keyword?: string;
+  youtube: {
+    title: string;
+    description: string;
+    tags: string[];
+    title_variants?: TitleVariant[];
+    selected_variant?: string;
+    chapters?: ClipChapter[];
+  };
+  instagram: { caption: string; hashtags?: string[] };
   hashtags: string[];
   keywords: string[];
   title_variants?: TitleVariant[];
   selected_title_variant?: string;
+  thumbnail_hooks?: Record<string, string>;
   generated_by?: string;
-  hashtag_groups?: { relevant: string[]; global: string[]; trending: string[] };
+  hashtag_groups?: {
+    niche?: string[];
+    relevant: string[];
+    global?: string[];
+    trending: string[];
+    format?: string[];
+  };
+  seo_audit?: {
+    title_length: number;
+    mobile_front_loaded: boolean;
+    chapters_count: number;
+    starts_at_zero: boolean;
+    niche_hashtag_count: number;
+    tags_count: number;
+    tags_chars: number;
+    title_thumbnail_distinct: boolean;
+  };
   trend_source?: string | null;
   trend_region?: string;
   trend_checked_at?: string | null;
@@ -102,6 +144,8 @@ export type Clip = {
   file?: string;
   videoUrl?: string;
   coverImage?: string;
+  thumbnailOptions?: ThumbnailOption[];
+  selectedThumbnailOption?: string;
   captionStyle?: string | null;
   encoder?: string;
   hookOverlay?: boolean;

@@ -4,11 +4,12 @@ Unit tests for Cover Frame extraction, Title A/B variants, Posting Queue, and An
 
 import json
 import pathlib
+import subprocess
 import tempfile
 import unittest
 import numpy as np
 
-from clipper.cover import calculate_frame_sharpness
+from clipper.cover import calculate_frame_sharpness, generate_thumbnail_options
 from clipper.distribution import (
     format_top_hooks_prompt_context,
     list_scheduled_queue,
@@ -94,6 +95,95 @@ class TestCoverAndDistribution(unittest.TestCase):
         self.assertIn("vstack=inputs=2", graph)
         self.assertIn("split=2[topsrc][botsrc]", graph)
         self.assertIn("scale=1080:960", graph)
+
+    def test_generate_thumbnail_options_creates_three_distinct_safe_thumbnails(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = pathlib.Path(tmp_dir)
+            video_path = tmp_path / "sample.mp4"
+            cover_path = tmp_path / "01_sample_cover.jpg"
+
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "testsrc=duration=4:size=360x640:rate=15",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    str(video_path),
+                ],
+                capture_output=True,
+                check=True,
+            )
+
+            bundle = generate_thumbnail_options(
+                video_path,
+                cover_path,
+                title="Why Inflation Eats Your Savings",
+                hook="Never leave all your cash in one account",
+                text="Never keep all your savings in one account because inflation quietly eats savings every year.",
+                keywords=["savings", "inflation", "checking account"],
+            )
+
+            self.assertEqual(bundle["selected_option"], "option_a")
+            self.assertTrue(cover_path.exists())
+            self.assertGreater(cover_path.stat().st_size, 100)
+            options = bundle["options"]
+            self.assertEqual(len(options), 3)
+            self.assertEqual([o["id"] for o in options], ["option_a", "option_b", "option_c"])
+            self.assertEqual(
+                [o["concept"] for o in options],
+                ["emotion_result", "contrast_stakes", "clean_focal_proof"],
+            )
+            for opt in options:
+                opt_file = pathlib.Path(opt["file"])
+                self.assertTrue(opt_file.exists())
+                self.assertGreater(opt_file.stat().st_size, 100)
+                self.assertLessEqual(len(opt["hook_text"].split()), 4)
+                self.assertNotIn(opt["hook_text"].lower(), "why inflation eats your savings")
+                self.assertTrue(opt["safe_zones"]["bottom_right_clear"])
+                self.assertTrue(opt["safe_zones"]["center_safe_crop"])
+
+    def test_generate_thumbnail_options_landscape_stays_center_safe(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = pathlib.Path(tmp_dir)
+            video_path = tmp_path / "landscape.mp4"
+            cover_path = tmp_path / "01_land_cover.jpg"
+
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "testsrc=duration=3:size=640x360:rate=15",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    str(video_path),
+                ],
+                capture_output=True,
+                check=True,
+            )
+
+            bundle = generate_thumbnail_options(
+                video_path,
+                cover_path,
+                title="Why Inflation Eats Your Savings",
+                hook="Never leave all your cash in one account",
+                text="Inflation quietly eats savings every year.",
+                keywords=["savings", "inflation"],
+            )
+            self.assertEqual(len(bundle["options"]), 3)
+            for opt in bundle["options"]:
+                self.assertTrue(opt["safe_zones"]["center_safe_crop"])
+                self.assertTrue(pathlib.Path(opt["file"]).exists())
 
 
 if __name__ == "__main__":

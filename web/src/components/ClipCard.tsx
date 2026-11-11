@@ -36,6 +36,7 @@ import {
   patchClip,
   publishClip,
   scheduleClip,
+  selectThumbnailOption,
   selectTitleVariant,
 } from "@/lib/api";
 import { CAPTION_STYLE_OPTIONS } from "@/lib/captionStyles";
@@ -185,6 +186,7 @@ function ClipCardView({
   const [hasVideo, setHasVideo] = useState(true);
   const [hasCover, setHasCover] = useState(true);
   const [videoKey, setVideoKey] = useState(0);
+  const [coverKey, setCoverKey] = useState(0);
   const [rerendering, setRerendering] = useState(false);
   const [rerenderMessage, setRerenderMessage] = useState("");
 
@@ -192,6 +194,11 @@ function ClipCardView({
   const [selectedVariantId, setSelectedVariantId] = useState(clip.selectedTitleVariant || "");
   const [savingTitle, setSavingTitle] = useState(false);
   const titleVariants = normalizeTitleVariants(clip.titleVariants);
+  const thumbnailOptions = clip.thumbnailOptions || [];
+  const [selectedThumbnailId, setSelectedThumbnailId] = useState(
+    clip.selectedThumbnailOption || thumbnailOptions[0]?.id || "",
+  );
+  const [savingThumbnail, setSavingThumbnail] = useState(false);
 
   const [showMetadataEditor, setShowMetadataEditor] = useState(false);
   const [metadataTitle, setMetadataTitle] = useState(clip.seo?.youtube?.title || clip.title || "");
@@ -231,6 +238,7 @@ function ClipCardView({
     setTemplateHandle(clip.templateHandle || "@yourhandle");
     setActiveTitle(clip.title);
     setSelectedVariantId(clip.selectedTitleVariant || "");
+    setSelectedThumbnailId(clip.selectedThumbnailOption || clip.thumbnailOptions?.[0]?.id || "");
     setMetadataTitle(clip.seo?.youtube?.title || clip.title || "");
     setMetadataDescription(clip.seo?.youtube?.description || "");
     setMetadataCaption(clip.seo?.instagram?.caption || "");
@@ -283,6 +291,7 @@ function ClipCardView({
         templateHandle.trim() || "@yourhandle",
       );
       setVideoKey((k) => k + 1);
+      setCoverKey((k) => k + 1);
       setHasVideo(true);
       setHasCover(true);
       setRerenderMessage("Re-render complete.");
@@ -308,6 +317,23 @@ function ClipCardView({
       setPublishError(err instanceof Error ? err.message : "Failed to select title variant.");
     } finally {
       setSavingTitle(false);
+    }
+  }
+
+  async function handleSelectThumbnail(optionId: string) {
+    setSelectedThumbnailId(optionId);
+    setSavingThumbnail(true);
+    try {
+      const res = await selectThumbnailOption(jobId, clip.id, optionId);
+      const updated = res.clips.find((item) => item.id === clip.id);
+      setSelectedThumbnailId(updated?.selectedThumbnailOption ?? optionId);
+      setCoverKey((k) => k + 1);
+      setHasCover(true);
+      toast({ body: "Active thumbnail option updated.", uniqueID: `thumb-${clip.id}` });
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : "Failed to select thumbnail option.");
+    } finally {
+      setSavingThumbnail(false);
     }
   }
 
@@ -454,7 +480,9 @@ function ClipCardView({
   }
 
   const videoSrc = `/api/jobs/${jobId}/clips/${clip.id}?v=${videoKey}`;
-  const coverSrc = `/api/jobs/${jobId}/clips/${clip.id}?cover=1&v=${videoKey}`;
+  const coverSrc = `/api/jobs/${jobId}/clips/${clip.id}?cover=1&v=${videoKey}-${coverKey}`;
+  const youtubeTags = clip.seo?.youtube?.tags || [];
+  const seoAudit = clip.seo?.seo_audit;
   const isYouTubePublished = publishState.youtube?.status === "published";
   const selectedCaptionOption =
     CAPTION_STYLE_OPTIONS.find((o) => o.key === captionStyle) || CAPTION_STYLE_OPTIONS[0];
@@ -752,6 +780,71 @@ function ClipCardView({
               </RadioList>
             ) : null}
 
+            {thumbnailOptions.length > 0 ? (
+              <Card padding={4} variant="muted">
+                <VStack gap={3}>
+                  <HStack justify="between" align="center" wrap="wrap" gap={2}>
+                    <Text type="label">THUMBNAIL OPTIONS (TEST & COMPARE)</Text>
+                    {savingThumbnail ? <Badge label="Saving…" variant="warning" /> : null}
+                  </HStack>
+                  <Text type="supporting" color="secondary">
+                    Choose a complementary thumbnail concept. Hook text avoids repeating the title and keeps the bottom-right duration corner clear.
+                  </Text>
+                  <Grid columns={{ minWidth: 160, max: 3 }} gap={3}>
+                    {thumbnailOptions.map((opt) => {
+                      const isActive = selectedThumbnailId === opt.id;
+                      const optSrc = `/api/jobs/${jobId}/clips/${clip.id}?cover=1&option=${encodeURIComponent(opt.id)}&v=${videoKey}`;
+                      return (
+                        <Card key={opt.id} padding={3} variant={isActive ? "default" : "muted"}>
+                          <VStack gap={2}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={optSrc}
+                              alt={`${opt.label} thumbnail option`}
+                              loading="lazy"
+                              decoding="async"
+                              className="aspect-[9/16] max-h-44 w-full rounded-lg border border-border object-cover"
+                            />
+                            <Text type="supporting" weight="semibold">
+                              {opt.label}
+                            </Text>
+                            <Text type="code" size="2xs" color="accent">
+                              {opt.hook_text}
+                            </Text>
+                            {opt.rationale ? (
+                              <Text type="supporting" size="2xs" color="secondary">
+                                {opt.rationale}
+                              </Text>
+                            ) : null}
+                            <HStack gap={2} wrap="wrap">
+                              <Button
+                                label={isActive ? "Selected" : "Use option"}
+                                variant={isActive ? "primary" : "secondary"}
+                                size="sm"
+                                isDisabled={savingThumbnail || isActive}
+                                onClick={() => void handleSelectThumbnail(opt.id)}
+                              />
+                              <Button
+                                label="JPG"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  triggerDownload(
+                                    optSrc,
+                                    `${activeTitle.replace(/\s+/g, "_").toLowerCase()}_${opt.id}.jpg`,
+                                  )
+                                }
+                              />
+                            </HStack>
+                          </VStack>
+                        </Card>
+                      );
+                    })}
+                  </Grid>
+                </VStack>
+              </Card>
+            ) : null}
+
             <Card padding={4} variant="muted">
               <VStack gap={3}>
                 <HStack justify="between" align="center">
@@ -780,6 +873,38 @@ function ClipCardView({
                     {metadataHashtags}
                   </Text>
                 ) : null}
+                {youtubeTags.length > 0 ? (
+                  <VStack gap={1}>
+                    <Text type="label" color="secondary">
+                      YOUTUBE TAGS (KEYWORDS, ALTERNATES & MISSPELLINGS)
+                    </Text>
+                    <Text type="code" size="2xs" color="secondary">
+                      {youtubeTags.join(", ")}
+                    </Text>
+                  </VStack>
+                ) : null}
+                {seoAudit ? (
+                  <MetadataList title="SEO diagnostics" orientation="horizontal" label={{ position: "top" }}>
+                    <MetadataListItem label="Title length">
+                      <Text type="code" size="2xs">{`${seoAudit.title_length} chars`}</Text>
+                    </MetadataListItem>
+                    <MetadataListItem label="Mobile hook">
+                      <Text type="code" size="2xs">
+                        {seoAudit.mobile_front_loaded ? "Front-loaded" : "Review"}
+                      </Text>
+                    </MetadataListItem>
+                    <MetadataListItem label="Chapters">
+                      <Text type="code" size="2xs">
+                        {`${seoAudit.chapters_count} (${seoAudit.starts_at_zero ? "0:00" : "offset"})`}
+                      </Text>
+                    </MetadataListItem>
+                    <MetadataListItem label="Tags">
+                      <Text type="code" size="2xs">
+                        {`${seoAudit.tags_count} (${seoAudit.tags_chars} chars)`}
+                      </Text>
+                    </MetadataListItem>
+                  </MetadataList>
+                ) : null}
 
                 <HStack gap={2} wrap="wrap">
                   <Button
@@ -789,6 +914,14 @@ function ClipCardView({
                     isDisabled={!metadataTitle.trim() && !metadataDescription.trim()}
                     onClick={() => void copyText("YouTube text", `${metadataTitle}\n\n${metadataDescription}`)}
                   />
+                  {youtubeTags.length > 0 ? (
+                    <Button
+                      label="Copy YouTube tags"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void copyText("YouTube tags", youtubeTags.join(", "))}
+                    />
+                  ) : null}
                   <Button
                     label="Copy Instagram caption"
                     variant="secondary"

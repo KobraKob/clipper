@@ -96,7 +96,8 @@ export async function GET(
   const wantsCover = url.searchParams.get("cover") === "1";
 
   if (wantsCover) {
-    const coverPath = await getClipCoverFile(id, clipId);
+    const optionId = url.searchParams.get("option") || undefined;
+    const coverPath = await getClipCoverFile(id, clipId, optionId);
     if (!coverPath) {
       return NextResponse.json(
         { error: "Cover frame for this clip has not been extracted yet or does not exist." },
@@ -110,7 +111,7 @@ export async function GET(
         headers: {
           "Content-Type": "image/jpeg",
           "Content-Length": String(buffer.length),
-          "Cache-Control": "public, max-age=3600",
+          "Cache-Control": "no-store",
         },
       });
     } catch (err) {

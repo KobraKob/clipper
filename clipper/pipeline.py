@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from .candidates import build_candidates, detect_scene_cuts, prefilter
 from .captions import FONTS_DIR, build_ass, burn_captions, get_style
 from .config import Settings, settings as default_settings
-from .cover import pick_cover_frame
+from .cover import generate_thumbnail_options, pick_cover_frame
 from .cut import cut
 from .distribution import format_top_hooks_prompt_context
 from .ingest import download, extract_audio, is_url, load_source_info
@@ -360,11 +360,12 @@ def run_pipeline(
             # Frame-accurate cut
             raw_clip = job_dir / f"clip_{idx}_raw.mp4"
             cut(video_path, start_time, end_time, raw_clip, pad=pad_offset)
+            clean_raw_clip = raw_clip
 
             final_clip_name = f"{idx:02d}_{slug}.mp4"
             final_clip_path = base_out_dir / final_clip_name
 
-            # Words that fall inside this clip
+            # Words & segments that fall inside this clip
             padded_start = max(0.0, start_time - pad_offset)
             padded_end = end_time + pad_offset
             effective_clip_start = padded_start
@@ -372,23 +373,16 @@ def run_pipeline(
             is_trimmed = False
 
             clip_words: List[Dict[str, Any]] = []
+            clip_segments: List[Dict[str, Any]] = []
             for seg in segments:
+                seg_start = float(seg.get("start", 0.0))
+                seg_end = float(seg.get("end", seg_start))
+                if seg_end >= padded_start and seg_start <= padded_end:
+                    clip_segments.append(seg)
                 for w in seg.get("words", []):
                     w_s = float(w["start"])
                     if padded_start <= w_s <= padded_end:
                         clip_words.append(w)
-
-            # Extract Cover / Thumbnail frame from clean raw clip (BEFORE subtitle / hook text burn-in)
-            if cover_frame:
-                cover_path = base_out_dir / f"{idx:02d}_{slug}_cover.jpg"
-                try:
-                    pick_cover_frame(raw_clip, cover_path)
-                    clip_record_cover = str(cover_path.resolve())
-                except Exception as exc:
-                    logger.debug("[pipeline] Could not extract cover frame for clip %d: %s", idx, exc)
-                    clip_record_cover = None
-            else:
-                clip_record_cover = None
 
             # Optional silence and filler trimming
             if trim_silence and clip_words:
@@ -407,6 +401,50 @@ def run_pipeline(
                         logger.warning("[pipeline] Silence trimming failed for clip %d: %s; using untrimmed cut.", idx, exc)
 
             transcript_text = " ".join(str(w["w"]).strip() for w in clip_words) or clip.get("text", "")
+
+            seo_data: Optional[Dict[str, Any]] = None
+            if seo_on:
+                logger.info("  -> Generating Title A/B variants, SEO chapters, tags & thumbnail hooks...")
+                seo_data = generate_metadata(
+                    {**clip, "duration": clip_duration},
+                    transcript_text,
+                    llm=llm_service,
+                    language=s.seo_language,
+                    source_url=source if is_url(source) else None,
+                    credit_source=s.seo_credit_source,
+                    trending_topics=trend_topics,
+                    trend_region=getattr(s, "seo_trend_region", "IN"),
+                    is_short=vertical,
+                    segments=None if is_trimmed else clip_segments,
+                )
+
+            # Generate 3 distinct thumbnail options from clean raw clip (BEFORE subtitle / hook burn-in)
+            clip_record_cover: Optional[str] = None
+            thumbnail_bundle: Optional[Dict[str, Any]] = None
+            if cover_frame:
+                cover_path = base_out_dir / f"{idx:02d}_{slug}_cover.jpg"
+                try:
+                    seo_title = (seo_data or {}).get("youtube", {}).get("title") or clip_title
+                    seo_keywords = (seo_data or {}).get("keywords") or []
+                    seo_thumb_hooks = (seo_data or {}).get("thumbnail_hooks")
+                    thumbnail_bundle = generate_thumbnail_options(
+                        clean_raw_clip,
+                        cover_path,
+                        title=seo_title,
+                        hook=clip.get("hook", ""),
+                        text=transcript_text,
+                        keywords=seo_keywords,
+                        llm_hooks=seo_thumb_hooks,
+                    )
+                    clip_record_cover = thumbnail_bundle.get("cover_image")
+                except Exception as exc:
+                    logger.debug("[pipeline] Multi-option thumbnail generation failed for clip %d: %s", idx, exc)
+                    try:
+                        pick_cover_frame(clean_raw_clip, cover_path)
+                        clip_record_cover = str(cover_path.resolve())
+                    except Exception as inner_exc:
+                        logger.debug("[pipeline] Could not extract fallback cover frame for clip %d: %s", idx, inner_exc)
+                        clip_record_cover = None
 
             ass_file: Optional[pathlib.Path] = None
             if captions and clip_words:
@@ -494,23 +532,16 @@ def run_pipeline(
             }
             if clip_record_cover:
                 clip_record["cover_image"] = clip_record_cover
+            if thumbnail_bundle:
+                clip_record["thumbnail_options"] = thumbnail_bundle.get("options", [])
+                clip_record["selected_thumbnail_option"] = thumbnail_bundle.get("selected_option", "option_a")
             if soundtrack_record:
                 clip_record["soundtrack"] = soundtrack_record
 
-            if seo_on:
-                logger.info("  -> Generating Title A/B variants & descriptions...")
-                clip_record["seo"] = generate_metadata(
-                    clip,
-                    transcript_text,
-                    llm=llm_service,
-                    language=s.seo_language,
-                    source_url=source if is_url(source) else None,
-                    credit_source=s.seo_credit_source,
-                    trending_topics=trend_topics,
-                    trend_region=getattr(s, "seo_trend_region", "IN"),
-                )
-                clip_record["title_variants"] = clip_record["seo"].get("title_variants", [])
-                clip_record["selected_title_variant"] = clip_record["seo"].get("selected_title_variant", "direct")
+            if seo_data is not None:
+                clip_record["seo"] = seo_data
+                clip_record["title_variants"] = seo_data.get("title_variants", [])
+                clip_record["selected_title_variant"] = seo_data.get("selected_title_variant", "direct")
 
             clip_record["template"] = template
             clip_record["template_display_name"] = template_display_name
@@ -723,13 +754,33 @@ def rerender_clip(
 
     chosen_enc = encoder or clip.get("encoder") or s.video_encoder
 
-    # Extract clean cover frame from raw_clip BEFORE subtitle burning
-    cover_file = base_out_dir / f"{int(rank):02d}_{slugify(clip.get('title', 'clip'))}_cover.jpg"
+    # Extract clean cover frame & 3 thumbnail options from raw_clip BEFORE subtitle burning
+    existing_cover = clip.get("cover_image")
+    if existing_cover and pathlib.Path(existing_cover).name.endswith("_cover.jpg"):
+        cover_file = pathlib.Path(existing_cover)
+    else:
+        cover_file = base_out_dir / f"{final_clip_path.stem}_cover.jpg"
     try:
-        pick_cover_frame(raw_clip, cover_file)
-        clip["cover_image"] = str(cover_file.resolve())
+        seo_meta = clip.get("seo") or {}
+        rerender_text = " ".join(str(w["w"]).strip() for w in clip_words) or clip.get("hook", "")
+        thumb_bundle = generate_thumbnail_options(
+            raw_clip,
+            cover_file,
+            title=seo_meta.get("youtube", {}).get("title") or clip.get("title", ""),
+            hook=clip.get("hook", ""),
+            text=rerender_text,
+            keywords=seo_meta.get("keywords") or [],
+            llm_hooks=seo_meta.get("thumbnail_hooks"),
+        )
+        clip["cover_image"] = thumb_bundle.get("cover_image")
+        clip["thumbnail_options"] = thumb_bundle.get("options", [])
+        clip["selected_thumbnail_option"] = thumb_bundle.get("selected_option", "option_a")
     except Exception:
-        pass
+        try:
+            pick_cover_frame(raw_clip, cover_file)
+            clip["cover_image"] = str(cover_file.resolve())
+        except Exception:
+            pass
 
     if current_layout != "original":
         rel_cuts = [c - padded_start for c in scene_cuts if start_time <= c <= end_time]

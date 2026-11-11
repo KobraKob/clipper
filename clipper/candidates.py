@@ -10,16 +10,23 @@ import pathlib
 import re
 from typing import Any, Dict, List, Optional, Set
 
-# Regex patterns for high-retention hooks
+# Regex patterns for high-retention hooks (curiosity gap, stakes, numbers, contrarian openers)
 HOOK_STARTERS = [
     r"^(why|how|what|when|where|who)\b",
     r"^(did you know|have you ever|can you believe|do you know)\b",
-    r"^(the (biggest|most|single|number one|only|worst))\b",
+    r"^(the (biggest|most|single|number one|only|worst|hidden|real))\b",
     r"^(this is why|this is how|here is why|here's why|here's how)\b",
     r"^(never|always|stop|do not|don't|avoid)\b",
     r"^(secret|mistake|truth|hack|rule|lesson|myth)\b",
-    r"^\d+\s+(reasons|ways|things|tips|mistakes|rules|steps|hacks)\b",
+    r"^(what nobody|nobody tells you|most people|everyone gets|before you|if you want|imagine if|what happens when)\b",
+    r"^\d+\s+(reasons|ways|things|tips|mistakes|rules|steps|hacks|lessons|signs)\b",
 ]
+
+_WEAK_OPENERS_RE = re.compile(
+    r"^(hey guys|hello everyone|what's up|what is up|welcome back|welcome to|before we start|before i begin|"
+    r"so basically|so today|today we're going|let's get into|um+\b|uh+\b|anyway|okay so|and then|in this video)\b",
+    re.IGNORECASE,
+)
 
 HOOK_REGEXES = [re.compile(pattern, re.IGNORECASE) for pattern in HOOK_STARTERS]
 
@@ -35,7 +42,7 @@ def calculate_iou(a: Dict[str, Any], b: Dict[str, Any]) -> float:
 
 
 def score_hook(text: str) -> float:
-    """Evaluate hook strength of opening text (0.0 to 1.0)."""
+    """Evaluate hook strength of opening text (0.0 to 1.0) using curiosity, stakes, and specificity."""
     cleaned = text.strip().lower()
     score = 0.0
 
@@ -44,16 +51,28 @@ def score_hook(text: str) -> float:
             score = max(score, 0.8)
             break
 
-    if cleaned.endswith("?"):
-        score = max(score, 0.6)
+    if "?" in cleaned[:140]:
+        score = max(score, 0.65)
 
-    # Word count in first clause check (concise punchy opener)
-    first_words = cleaned.split()[:8]
+    # Word count in first clause check (concise punchy opener + stakes/numbers)
+    first_words = cleaned.split()[:10]
     first_sentence = " ".join(first_words)
-    if any(k in first_sentence for k in ["crazy", "insane", "nobody", "shocking", "million", "billion"]):
-        score = min(1.0, score + 0.3)
+    if any(
+        k in first_sentence
+        for k in (
+            "nobody", "mistake", "cost", "lose", "quietly", "before", "instead",
+            "million", "billion", "percent", "never", "stop", "hidden", "truth",
+        )
+    ):
+        score = min(1.0, score + 0.2)
 
-    return score
+    if re.search(r"\b\d+(?:\.\d+)?%?\b", first_sentence):
+        score = min(1.0, score + 0.15)
+
+    if _WEAK_OPENERS_RE.search(cleaned):
+        score = max(0.0, score - 0.25)
+
+    return round(score, 3)
 
 
 def detect_scene_cuts(

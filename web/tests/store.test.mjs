@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { createJob, deleteJob, getJob, listJobs, patchClip, setJobClips } from "../src/lib/store.ts";
+import {
+  createJob,
+  deleteJob,
+  getClipCoverFile,
+  getJob,
+  listJobs,
+  patchClip,
+  selectClipThumbnailOption,
+  setJobClips,
+} from "../src/lib/store.ts";
 import { formatTimecode, hydrateJob } from "../src/lib/pipeline.ts";
 import { readLogTail } from "../src/lib/logTail.ts";
 import { CAPTION_STYLE_OPTIONS } from "../src/lib/captionStyles.ts";
@@ -338,5 +347,68 @@ test("deleteJob deletes job from store and returns true", async () => {
   const deleted = await deleteJob(job.id);
   assert.equal(deleted, true);
   assert.equal(await getJob(job.id), null);
+});
+
+test("selectClipThumbnailOption persists chosen thumbnail option and updates coverImage", async () => {
+  const job = await createJob({
+    sourceUrl: "https://example.com/thumbs.mp4",
+    clipCount: 1,
+    provider: "local",
+    vertical: true,
+    captions: false,
+  });
+
+  const outDir = path.resolve(process.cwd(), "..", "outputs", job.id);
+  fs.mkdirSync(outDir, { recursive: true });
+  const coverPath = path.join(outDir, "01_test_cover.jpg");
+  const thumbAPath = path.join(outDir, "01_test_thumb_a.jpg");
+  const thumbBPath = path.join(outDir, "01_test_thumb_b.jpg");
+  fs.writeFileSync(coverPath, Buffer.from("img-a"));
+  fs.writeFileSync(thumbAPath, Buffer.from("img-a"));
+  fs.writeFileSync(thumbBPath, Buffer.from("img-b"));
+
+  try {
+    await setJobClips(job.id, [
+      {
+        id: "clip-1",
+        title: "Thumbnail test clip",
+        hook: "Hook",
+        reason: "Reason",
+        score: 88,
+        start: 0,
+        end: 25,
+        text: "Transcript",
+        kept: true,
+        coverImage: coverPath,
+        selectedThumbnailOption: "option_a",
+        thumbnailOptions: [
+          { id: "option_a", concept: "emotion_result", label: "Emotion + Result", hook_text: "FAST RESULT", file: thumbAPath },
+          { id: "option_b", concept: "contrast_stakes", label: "Contrast / Stakes Split", hook_text: "HIGH STAKES", file: thumbBPath },
+        ],
+      },
+    ]);
+
+    const resolvedB = await getClipCoverFile(job.id, "clip-1", "option_b");
+    assert.equal(resolvedB, fs.realpathSync(thumbBPath));
+
+    const updated = await selectClipThumbnailOption(job.id, "clip-1", "option_b");
+    const updatedClip = updated.clips.find((c) => c.id === "clip-1");
+    assert.equal(updatedClip?.selectedThumbnailOption, "option_b");
+    assert.equal(fs.readFileSync(coverPath, "utf8"), "img-b");
+
+    // Regression: even if coverImage points to an option file or is absent, switching back must never overwrite thumb_b!
+    await setJobClips(job.id, [
+      {
+        ...updatedClip,
+        coverImage: thumbBPath,
+      },
+    ]);
+    await selectClipThumbnailOption(job.id, "clip-1", "option_a");
+    assert.equal(fs.readFileSync(thumbBPath, "utf8"), "img-b");
+    assert.equal(fs.readFileSync(thumbAPath, "utf8"), "img-a");
+    assert.equal(fs.readFileSync(coverPath, "utf8"), "img-a");
+  } finally {
+    await deleteJob(job.id);
+  }
 });
 
