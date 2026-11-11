@@ -732,6 +732,12 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 
   return storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
+    const configuredLimit = Number.parseInt(process.env.CLIPPER_MAX_RUNNING_JOBS || "2", 10);
+    const maxRunningJobs = Number.isFinite(configuredLimit) ? Math.min(4, Math.max(1, configuredLimit)) : 2;
+    const activeJobs = jobs.filter((item) => item.status === "running").length;
+    if (activeJobs >= maxRunningJobs) {
+      throw new Error(`Clipper is already processing ${activeJobs} jobs. Wait for one to finish before starting another.`);
+    }
     jobs.push(job);
     await writeJobs(jobs);
 
