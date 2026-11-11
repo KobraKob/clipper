@@ -8,7 +8,6 @@ Set these server-side environment variables on the web service. Never prefix the
 
 - `CLIPPER_ACCESS_PASSWORD`: unique password with at least 16 characters.
 - `CLIPPER_AUTH_SECRET`: signing secret with at least 32 characters. Generate with `openssl rand -hex 32`.
-- `CLIPPER_MAX_RUNNING_JOBS`: optional processing cap from 1 to 4 (default 2).
 
 Redeploy after configuring them. Sessions are signed, HttpOnly, SameSite=Strict, Secure in production, and expire after eight hours. Rotate both secrets after suspected exposure. Login attempts are throttled in-process; add platform/WAF rate limiting for multi-instance deployments.
 
