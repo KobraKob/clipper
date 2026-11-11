@@ -81,7 +81,7 @@ export async function POST(request: Request) {
 
     if (totalBytes === 0) throw new Error("The selected video file is empty.");
 
-    const handle = await fs.open(targetPath, "r");
+    const handle = await fs.open(/*turbopackIgnore: true*/ targetPath, "r");
     try {
       const header = Buffer.alloc(12);
       const { bytesRead } = await handle.read(header, 0, 12, 0);

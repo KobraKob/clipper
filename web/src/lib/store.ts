@@ -259,22 +259,6 @@ async function resolveContainedOutputFile(outputDir: string, candidate: string, 
   }
 }
 
-async function resolveContainedOutputFile(outputDir: string, candidate: string, extension: string): Promise<string | null> {
-  try {
-    const expectedRoot = path.resolve(outputDir);
-    const realRoot = await fs.realpath(expectedRoot);
-    if (realRoot !== expectedRoot) return null;
-    const resolvedCandidate = path.isAbsolute(candidate) ? candidate : path.resolve(expectedRoot, candidate);
-    const realFile = await fs.realpath(resolvedCandidate);
-    const relative = path.relative(realRoot, realFile);
-    if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
-    if (path.extname(realFile).toLowerCase() !== extension) return null;
-    const stat = await fs.stat(realFile);
-    return stat.isFile() ? realFile : null;
-  } catch {
-    return null;
-  }
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapManifestClips(manifest: any): Clip[] {
@@ -958,7 +942,7 @@ export async function getClipVideoFile(jobId: string, clipId: string): Promise<s
   }
   try {
     const rank = Number(clipId.slice("clip-".length));
-    const files = await fs.readdir(outputDir);
+    const files = await fs.readdir(/*turbopackIgnore: true*/ outputDir);
     const match = files.find((file) =>
       (file.startsWith(`${String(rank).padStart(2, "0")}_`) || file.startsWith(`${rank}_`)) &&
       file.toLowerCase().endsWith(".mp4"),
@@ -983,7 +967,7 @@ export async function getClipCoverFile(jobId: string, clipId: string): Promise<s
   }
   try {
     const rank = Number(clipId.slice("clip-".length));
-    const files = await fs.readdir(outputDir);
+    const files = await fs.readdir(/*turbopackIgnore: true*/ outputDir);
     const match = files.find((file) =>
       (file.startsWith(`${String(rank).padStart(2, "0")}_`) || file.startsWith(`${rank}_`)) &&
       file.toLowerCase().endsWith("_cover.jpg"),
