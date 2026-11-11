@@ -24,7 +24,9 @@ test("expired session token is rejected", () => {
 
 test("tampered and malformed session tokens are rejected", () => {
   const token = issueSessionToken(fixedNow);
-  assert.equal(verifySessionToken(`${token.slice(0, -1)}0`, fixedNow), false);
+  const [expires, nonce, signature] = token.split(".");
+  const changedSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+  assert.equal(verifySessionToken(`${expires}.${nonce}.${changedSignature}`, fixedNow), false);
   assert.equal(verifySessionToken("not-a-session", fixedNow), false);
 });
 
