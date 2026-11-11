@@ -345,6 +345,25 @@ async function authorizedSchedulerRequest(req: Request): Promise<boolean> {
   return await response.json() === true;
 }
 
+async function processConcurrently<T>(
+  items: T[],
+  limit: number,
+  handler: (item: T) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        await handler(items[index]);
+      }
+    }),
+  );
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
@@ -355,34 +374,58 @@ Deno.serve(async (req: Request) => {
 
   const now = new Date();
   const due = now.toISOString();
+
+  // Recover leases left behind by terminated edge-function invocations. Do not
+  // auto-requeue these rows: a provider may have accepted the upload before the
+  // invocation died, so manual reconciliation avoids accidental duplicate posts.
+  const staleBefore = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
+  await db(
+    `scheduled_posts?status=eq.processing&locked_at=lt.${encodeURIComponent(staleBefore)}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        status: "failed",
+        locked_at: null,
+        last_error: "Processing lease expired. Check the destination platform before retrying to avoid duplicate publishing.",
+      }),
+    },
+  );
   const youtubeWindow = new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString();
   const [instagramPosts, youtubePosts, completedYoutube] = await Promise.all([
     db(`scheduled_posts?status=eq.queued&platform=eq.instagram&scheduled_at=lte.${encodeURIComponent(due)}&order=scheduled_at.asc&limit=3`),
     db(`scheduled_posts?status=eq.queued&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(youtubeWindow)}&order=scheduled_at.asc&limit=3`),
-    db(`scheduled_posts?status=eq.scheduled&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(due)}&select=id,provider_post_id,storage_path`),
+    db(`scheduled_posts?status=eq.scheduled&platform=eq.youtube&scheduled_at=lte.${encodeURIComponent(due)}&select=id,provider_post_id,storage_path&limit=25`),
   ]);
 
-  for (const row of completedYoutube as { id: string; provider_post_id: string | null; storage_path: string }[]) {
-    if (!row.provider_post_id) continue;
-    try {
-      const token = await youtubeAccessToken();
-      const check = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(row.provider_post_id)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await check.json();
-      if (check.ok && data.items?.[0]?.status?.privacyStatus === "public") {
-        await updatePost(row.id, { status: "published", published_at: now.toISOString(), locked_at: null });
-        await cleanupPublishedVideo(row.storage_path);
+  await processConcurrently(
+    completedYoutube as { id: string; provider_post_id: string | null; storage_path: string }[],
+    5,
+    async (row) => {
+      if (!row.provider_post_id) return;
+      try {
+        const token = await youtubeAccessToken();
+        const check = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(row.provider_post_id)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await check.json();
+        if (check.ok && data.items?.[0]?.status?.privacyStatus === "public") {
+          await updatePost(row.id, { status: "published", published_at: now.toISOString(), locked_at: null });
+          await cleanupPublishedVideo(row.storage_path);
+        }
+      } catch {
+        // Leave it in scheduled state; a later cron tick can verify publication.
       }
-    } catch {
-      // Leave it in scheduled state; a later cron tick can verify publication.
-    }
-  }
+    },
+  );
 
   const posts = [...(instagramPosts as ScheduledPost[]), ...(youtubePosts as ScheduledPost[])];
   const results: Array<{ id: string; status: string; error?: string }> = [];
-  for (const post of posts) {
-    if (!(await claim(post))) continue;
+  // Provider polling (especially Instagram's container readiness checks) can
+  // take tens of seconds. Process independent claimed posts concurrently so one
+  // slow upload does not block every later schedule in this cron batch.
+  await processConcurrently(posts, 3, async (post) => {
+    if (!(await claim(post))) return;
     try {
       const videoUrl = await signedVideoUrl(post.storage_path);
       const published = post.platform === "youtube"
@@ -409,7 +452,7 @@ Deno.serve(async (req: Request) => {
       });
       results.push({ id: post.id, status: "failed", error: message });
     }
-  }
+  });
   await cleanupOutstandingPublishedVideos();
   return json({ checked_at: now.toISOString(), processed: results.length, results });
 });

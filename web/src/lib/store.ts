@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { randomUUID } from "crypto";
 import { openSync, closeSync, promises as fs } from "fs";
 import path from "path";
 import { hydrateJob } from "./pipeline";
@@ -80,6 +81,9 @@ async function validateUploadedSoundtrack(filePath: string): Promise<string> {
 
   try {
     const realRoot = await fs.realpath(allowedRoot);
+    if (realRoot !== allowedRoot) {
+      throw new Error("Upload directory must not be a symbolic link.");
+    }
     const realFile = await fs.realpath(resolved);
     const realRelative = path.relative(realRoot, realFile);
     if (!realRelative || realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
@@ -122,9 +126,9 @@ async function writeJobs(jobs: Job[]): Promise<void> {
   await fs.mkdir(DATA_DIR, { recursive: true });
   const tempFile = path.join(
     DATA_DIR,
-    `jobs.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+    `jobs.${randomUUID()}.tmp`,
   );
-  await fs.writeFile(tempFile, JSON.stringify(jobs, null, 2), "utf8");
+  await fs.writeFile(tempFile, JSON.stringify(jobs, null, 2), { encoding: "utf8", mode: 0o600 });
   await fs.rename(tempFile, DATA_FILE);
 }
 
@@ -200,6 +204,68 @@ function isAllowedLocalVideoPath(filePath: string): boolean {
     return false;
   }
   return true;
+}
+
+
+async function validateUploadedVideoPath(filePath: string): Promise<string> {
+  if (!isAllowedLocalVideoPath(filePath)) {
+    throw new Error("Invalid or prohibited video file path.");
+  }
+
+  const rootDir = await resolveRootDir();
+  const allowedRoot = path.resolve(rootDir, "workdir", "uploads");
+  const resolved = path.resolve(filePath);
+  const lexicalRelative = path.relative(allowedRoot, resolved);
+  if (!lexicalRelative || lexicalRelative.startsWith("..") || path.isAbsolute(lexicalRelative)) {
+    throw new Error("Import video files through the upload control. Arbitrary server paths are not allowed.");
+  }
+
+  try {
+    const realRoot = await fs.realpath(allowedRoot);
+    const realFile = await fs.realpath(resolved);
+    const realRelative = path.relative(realRoot, realFile);
+    if (!realRelative || realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+      throw new Error("Video file path escapes the upload directory.");
+    }
+    const stat = await fs.stat(realFile);
+    if (!stat.isFile()) throw new Error("Video source is not a regular file.");
+    return realFile;
+  } catch (error) {
+    if (error instanceof Error && /symbolic link|escapes|regular file/.test(error.message)) throw error;
+    throw new Error("Uploaded video file could not be found.");
+  }
+}
+
+async function resolveContainedOutputFile(rootDir: string, filePath: string): Promise<string | null> {
+  try {
+    const realRoot = await fs.realpath(rootDir);
+    const realFile = await fs.realpath(filePath);
+    const relative = path.relative(realRoot, realFile);
+    if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      return null;
+    }
+    const stat = await fs.stat(realFile);
+    return stat.isFile() ? realFile : null;
+  } catch {
+    return null;
+  }
+}
+
+const jobMutexes = new Map<string, { mutex: Mutex; users: number }>();
+function runForJob<T>(jobId: string, fn: () => Promise<T>): Promise<T> {
+  let entry = jobMutexes.get(jobId);
+  if (!entry) {
+    entry = { mutex: new Mutex(), users: 0 };
+    jobMutexes.set(jobId, entry);
+  }
+  entry.users += 1;
+  const current = entry;
+  return current.mutex.runExclusive(fn).finally(() => {
+    current.users -= 1;
+    if (current.users === 0 && jobMutexes.get(jobId) === current) {
+      jobMutexes.delete(jobId);
+    }
+  });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -600,22 +666,14 @@ export async function getJob(id: string): Promise<JobView | null> {
 }
 
 export async function createJob(input: CreateJobInput): Promise<JobView> {
-  const source = (input.sourceUrl || input.fileName || "").trim();
+  let source = (input.sourceUrl || input.fileName || "").trim();
   if (!source) {
     throw new Error("Please specify a video URL or local file path.");
   }
 
   const isUrl = /^https?:\/\//i.test(source);
   if (!isUrl) {
-    if (!isAllowedLocalVideoPath(source)) {
-      throw new Error("Invalid or prohibited file path. Please select a valid video file (.mp4, .mov, etc.).");
-    }
-    try {
-      const stat = await fs.stat(source);
-      if (!stat.isFile()) throw new Error("Path is not a regular file.");
-    } catch {
-      throw new Error(`Local video file not found at: ${source}`);
-    }
+    source = await validateUploadedVideoPath(source);
   }
 
   const clipCount = Math.min(10, Math.max(1, Math.round(input.clipCount) || 5));
@@ -636,14 +694,14 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     : "auto";
 
   const job: Job = {
-    id: `job-${now.toString(36)}-${Math.floor(Math.random() * 1000).toString(36)}`,
+    id: `job-${randomUUID()}`,
     source,
     sourceKind: isUrl ? "url" : "file",
     clipCount,
     provider: input.provider === "groq" ? "groq" : input.provider === "openrouter" ? "openrouter" : "local",
     vertical: Boolean(input.vertical),
     captions: Boolean(input.captions),
-    captionStyle: /^[a-z_]{2,30}$/.test(input.captionStyle || "") ? (input.captionStyle as string) : "bold_pop",
+    captionStyle: ALLOWED_CAPTION_STYLES.has(input.captionStyle || "") ? (input.captionStyle as string) : "bold_pop",
     layout: input.layout === "fit_blur" ? "fit_blur" : input.layout === "split_screen" ? "split_screen" : "fill",
     template,
     templateDisplayName,
@@ -668,6 +726,11 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 
   return storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
+    const maxRunning = Math.max(1, Math.min(4, Number.parseInt(process.env.CLIPPER_MAX_RUNNING_JOBS || "2", 10) || 2));
+    const activeJobs = jobs.filter((item) => item.status === "running").length;
+    if (activeJobs >= maxRunning) {
+      throw new Error(`Clipper is already processing ${activeJobs} jobs. Wait for one to finish before starting another.`);
+    }
     jobs.push(job);
     await writeJobs(jobs);
 
@@ -679,26 +742,25 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 }
 
 export async function deleteJob(id: string): Promise<boolean> {
-  return storeMutex.runExclusive(async () => {
+  const deleted = await storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
     const index = jobs.findIndex((j) => j.id === id);
     if (index === -1) return false;
-
-    const updatedJobs = jobs.filter((j) => j.id !== id);
-    await writeJobs(updatedJobs);
-
-    const workDir = await resolveWorkDir(id);
-    const outDir = await resolveOutDir(id);
-    const progressFile = path.join(DATA_DIR, `progress-${id}.json`);
-
-    await Promise.allSettled([
-      fs.rm(workDir, { recursive: true, force: true }),
-      fs.rm(outDir, { recursive: true, force: true }),
-      fs.unlink(progressFile),
-    ]);
-
+    await writeJobs(jobs.filter((j) => j.id !== id));
     return true;
   });
+  if (!deleted) return false;
+
+  // Disk cleanup must not serialize unrelated JSON-store reads and writes.
+  const workDir = await resolveWorkDir(id);
+  const outDir = await resolveOutDir(id);
+  const progressFile = path.join(DATA_DIR, `progress-${id}.json`);
+  await Promise.allSettled([
+    fs.rm(workDir, { recursive: true, force: true }),
+    fs.rm(outDir, { recursive: true, force: true }),
+    fs.unlink(progressFile),
+  ]);
+  return true;
 }
 
 export async function setJobClips(jobId: string, clips: Clip[]): Promise<JobView> {
@@ -718,7 +780,7 @@ export async function patchClip(
   clipId: string,
   patch: Partial<Pick<Clip, "kept" | "start" | "end">> & { title?: string; description?: string; caption?: string; hashtags?: string[] },
 ): Promise<JobView> {
-  return storeMutex.runExclusive(async () => {
+  return runForJob(jobId, () => storeMutex.runExclusive(async () => {
     const jobs = await readJobs();
     const index = jobs.findIndex((job) => job.id === jobId);
     if (index === -1) {
@@ -729,6 +791,32 @@ export async function patchClip(
     const target = job.clips.find((c) => c.id === clipId);
     if (!target) {
       throw new Error(`Clip ${clipId} not found.`);
+    }
+    if (patch.kept !== undefined && typeof patch.kept !== "boolean") {
+      throw new Error("Clip keep state must be a boolean.");
+    }
+    for (const [field, value] of [
+      ["start", patch.start],
+      ["end", patch.end],
+    ] as const) {
+      if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+        throw new Error(`Clip ${field} timestamp must be a non-negative number.`);
+      }
+    }
+    for (const [field, value] of [
+      ["title", patch.title],
+      ["description", patch.description],
+      ["caption", patch.caption],
+    ] as const) {
+      if (value !== undefined && typeof value !== "string") {
+        throw new Error(`Clip ${field} must be text.`);
+      }
+    }
+    if (patch.hashtags !== undefined && (
+      !Array.isArray(patch.hashtags) ||
+      patch.hashtags.some((tag) => typeof tag !== "string")
+    )) {
+      throw new Error("Clip hashtags must be an array of text values.");
     }
 
     if (patch.title !== undefined && patch.title.length > 100) throw new Error("Title must be 100 characters or fewer.");
@@ -811,7 +899,7 @@ export async function patchClip(
 
     await writeJobs(jobs);
     return hydrateJob(jobs[index]);
-  });
+  }));
 }
 
 export async function rerenderClip(
@@ -824,19 +912,24 @@ export async function rerenderClip(
   templateDisplayName?: string,
   templateHandle?: string,
 ): Promise<JobView> {
-  return storeMutex.runExclusive(async () => {
+  return runForJob(jobId, async () => {
     const jobs = await readJobs();
-    const index = jobs.findIndex((j) => j.id === jobId);
-    if (index === -1) throw new Error("Job not found.");
-    const job = jobs[index];
-    const rank = Number(clipId.replace("clip-", ""));
-    if (!Number.isInteger(rank)) throw new Error("Invalid clip id.");
+    const job = jobs.find((item) => item.id === jobId);
+    if (!job) throw new Error("Job not found.");
+    const rank = Number(clipId.replace(/^clip-/, ""));
+    if (!/^clip-\d+$/.test(clipId) || !Number.isInteger(rank) || rank < 1) {
+      throw new Error("Invalid clip id.");
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      throw new Error("Clip end timestamp must be greater than its start timestamp.");
+    }
     if (captionStyle && !ALLOWED_CAPTION_STYLES.has(captionStyle)) {
       throw new Error("Choose a supported caption style.");
     }
     if (template !== undefined && !ALLOWED_SOCIAL_TEMPLATES.has(template)) {
       throw new Error("Choose a supported social template.");
     }
+
     const rootDir = await resolveRootDir();
     const outDir = await resolveOutDir(jobId);
     const manifest = path.join(outDir, "metadata.json");
@@ -845,32 +938,14 @@ export async function rerenderClip(
     });
 
     const rerenderArgs = [
-      "-m",
-      "clipper.cli",
-      "rerender",
-      manifest,
-      "--rank",
-      String(rank),
-      "--start",
-      String(start),
-      "--end",
-      String(end),
+      "-m", "clipper.cli", "rerender", manifest,
+      "--rank", String(rank), "--start", String(start), "--end", String(end),
     ];
-    if (captionStyle) {
-      rerenderArgs.push("--caption-style", captionStyle);
-    }
-    if (template !== undefined) {
-      rerenderArgs.push("--template", template);
-    }
-    if (templateDisplayName) {
-      rerenderArgs.push("--template-name", templateDisplayName.slice(0, 40));
-    }
-    if (templateHandle) {
-      rerenderArgs.push("--template-handle", templateHandle.slice(0, 32));
-    }
-    if (job.videoEncoder && job.videoEncoder !== "auto") {
-      rerenderArgs.push("--encoder", job.videoEncoder);
-    }
+    if (captionStyle) rerenderArgs.push("--caption-style", captionStyle);
+    if (template !== undefined) rerenderArgs.push("--template", template);
+    if (templateDisplayName) rerenderArgs.push("--template-name", templateDisplayName.slice(0, 40));
+    if (templateHandle) rerenderArgs.push("--template-handle", templateHandle.slice(0, 32));
+    if (job.videoEncoder && job.videoEncoder !== "auto") rerenderArgs.push("--encoder", job.videoEncoder);
 
     const code = await new Promise<number>((resolve) => {
       const child = spawn(
@@ -878,86 +953,73 @@ export async function rerenderClip(
         rerenderArgs,
         { cwd: rootDir, stdio: "ignore", windowsHide: true },
       );
-      child.on("close", (c) => resolve(c ?? 1));
+      child.on("close", (exitCode) => resolve(exitCode ?? 1));
       child.on("error", () => resolve(1));
     });
-
-    if (code !== 0) {
-      throw new Error(`Re-rendering clip failed with exit code ${code}`);
-    }
+    if (code !== 0) throw new Error(`Re-rendering clip failed with exit code ${code}`);
 
     const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
     const fresh = mapManifestClips(raw);
-    const current = await readJobs();
-    const i = current.findIndex((j) => j.id === jobId);
-    if (i !== -1) {
-      current[i].clips = fresh;
+    return storeMutex.runExclusive(async () => {
+      const current = await readJobs();
+      const index = current.findIndex((item) => item.id === jobId);
+      if (index === -1) throw new Error("Job not found.");
+      current[index].clips = fresh;
       await writeJobs(current);
-      return hydrateJob(current[i]);
-    }
-    throw new Error("Job not found.");
+      return hydrateJob(current[index]);
+    });
   });
 }
 
 export async function getClipVideoFile(jobId: string, clipId: string): Promise<string | null> {
+  if (!/^clip-\d+$/.test(clipId)) return null;
   const jobs = await readJobs();
-  const job = jobs.find((j) => j.id === jobId);
+  const job = jobs.find((item) => item.id === jobId);
   if (!job) return null;
 
-  const clip = job.clips.find((c) => c.id === clipId);
+  const candidateDir = await resolveOutDir(jobId);
+  const clip = job.clips.find((item) => item.id === clipId);
   if (clip?.file) {
-    try {
-      await fs.access(clip.file);
-      return clip.file;
-    } catch {
-      // file path invalid
-    }
+    const safeFile = await resolveContainedOutputFile(candidateDir, clip.file);
+    if (safeFile && path.extname(safeFile).toLowerCase() === ".mp4") return safeFile;
   }
 
-  // Check outputs location
-  const candidateDir = await resolveOutDir(jobId);
   try {
     const files = await fs.readdir(/*turbopackIgnore: true*/ candidateDir);
-    const match = files.find((f) => f.includes(clipId.replace("clip-", "")) && f.endsWith(".mp4"));
-    if (match) {
-      return path.join(candidateDir, match);
-    }
+    const rank = clipId.slice("clip-".length);
+    const match = files.find((file) => file.includes(rank) && file.toLowerCase().endsWith(".mp4"));
+    if (match) return await resolveContainedOutputFile(candidateDir, path.join(candidateDir, match));
   } catch {
-    // dir doesn't exist
+    // Output directory has not been created.
   }
-
   return null;
 }
 
 export async function getClipCoverFile(jobId: string, clipId: string): Promise<string | null> {
+  if (!/^clip-\d+$/.test(clipId)) return null;
   const jobs = await readJobs();
-  const job = jobs.find((j) => j.id === jobId);
+  const job = jobs.find((item) => item.id === jobId);
   if (!job) return null;
 
-  const clip = job.clips.find((c) => c.id === clipId);
+  const candidateDir = await resolveOutDir(jobId);
+  const clip = job.clips.find((item) => item.id === clipId);
   if (clip?.coverImage) {
-    try {
-      await fs.access(clip.coverImage);
-      return clip.coverImage;
-    } catch {
-      // not accessible
-    }
+    const safeCover = await resolveContainedOutputFile(candidateDir, clip.coverImage);
+    if (safeCover && path.extname(safeCover).toLowerCase() === ".jpg") return safeCover;
   }
 
-  const candidateDir = await resolveOutDir(jobId);
   try {
     const files = await fs.readdir(/*turbopackIgnore: true*/ candidateDir);
-    const rank = clipId.replace("clip-", "");
+    const rank = clipId.slice("clip-".length);
     const match = files.find(
-      (f) => (f.startsWith(`${rank.padStart(2, "0")}_`) || f.includes(rank)) && f.endsWith("_cover.jpg"),
+      (file) =>
+        (file.startsWith(`${rank.padStart(2, "0")}_`) || file.includes(rank)) &&
+        file.toLowerCase().endsWith("_cover.jpg"),
     );
-    if (match) {
-      return path.join(candidateDir, match);
-    }
+    if (match) return await resolveContainedOutputFile(candidateDir, path.join(candidateDir, match));
   } catch {
-    // dir doesn't exist
+    // Output directory has not been created.
   }
-
   return null;
 }
 
@@ -980,6 +1042,7 @@ export async function publishClip(
   privacy?: "private" | "unlisted" | "public",
   reauth?: boolean,
 ): Promise<JobView> {
+  return runForJob(jobId, async () => {
   const jobs = await readJobs();
   const index = jobs.findIndex((j) => j.id === jobId);
   if (index === -1) throw new Error("Job not found.");
@@ -1068,6 +1131,7 @@ export async function publishClip(
     }
     throw new Error("Job not found.");
   });
+  });
 }
 
 /** Assign a scheduled post time to a clip. */
@@ -1077,12 +1141,20 @@ export async function scheduleClip(
   platform: Platform | "both",
   scheduledAtIso: string,
 ): Promise<JobView> {
-  return storeMutex.runExclusive(async () => {
+  return runForJob(jobId, async () => {
     const jobs = await readJobs();
-    const index = jobs.findIndex((j) => j.id === jobId);
-    if (index === -1) throw new Error("Job not found.");
-    const rank = Number(clipId.replace("clip-", ""));
-    if (!Number.isInteger(rank)) throw new Error("Invalid clip id.");
+    if (!jobs.some((item) => item.id === jobId)) throw new Error("Job not found.");
+    const rank = Number(clipId.replace(/^clip-/, ""));
+    if (!/^clip-\d+$/.test(clipId) || !Number.isInteger(rank) || rank < 1) {
+      throw new Error("Invalid clip id.");
+    }
+    if (!["youtube", "instagram", "both"].includes(platform)) {
+      throw new Error("Choose YouTube and/or Instagram.");
+    }
+    const scheduledAt = new Date(scheduledAtIso);
+    if (!Number.isFinite(scheduledAt.getTime()) || scheduledAt.getTime() < Date.now() + 60_000) {
+      throw new Error("Choose a valid publishing time at least one minute in the future.");
+    }
 
     const rootDir = await resolveRootDir();
     const outDir = await resolveOutDir(jobId);
@@ -1094,33 +1166,32 @@ export async function scheduleClip(
     const code = await new Promise<number>((resolve) => {
       const child = spawn(
         /*turbopackIgnore: true*/ PYTHON,
-        ["-m", "clipper.cli", "schedule", manifest, "--rank", String(rank), "--time", scheduledAtIso, "--platform", platform],
+        ["-m", "clipper.cli", "schedule", manifest, "--rank", String(rank), "--time", scheduledAt.toISOString(), "--platform", platform],
         { cwd: rootDir, stdio: "ignore", windowsHide: true },
       );
-      child.on("close", (c) => resolve(c ?? 1));
+      child.on("close", (exitCode) => resolve(exitCode ?? 1));
       child.on("error", () => resolve(1));
     });
-
-    if (code !== 0) {
-      throw new Error(`Scheduling clip failed with code ${code}`);
-    }
+    if (code !== 0) throw new Error(`Scheduling clip failed with code ${code}`);
 
     const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
     const fresh = mapManifestClips(raw);
-    const current = await readJobs();
-    const i = current.findIndex((j) => j.id === jobId);
-    if (i !== -1) {
-      current[i].clips = fresh;
+    return storeMutex.runExclusive(async () => {
+      const current = await readJobs();
+      const index = current.findIndex((item) => item.id === jobId);
+      if (index === -1) throw new Error("Job not found.");
+      current[index].clips = fresh;
       await writeJobs(current);
-      return hydrateJob(current[i]);
-    }
-    throw new Error("Job not found.");
+      return hydrateJob(current[index]);
+    });
   });
 }
 
 /** Fetch live performance analytics for a clip from YouTube. */
 export async function fetchClipAnalytics(jobId: string): Promise<JobView> {
-  return storeMutex.runExclusive(async () => {
+  return runForJob(jobId, async () => {
+    const jobs = await readJobs();
+    if (!jobs.some((item) => item.id === jobId)) throw new Error("Job not found.");
     const rootDir = await resolveRootDir();
     const outDir = await resolveOutDir(jobId);
     const manifest = path.join(outDir, "metadata.json");
@@ -1128,26 +1199,27 @@ export async function fetchClipAnalytics(jobId: string): Promise<JobView> {
       throw new Error("Job manifest not found.");
     });
 
-    await new Promise<void>((resolve) => {
+    const exitCode = await new Promise<number>((resolve) => {
       const child = spawn(
         /*turbopackIgnore: true*/ PYTHON,
         ["-m", "clipper.cli", "analytics", manifest],
         { cwd: rootDir, stdio: "ignore", windowsHide: true },
       );
-      child.on("close", () => resolve());
-      child.on("error", () => resolve());
+      child.on("close", (code) => resolve(code ?? 1));
+      child.on("error", () => resolve(1));
     });
+    if (exitCode !== 0) throw new Error(`Analytics collection failed with exit code ${exitCode}.`);
 
     const raw = JSON.parse(await fs.readFile(manifest, "utf8"));
     const fresh = mapManifestClips(raw);
-    const current = await readJobs();
-    const i = current.findIndex((j) => j.id === jobId);
-    if (i !== -1) {
-      current[i].clips = fresh;
+    return storeMutex.runExclusive(async () => {
+      const current = await readJobs();
+      const index = current.findIndex((item) => item.id === jobId);
+      if (index === -1) throw new Error("Job not found.");
+      current[index].clips = fresh;
       await writeJobs(current);
-      return hydrateJob(current[i]);
-    }
-    throw new Error("Job not found.");
+      return hydrateJob(current[index]);
+    });
   });
 }
 

@@ -7,8 +7,8 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const MAX_SOUNDTRACK_BYTES = 100 * 1024 * 1024;
-const MAX_MULTIPART_OVERHEAD = 1024 * 1024;
 const ALLOWED_EXTS = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"]);
+const MAX_FILE_NAME_LENGTH = 180;
 
 async function resolveRootDir(): Promise<string> {
   const current = process.cwd();
@@ -33,41 +33,24 @@ function decodeFileName(value: string | null): string {
 export async function POST(request: Request) {
   let targetPath: string | undefined;
   try {
-    const isRawUpload =
-      request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ===
-      "application/octet-stream";
-    const contentLength = Number(request.headers.get("content-length"));
-    const requestLimit = isRawUpload
-      ? MAX_SOUNDTRACK_BYTES
-      : MAX_SOUNDTRACK_BYTES + MAX_MULTIPART_OVERHEAD;
-
-    if (Number.isFinite(contentLength) && contentLength > requestLimit) {
+    const contentType = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/octet-stream") {
+      return NextResponse.json({ error: "Upload a soundtrack as application/octet-stream." }, { status: 415 });
+    }
+    const contentLengthHeader = request.headers.get("content-length");
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : null;
+    if (contentLength !== null && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
+      return NextResponse.json({ error: "Invalid Content-Length header." }, { status: 400 });
+    }
+    if (contentLength !== null && contentLength > MAX_SOUNDTRACK_BYTES) {
       return NextResponse.json({ error: "Soundtrack exceeds the 100 MB upload limit." }, { status: 413 });
     }
 
-    let originalName: string;
-    let bodyStream: ReadableStream<Uint8Array>;
-    if (isRawUpload) {
-      originalName = decodeFileName(request.headers.get("x-file-name"));
-      if (!request.body) {
-        return NextResponse.json({ error: "No soundtrack file provided." }, { status: 400 });
-      }
-      bodyStream = request.body;
-    } else {
-      const formData = await request.formData();
-      const file = formData.get("file");
-      if (!file || typeof file === "string" || !(file instanceof Blob)) {
-        return NextResponse.json({ error: "No soundtrack file provided." }, { status: 400 });
-      }
-      originalName = (file as File).name || "soundtrack.mp3";
-      if (file.size === 0) {
-        return NextResponse.json({ error: "The selected soundtrack is empty." }, { status: 400 });
-      }
-      if (file.size > MAX_SOUNDTRACK_BYTES) {
-        return NextResponse.json({ error: "Soundtrack exceeds the 100 MB upload limit." }, { status: 413 });
-      }
-      bodyStream = file.stream();
+    const originalName = decodeFileName(request.headers.get("x-file-name"));
+    if (!request.body) {
+      return NextResponse.json({ error: "No soundtrack file provided." }, { status: 400 });
     }
+    const bodyStream = request.body;
 
     const extension = path.extname(originalName).toLowerCase();
     if (!ALLOWED_EXTS.has(extension)) {
@@ -77,10 +60,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const cleanName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_") || "soundtrack.mp3";
+    const cleanName = (originalName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-MAX_FILE_NAME_LENGTH) || "soundtrack.mp3");
     const rootDir = await resolveRootDir();
     const soundtrackDir = path.join(rootDir, "workdir", "soundtracks");
     await fs.mkdir(soundtrackDir, { recursive: true });
+    const resolvedSoundtrackDir = await fs.realpath(soundtrackDir);
+    if (resolvedSoundtrackDir !== path.resolve(soundtrackDir)) {
+      throw new Error("Soundtrack upload directory must not be a symbolic link.");
+    }
 
     const uniquePrefix = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const targetFileName = `${uniquePrefix}_${cleanName}`;
@@ -101,16 +88,40 @@ export async function POST(request: Request) {
     // Stream raw browser uploads to disk with a bounded byte counter.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nodeStream = Readable.fromWeb(bodyStream as any);
-    await pipeline(nodeStream, limiter, createWriteStream(targetPath, { flags: "wx" }));
+    await pipeline(nodeStream, limiter, createWriteStream(targetPath, { flags: "wx", mode: 0o600 }));
 
     if (totalBytes === 0) {
       throw new Error("The selected soundtrack is empty.");
     }
 
+    // Extension filters are only a first-pass check. Verify the audio container
+    // signature before the file is passed to FFmpeg.
+    const handle = await fs.open(targetPath, "r");
+    try {
+      const header = Buffer.alloc(12);
+      const { bytesRead } = await handle.read(header, 0, header.length, 0);
+      const signature = header.subarray(0, bytesRead);
+      const validAudio =
+        (extension === ".mp3" &&
+          (signature.toString("ascii", 0, 3) === "ID3" ||
+            (signature.length >= 2 && signature[0] === 0xff && (signature[1] & 0xe0) === 0xe0))) ||
+        (extension === ".wav" &&
+          signature.length >= 12 && signature.toString("ascii", 0, 4) === "RIFF" && signature.toString("ascii", 8, 12) === "WAVE") ||
+        (extension === ".m4a" &&
+          signature.length >= 8 && signature.toString("ascii", 4, 8) === "ftyp") ||
+        (extension === ".aac" &&
+          signature.length >= 2 && signature[0] === 0xff && (signature[1] & 0xf6) === 0xf0) ||
+        (extension === ".ogg" && signature.toString("ascii", 0, 4) === "OggS") ||
+        (extension === ".flac" && signature.toString("ascii", 0, 4) === "fLaC");
+      if (!validAudio) throw new Error("File contents do not match a supported audio format.");
+    } finally {
+      await handle.close();
+    }
+
     return NextResponse.json({
       path: targetPath,
       fileName: targetFileName,
-      originalName,
+      originalName: originalName.slice(0, MAX_FILE_NAME_LENGTH),
       size: totalBytes,
     });
   } catch (error) {
@@ -118,9 +129,11 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Failed to upload soundtrack.";
     const status = /100 MB upload limit/i.test(message)
       ? 413
-      : /empty|file name/i.test(message)
-        ? 400
-        : 500;
+      : /contents do not match/i.test(message)
+        ? 415
+        : /empty|file name/i.test(message)
+          ? 400
+          : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

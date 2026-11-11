@@ -6,8 +6,9 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB cap
-const MAX_MULTIPART_OVERHEAD = 1024 * 1024;
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024;
+const ALLOWED_VIDEO_EXTS = new Set([".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv"]);
+const MAX_FILE_NAME_LENGTH = 180;
 
 async function resolveRootDir(): Promise<string> {
   const current = process.cwd();
@@ -15,7 +16,7 @@ async function resolveRootDir(): Promise<string> {
     const stat = await fs.stat(path.join(current, "clipper"));
     if (stat.isDirectory()) return current;
   } catch {
-    // not in root
+    // Next.js may be running from web/.
   }
   return path.resolve(current, "..");
 }
@@ -32,54 +33,41 @@ function decodeFileName(value: string | null): string {
 export async function POST(request: Request) {
   let targetPath: string | undefined;
   try {
-    const isRawUpload =
-      request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ===
-      "application/octet-stream";
-    const contentLength = Number(request.headers.get("content-length"));
-    const requestLimit = isRawUpload
-      ? MAX_UPLOAD_BYTES
-      : MAX_UPLOAD_BYTES + MAX_MULTIPART_OVERHEAD;
-
-    if (Number.isFinite(contentLength) && contentLength > requestLimit) {
-      return NextResponse.json(
-        { error: "Upload exceeds maximum request size of 4 GB." },
-        { status: 413 },
-      );
+    const contentType = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    // This route is intentionally stream-only. request.formData() buffers the whole
+    // upload and can exhaust memory before an application-level size check runs.
+    if (contentType !== "application/octet-stream") {
+      return NextResponse.json({ error: "Upload a video as application/octet-stream." }, { status: 415 });
     }
 
-    let fileName: string;
-    let bodyStream: ReadableStream<Uint8Array>;
-    if (isRawUpload) {
-      fileName = decodeFileName(request.headers.get("x-file-name"));
-      if (!request.body) {
-        return NextResponse.json({ error: "No video file provided." }, { status: 400 });
-      }
-      bodyStream = request.body;
-    } else {
-      const formData = await request.formData();
-      const file = formData.get("file");
-      if (!file || typeof file === "string" || !(file instanceof Blob)) {
-        return NextResponse.json({ error: "No video file provided." }, { status: 400 });
-      }
-      if (file.size === 0) {
-        return NextResponse.json({ error: "The selected video file is empty." }, { status: 400 });
-      }
-      if (file.size > MAX_UPLOAD_BYTES) {
-        return NextResponse.json(
-          { error: "File exceeds maximum allowed upload size of 4 GB." },
-          { status: 413 },
-        );
-      }
-      fileName = (file as File).name || "uploaded_video.mp4";
-      bodyStream = file.stream();
+    const contentLengthHeader = request.headers.get("content-length");
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : null;
+    if (contentLength !== null && (!Number.isSafeInteger(contentLength) || contentLength < 0)) {
+      return NextResponse.json({ error: "Invalid Content-Length header." }, { status: 400 });
+    }
+    if (contentLength !== null && contentLength > MAX_UPLOAD_BYTES) {
+      return NextResponse.json({ error: "Upload exceeds maximum request size of 4 GB." }, { status: 413 });
     }
 
-    const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "uploaded_video.mp4";
+    const fileName = decodeFileName(request.headers.get("x-file-name"));
+    const extension = path.extname(fileName).toLowerCase();
+    if (!ALLOWED_VIDEO_EXTS.has(extension)) {
+      return NextResponse.json({ error: "Supported video formats: MP4, MOV, MKV, WEBM, AVI, M4V and FLV." }, { status: 415 });
+    }
+    if (!request.body) {
+      return NextResponse.json({ error: "No video file provided." }, { status: 400 });
+    }
+
+    const cleanName = (fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-MAX_FILE_NAME_LENGTH) || "uploaded_video.mp4");
     const rootDir = await resolveRootDir();
-    const uploadsDir = path.join(rootDir, "workdir", "uploads");
-    await fs.mkdir(uploadsDir, { recursive: true });
+    const configuredUploadsDir = path.resolve(rootDir, "workdir", "uploads");
+    await fs.mkdir(configuredUploadsDir, { recursive: true });
+    const uploadsDir = await fs.realpath(configuredUploadsDir);
+    if (uploadsDir !== configuredUploadsDir) {
+      throw new Error("Upload directory must not be a symbolic link.");
+    }
 
-    const targetFileName = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}_${cleanName}`;
+    const targetFileName = `${Date.now()}_${crypto.randomUUID()}_${cleanName}`;
     targetPath = path.join(uploadsDir, targetFileName);
 
     let totalBytes = 0;
@@ -94,32 +82,49 @@ export async function POST(request: Request) {
       },
     });
 
-    // Raw browser uploads stay streamed end-to-end; no full-file formData parse.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const nodeStream = Readable.fromWeb(bodyStream as any);
-    const writeStream = createWriteStream(targetPath, { flags: "wx" });
-    await pipeline(nodeStream, limiter, writeStream);
+    // Browser uploads remain streamed from the request to disk.
+    const nodeStream = Readable.fromWeb(request.body as ReadableStream<Uint8Array>);
+    await pipeline(nodeStream, limiter, createWriteStream(targetPath, { flags: "wx", mode: 0o600 }));
 
-    if (totalBytes === 0) {
-      throw new Error("The selected video file is empty.");
+    if (totalBytes === 0) throw new Error("The selected video file is empty.");
+
+    // Check container bytes after streaming to disk. A user-controlled extension
+    // is not a trustworthy content-type signal.
+    const handle = await fs.open(targetPath, "r");
+    try {
+      const header = Buffer.alloc(12);
+      const { bytesRead } = await handle.read(header, 0, header.length, 0);
+      const signature = header.subarray(0, bytesRead);
+      const validContainer =
+        ((extension === ".mp4" || extension === ".m4v" || extension === ".mov") &&
+          signature.length >= 8 && signature.toString("ascii", 4, 8) === "ftyp") ||
+        ((extension === ".mkv" || extension === ".webm") &&
+          signature.length >= 4 && signature[0] === 0x1a && signature[1] === 0x45 && signature[2] === 0xdf && signature[3] === 0xa3) ||
+        (extension === ".avi" &&
+          signature.length >= 12 && signature.toString("ascii", 0, 4) === "RIFF" && signature.toString("ascii", 8, 12) === "AVI ") ||
+        (extension === ".flv" &&
+          signature.length >= 3 && signature.toString("ascii", 0, 3) === "FLV");
+      if (!validContainer) throw new Error("File contents do not match a supported video container.");
+    } finally {
+      await handle.close();
     }
 
     return NextResponse.json({
       path: targetPath,
       fileName: targetFileName,
-      originalName: fileName,
+      originalName: fileName.slice(0, MAX_FILE_NAME_LENGTH),
       size: totalBytes,
     });
   } catch (error) {
-    if (targetPath) {
-      await fs.unlink(targetPath).catch(() => undefined);
-    }
+    if (targetPath) await fs.unlink(targetPath).catch(() => undefined);
     const message = error instanceof Error ? error.message : "Failed to upload video.";
     const status = /maximum (request|allowed upload) size|exceeds maximum/i.test(message)
       ? 413
-      : /empty|file name/i.test(message)
-        ? 400
-        : 500;
+      : /contents do not match/i.test(message)
+        ? 415
+        : /empty|file name|content-length/i.test(message)
+          ? 400
+          : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

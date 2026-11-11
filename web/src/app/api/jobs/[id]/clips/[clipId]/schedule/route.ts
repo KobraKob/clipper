@@ -130,8 +130,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     const platform = body.platform || "youtube";
     const scheduledAtIso = body.scheduledAtIso;
 
-    if (!scheduledAtIso) {
-      return NextResponse.json({ error: "scheduledAtIso timestamp is required." }, { status: 400 });
+    if (!["youtube", "instagram", "both"].includes(platform)) {
+      return NextResponse.json({ error: "Choose YouTube and/or Instagram." }, { status: 400 });
+    }
+    if (typeof scheduledAtIso !== "string" || scheduledAtIso.length > 64) {
+      return NextResponse.json({ error: "A valid scheduledAtIso timestamp is required." }, { status: 400 });
     }
 
     // Cloud mode is opt-in. The original filesystem/CLI scheduler remains intact for local development.
