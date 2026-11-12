@@ -42,14 +42,25 @@ class Mutex {
 
 const storeMutex = new Mutex();
 
-const jobMutexes = new Map<string, Mutex>();
+type JobMutexEntry = { mutex: Mutex; users: number };
+const jobMutexes = new Map<string, JobMutexEntry>();
+
 function runForJob<T>(jobId: string, fn: () => Promise<T>): Promise<T> {
-  let mutex = jobMutexes.get(jobId);
-  if (!mutex) {
-    mutex = new Mutex();
-    jobMutexes.set(jobId, mutex);
+  let entry = jobMutexes.get(jobId);
+  if (!entry) {
+    entry = { mutex: new Mutex(), users: 0 };
+    jobMutexes.set(jobId, entry);
   }
-  return mutex.runExclusive(fn);
+
+  // Count both the active holder and queued callers. Remove idle locks so
+  // completed/deleted job IDs do not accumulate in this process indefinitely.
+  entry.users += 1;
+  return entry.mutex.runExclusive(fn).finally(() => {
+    entry!.users -= 1;
+    if (entry!.users === 0 && jobMutexes.get(jobId) === entry) {
+      jobMutexes.delete(jobId);
+    }
+  });
 }
 
 async function resolveRootDir(): Promise<string> {
@@ -191,28 +202,6 @@ export async function getJobLogs(jobId: string, maxLines = 100): Promise<string>
     return "";
   }
 }
-
-function isAllowedLocalVideoPath(filePath: string): boolean {
-  const resolved = path.resolve(filePath);
-  const ext = path.extname(resolved).toLowerCase();
-  if (!ALLOWED_VIDEO_EXTS.has(ext)) {
-    return false;
-  }
-  const lower = resolved.toLowerCase();
-  // Disallow critical OS system directories
-  if (
-    lower.startsWith("c:\\windows") ||
-    lower.startsWith("c:\\program files") ||
-    lower.startsWith("/etc") ||
-    lower.startsWith("/sys") ||
-    lower.startsWith("/proc") ||
-    lower.startsWith("/root")
-  ) {
-    return false;
-  }
-  return true;
-}
-
 
 async function validateUploadedVideoPath(filePath: string): Promise<string> {
   const resolved = path.resolve(filePath);

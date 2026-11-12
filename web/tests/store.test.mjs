@@ -150,7 +150,6 @@ test("createJob supports URLs without errors", async () => {
 
 test("createJob supports valid local file and rejects non-existent or disallowed files", async () => {
   // 1. Create a real temporary mp4 file
-  const tmpDir = os.tmpdir();
   const uploadsDir = path.resolve(process.cwd(), "..", "workdir", "uploads");
   fs.mkdirSync(uploadsDir, { recursive: true });
   const validFile = path.join(uploadsDir, `test_${Date.now()}.mp4`);

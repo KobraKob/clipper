@@ -54,6 +54,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install web dependencies
         run: npm ci
+      - name: Audit web dependencies
+        run: npm audit --audit-level=low
       - name: Run frontend tests
         run: npm run test
       - name: Run ESLint
