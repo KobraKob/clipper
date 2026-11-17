@@ -360,6 +360,12 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     if (job.soundtrackPath) {
       args.push("--soundtrack", job.soundtrackPath);
       args.push("--soundtrack-volume", String(job.soundtrackVolume ?? 0.18));
+      args.push("--soundtrack-mode", job.soundtrackMode || "auto");
+      if (job.soundtrackMode === "manual") {
+        args.push("--soundtrack-start", String(job.soundtrackStart ?? 0));
+        args.push("--soundtrack-end", String(job.soundtrackEnd ?? 0));
+        args.push("--soundtrack-overflow", job.soundtrackOverflow || "trim");
+      }
     }
 
     let spawnFailed = false;
@@ -705,6 +711,10 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     loudnorm: input.loudnorm !== false,
     soundtrackPath,
     soundtrackVolume,
+    soundtrackMode: input.soundtrackMode === "manual" ? "manual" : "auto",
+    soundtrackStart: Number.isFinite(Number(input.soundtrackStart)) ? Math.max(0, Number(input.soundtrackStart)) : 0,
+    soundtrackEnd: Number.isFinite(Number(input.soundtrackEnd)) ? Math.max(0, Number(input.soundtrackEnd)) : undefined,
+    soundtrackOverflow: input.soundtrackOverflow === "loop" ? "loop" : "trim",
     createdAt: now,
     startedAt: now,
     status: "running",

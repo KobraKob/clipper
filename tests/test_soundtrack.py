@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from clipper.soundtrack import _energy_envelope, _estimate_bpm, select_soundtrack_offset
+from clipper.soundtrack import _energy_envelope, _estimate_bpm, build_manual_soundtrack_filter, select_soundtrack_offset
 
 
 class TestSoundtrackAnalysis(unittest.TestCase):
@@ -41,6 +41,27 @@ class TestSoundtrackAnalysis(unittest.TestCase):
             "bpm": None,
         }
         self.assertEqual(select_soundtrack_offset(profile, clip_duration=10.0), 0.0)
+    def test_manual_soundtrack_trim_uses_selected_range_and_fades(self):
+        graph = build_manual_soundtrack_filter(12.5, 28.0, 9.0, 0.2, "trim", True)
+        self.assertIn("atrim=start=12.500:end=28.000", graph)
+        self.assertIn("atrim=duration=9.000", graph)
+        self.assertIn("afade=t=in", graph)
+        self.assertIn("afade=t=out", graph)
+        self.assertIn("sidechaincompress", graph)
+
+    def test_manual_soundtrack_loop_repeats_only_selected_segment(self):
+        graph = build_manual_soundtrack_filter(4.0, 7.0, 10.0, 0.18, "loop", False)
+        self.assertIn("atrim=start=4.000:end=7.000", graph)
+        self.assertIn("aloop=loop=-1:size=144000", graph)
+        self.assertIn("atrim=duration=10.000", graph)
+        self.assertNotIn("sidechaincompress", graph)
+
+    def test_manual_soundtrack_rejects_invalid_ranges_and_behaviour(self):
+        with self.assertRaises(ValueError):
+            build_manual_soundtrack_filter(8.0, 4.0, 10.0)
+        with self.assertRaises(ValueError):
+            build_manual_soundtrack_filter(0.0, 4.0, 10.0, overflow_behavior="repeat")
+
     def test_music_section_selection_matches_clip_energy_target(self):
         envelope = np.full(300, 0.25, dtype=np.float32)
         envelope[30:90] = 0.15

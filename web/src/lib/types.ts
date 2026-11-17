@@ -182,6 +182,10 @@ export type Job = {
   loudnorm?: boolean;
   soundtrackPath?: string;
   soundtrackVolume?: number;
+  soundtrackMode?: "auto" | "manual";
+  soundtrackStart?: number;
+  soundtrackEnd?: number;
+  soundtrackOverflow?: "trim" | "loop";
   createdAt: number;
   startedAt: number;
   status: JobStatus;
@@ -216,5 +220,9 @@ export type CreateJobInput = {
   loudnorm?: boolean;
   soundtrackPath?: string;
   soundtrackVolume?: number;
+  soundtrackMode?: "auto" | "manual";
+  soundtrackStart?: number;
+  soundtrackEnd?: number;
+  soundtrackOverflow?: "trim" | "loop";
 };
 

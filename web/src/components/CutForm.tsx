@@ -69,6 +69,10 @@ type Settings = {
   trimSilence: boolean;
   progressBar: boolean;
   soundtrackVolume: number;
+  soundtrackMode: "auto" | "manual";
+  soundtrackStart: number;
+  soundtrackEnd: number;
+  soundtrackOverflow: "trim" | "loop";
 };
 
 const DEFAULTS: Settings = {
@@ -88,6 +92,10 @@ const DEFAULTS: Settings = {
   trimSilence: false,
   progressBar: false,
   soundtrackVolume: 0.18,
+  soundtrackMode: "auto",
+  soundtrackStart: 0,
+  soundtrackEnd: 0,
+  soundtrackOverflow: "trim",
 };
 
 const STORAGE_KEY = "cutform.settings.v1";
@@ -506,6 +514,19 @@ export function CutForm() {
   const [soundtrackName, setSoundtrackName] = useState("");
   const [soundtrackError, setSoundtrackError] = useState("");
   const [uploadingSoundtrack, setUploadingSoundtrack] = useState(false);
+  const [soundtrackPreviewUrl, setSoundtrackPreviewUrl] = useState("");
+  const [soundtrackDuration, setSoundtrackDuration] = useState(0);
+
+  useEffect(() => {
+    if (!soundtrackFile) {
+      setSoundtrackPreviewUrl("");
+      setSoundtrackDuration(0);
+      return;
+    }
+    const url = URL.createObjectURL(soundtrackFile);
+    setSoundtrackPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [soundtrackFile]);
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -671,6 +692,8 @@ export function CutForm() {
       setSoundtrackPath("");
       setSoundtrackName("");
       setSoundtrackError("");
+      setSoundtrackDuration(0);
+      patch({ soundtrackStart: 0, soundtrackEnd: 0, soundtrackMode: "auto" });
       return;
     }
     if (!isAudioFile(file)) {
@@ -690,6 +713,7 @@ export function CutForm() {
       const uploaded = await uploadSoundtrack(file);
       setSoundtrackPath(uploaded.path);
       setSoundtrackName(file.name);
+      patch({ soundtrackStart: 0, soundtrackEnd: 0 });
       toast({ body: `Soundtrack attached: ${file.name}`, uniqueID: "cutform-audio-upload" });
     } catch (err) {
       setSoundtrackError(err instanceof Error ? err.message : "Soundtrack upload failed. Try again.");
@@ -719,6 +743,16 @@ export function CutForm() {
       return;
     }
 
+    if (soundtrackPath && settings.soundtrackMode === "manual") {
+      const end = settings.soundtrackEnd || soundtrackDuration;
+      if (end <= settings.soundtrackStart || end > soundtrackDuration + 0.05) {
+        setSoundtrackError("Choose a valid music section within the uploaded track.");
+        goTo("audio");
+        setBusy(false);
+        return;
+      }
+    }
+
     setBusy(true);
     try {
       const job = await createJob({
@@ -739,6 +773,10 @@ export function CutForm() {
         loudnorm: settings.loudnorm,
         soundtrackPath: soundtrackPath || undefined,
         soundtrackVolume: settings.soundtrackVolume,
+        soundtrackMode: settings.soundtrackMode,
+        soundtrackStart: settings.soundtrackStart,
+        soundtrackEnd: settings.soundtrackEnd || soundtrackDuration,
+        soundtrackOverflow: settings.soundtrackOverflow,
       });
       toast({ body: "Cut launched — opening job studio.", uniqueID: "cutform-launch" });
       router.push(`/jobs/${job.id}`);
@@ -1123,8 +1161,81 @@ export function CutForm() {
                   />
 
                   {soundtrackName ? (
-                    <SegmentedControl
-                      label="Soundtrack mix level"
+                    <VStack gap={3}>
+                      <SegmentedControl
+                        label="Music selection"
+                        value={settings.soundtrackMode}
+                        onChange={(val) => patch({ soundtrackMode: val as "auto" | "manual" })}
+                        layout="fill"
+                      >
+                        <SegmentedControlItem value="auto" label="Automatic AI sync" />
+                        <SegmentedControlItem value="manual" label="Manual section" />
+                      </SegmentedControl>
+                      {settings.soundtrackMode === "manual" ? (
+                        <VStack gap={3}>
+                          <Text type="supporting" color="secondary">
+                            Preview the track, then set the exact section used for every generated clip.
+                          </Text>
+                          {soundtrackPreviewUrl ? (
+                            <audio controls preload="metadata" src={soundtrackPreviewUrl} className="w-full" onLoadedMetadata={(event) => {
+                              const duration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
+                              setSoundtrackDuration(duration);
+                              patch(({}));
+                              setSettings((current) => ({
+                                ...current,
+                                soundtrackEnd: current.soundtrackEnd > 0 ? Math.min(current.soundtrackEnd, duration) : duration,
+                              }));
+                            }} />
+                          ) : null}
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="grid gap-1 text-sm">
+                              <span className="text-secondary">Start (seconds)</span>
+                              <input aria-label="Music section start in seconds" type="number" min="0" max={soundtrackDuration || undefined} step="0.1" value={settings.soundtrackStart} onChange={(event) => patch({ soundtrackStart: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded-md border border-subtle bg-body px-3 py-2" />
+                            </label>
+                            <label className="grid gap-1 text-sm">
+                              <span className="text-secondary">End (seconds)</span>
+                              <input aria-label="Music section end in seconds" type="number" min="0.1" max={soundtrackDuration || undefined} step="0.1" value={settings.soundtrackEnd || soundtrackDuration} onChange={(event) => patch({ soundtrackEnd: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded-md border border-subtle bg-body px-3 py-2" />
+                            </label>
+                          </div>
+                          <div className="grid gap-1">
+                            <Text type="supporting" color="secondary">Fine-tune the selected section</Text>
+                            <input aria-label="Music section start slider" type="range" min="0" max={Math.max(0, soundtrackDuration)} step="0.1" value={Math.min(settings.soundtrackStart, soundtrackDuration)} onChange={(event) => patch({ soundtrackStart: Number(event.target.value) })} className="w-full accent-current" />
+                            <input aria-label="Music section end slider" type="range" min="0" max={Math.max(0, soundtrackDuration)} step="0.1" value={Math.min(settings.soundtrackEnd || soundtrackDuration, soundtrackDuration)} onChange={(event) => patch({ soundtrackEnd: Number(event.target.value) })} className="w-full accent-current" />
+                          </div>
+                          <SegmentedControl
+                            label="If selected music is longer than a clip"
+                            value={settings.soundtrackOverflow}
+                            onChange={(val) => patch({ soundtrackOverflow: val as "trim" | "loop" })}
+                            layout="fill"
+                          >
+                            <SegmentedControlItem value="trim" label="Trim to clip" />
+                            <SegmentedControlItem value="loop" label="Loop selection" />
+                          </SegmentedControl>
+                          {settings.soundtrackEnd > 0 && settings.soundtrackEnd <= settings.soundtrackStart ? (
+                            <Banner status="error" title="Invalid music section" description="The end point must be after the start point." />
+                          ) : null}
+                        </VStack>
+                      ) : null}
+                      <SegmentedControl
+                        label="Soundtrack mix level"
+                        value={String(settings.soundtrackVolume)}
+                        onChange={(val) => patch({ soundtrackVolume: Number(val) })}
+                        layout="fill"
+                      >
+                        {VOLUMES.map((vol) => (
+                          <SegmentedControlItem
+                            key={vol.value}
+                            value={vol.value}
+                            label={`${vol.note} (${vol.label})`}
+                          />
+                        ))}
+                      </SegmentedControl>
+                    </VStack>
+                  ) : null}
+                </VStack>
+              </Card>
+
+              {/* 5. Processing & Engine */}
                       value={String(settings.soundtrackVolume)}
                       onChange={(val) => patch({ soundtrackVolume: Number(val) })}
                       layout="fill"
