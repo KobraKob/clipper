@@ -104,6 +104,10 @@ def run(
     soundtrack_volume: float = typer.Option(
         0.18, "--soundtrack-volume", min=0.05, max=0.4, help="Soundtrack mix level (0.05–0.40); voice is automatically ducked."
     ),
+    soundtrack_mode: str = typer.Option("auto", "--soundtrack-mode", help="Soundtrack selection: auto or manual."),
+    soundtrack_start: float = typer.Option(0.0, "--soundtrack-start", min=0.0, help="Manual soundtrack section start in seconds."),
+    soundtrack_end: Optional[float] = typer.Option(None, "--soundtrack-end", min=0.0, help="Manual soundtrack section end in seconds."),
+    soundtrack_overflow: str = typer.Option("trim", "--soundtrack-overflow", help="Manual section behaviour when longer than a clip: trim or loop."),
     cover: bool = typer.Option(
         True, "--cover/--no-cover", help="Extract sharpest thumbnail cover frame."
     ),
@@ -159,6 +163,10 @@ def run(
             cover_frame=cover,
             soundtrack_path=pathlib.Path(soundtrack) if soundtrack else None,
             soundtrack_volume=soundtrack_volume,
+            soundtrack_mode=soundtrack_mode,
+            soundtrack_start=soundtrack_start,
+            soundtrack_end=soundtrack_end,
+            soundtrack_overflow=soundtrack_overflow,
             template=template,
             template_display_name=template_display_name,
             template_handle=template_handle,

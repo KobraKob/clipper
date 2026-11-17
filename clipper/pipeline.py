@@ -30,7 +30,7 @@ from .retention import (
 )
 from .scoring import rank
 from .seo import generate_metadata
-from .soundtrack import analyze_soundtrack, mix_soundtrack
+from .soundtrack import analyze_soundtrack, mix_manual_soundtrack, mix_soundtrack
 from .social_templates import apply_social_template, validate_social_template
 from .trends import fetch_trending_topics
 
@@ -146,6 +146,10 @@ def run_pipeline(
     cover_frame: bool = True,
     soundtrack_path: Optional[pathlib.Path] = None,
     soundtrack_volume: float = 0.18,
+    soundtrack_mode: str = "auto",
+    soundtrack_start: float = 0.0,
+    soundtrack_end: Optional[float] = None,
+    soundtrack_overflow: str = "trim",
     template: str = "none",
     template_display_name: str = "Your Name",
     template_handle: str = "@yourhandle",
@@ -493,21 +497,39 @@ def run_pipeline(
 
             soundtrack_record: Optional[Dict[str, Any]] = None
             if resolved_soundtrack is not None and soundtrack_profile is not None:
-                soundtrack_record = mix_soundtrack(
-                    final_clip_path,
-                    resolved_soundtrack,
-                    soundtrack_profile,
-                    clip_duration=clip_duration,
-                    volume=soundtrack_volume,
-                    clip_rank=idx,
-                )
-                logger.info(
-                    "[soundtrack] Clip %d matched to %.2fs%s at %.0f%% music level.",
-                    idx,
-                    soundtrack_record["offset_seconds"],
-                    f" near {soundtrack_record['bpm']:.1f} BPM" if soundtrack_record.get("bpm") else "",
-                    soundtrack_record["volume"] * 100,
-                )
+                if soundtrack_mode == "manual":
+                    if soundtrack_end is None or soundtrack_end <= soundtrack_start:
+                        raise ValueError("Manual soundtrack mode requires a valid start and end selection.")
+                    soundtrack_record = mix_manual_soundtrack(
+                        final_clip_path,
+                        resolved_soundtrack,
+                        clip_duration=clip_duration,
+                        start_seconds=soundtrack_start,
+                        end_seconds=soundtrack_end,
+                        volume=soundtrack_volume,
+                        overflow_behavior=soundtrack_overflow,
+                    )
+                    logger.info(
+                        "[soundtrack] Clip %d uses manual section %.2f–%.2fs (%s) at %.0f%%.",
+                        idx, soundtrack_start, soundtrack_end, soundtrack_overflow,
+                        soundtrack_record["volume"] * 100,
+                    )
+                else:
+                    soundtrack_record = mix_soundtrack(
+                        final_clip_path,
+                        resolved_soundtrack,
+                        soundtrack_profile,
+                        clip_duration=clip_duration,
+                        volume=soundtrack_volume,
+                        clip_rank=idx,
+                    )
+                    logger.info(
+                        "[soundtrack] Clip %d matched to %.2fs%s at %.0f%% music level.",
+                        idx,
+                        soundtrack_record["offset_seconds"],
+                        f" near {soundtrack_record['bpm']:.1f} BPM" if soundtrack_record.get("bpm") else "",
+                        soundtrack_record["volume"] * 100,
+                    )
 
             clip_record: Dict[str, Any] = {
                 "rank": idx,
@@ -580,8 +602,12 @@ def run_pipeline(
                 "enabled": resolved_soundtrack is not None,
                 "file": str(resolved_soundtrack) if resolved_soundtrack else None,
                 "volume": max(0.05, min(0.4, float(soundtrack_volume))),
-                "matching": "speech-energy-and-tempo-grid" if soundtrack_profile is not None else None,
-                "bpm": soundtrack_profile.get("bpm") if soundtrack_profile else None,
+                "mode": soundtrack_mode,
+                "manual_start": soundtrack_start if soundtrack_mode == "manual" else None,
+                "manual_end": soundtrack_end if soundtrack_mode == "manual" else None,
+                "overflow_behavior": soundtrack_overflow if soundtrack_mode == "manual" else None,
+                "matching": "speech-energy-and-tempo-grid" if soundtrack_profile is not None and soundtrack_mode == "auto" else None,
+                "bpm": soundtrack_profile.get("bpm") if soundtrack_profile and soundtrack_mode == "auto" else None,
             },
             "clips": exported_clips,
         }

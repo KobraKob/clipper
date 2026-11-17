@@ -210,6 +210,125 @@ def select_soundtrack_offset(
     return round(best_offset, 3)
 
 
+
+def build_manual_soundtrack_filter(
+    start_seconds: float,
+    end_seconds: float,
+    clip_duration: float,
+    volume: float = 0.18,
+    overflow_behavior: str = "trim",
+    has_original_audio: bool = True,
+    sample_rate: int = 48_000,
+) -> str:
+    """Build a validated FFmpeg graph for a user-selected soundtrack section."""
+    start = float(start_seconds)
+    end = float(end_seconds)
+    duration = float(clip_duration)
+    if not np.isfinite(start) or not np.isfinite(end) or not np.isfinite(duration):
+        raise ValueError("Soundtrack times must be finite numbers.")
+    if start < 0 or end <= start or duration <= 0:
+        raise ValueError("Choose a valid soundtrack range and a positive clip duration.")
+    if overflow_behavior not in {"trim", "loop"}:
+        raise ValueError("Soundtrack overflow behaviour must be 'trim' or 'loop'.")
+    if sample_rate <= 0:
+        raise ValueError("Audio sample rate must be positive.")
+
+    segment_duration = end - start
+    is_looping = overflow_behavior == "loop" and segment_duration < duration
+    fade_duration = min(0.75, segment_duration / 4, duration / 4)
+    music_parts = [
+        "aresample={}".format(int(sample_rate)),
+        f"atrim=start={start:.3f}:end={end:.3f}",
+        "asetpts=PTS-STARTPTS",
+    ]
+    if is_looping:
+        loop_samples = max(1, int(round(segment_duration * sample_rate)))
+        music_parts.extend([
+            f"aloop=loop=-1:size={loop_samples}",
+            f"atrim=duration={duration:.3f}",
+        ])
+    else:
+        music_parts.append(f"atrim=duration={min(segment_duration, duration):.3f}")
+
+    bounded_volume = min(0.4, max(0.05, float(volume)))
+    fade_out_at = max(0.0, (duration if is_looping else min(segment_duration, duration)) - fade_duration)
+    music_parts.extend([
+        f"volume={bounded_volume:.3f}",
+        f"afade=t=in:st=0:d={fade_duration:.3f}",
+        f"afade=t=out:st={fade_out_at:.3f}:d={fade_duration:.3f}",
+    ])
+    graph = "[1:a]" + ",".join(music_parts) + "[music]"
+    if has_original_audio:
+        graph += (
+            ";[music][0:a]sidechaincompress=threshold=0.035:ratio=8:"
+            "attack=20:release=320:makeup=1[ducked];"
+            "[0:a][ducked]amix=inputs=2:duration=first:dropout_transition=0,"
+            "alimiter=limit=0.95[outa]"
+        )
+    else:
+        graph += ";[music]anull[outa]"
+    return graph
+
+
+def mix_manual_soundtrack(
+    video_path: pathlib.Path | str,
+    soundtrack_path: pathlib.Path | str,
+    clip_duration: float,
+    start_seconds: float,
+    end_seconds: float,
+    volume: float = 0.18,
+    overflow_behavior: str = "trim",
+) -> Dict[str, Any]:
+    """Mix the exact user-selected music range, optionally looping it to fill the clip."""
+    video = pathlib.Path(video_path).resolve()
+    soundtrack = pathlib.Path(soundtrack_path).resolve()
+    if not video.is_file():
+        raise FileNotFoundError(f"Clip video not found for soundtrack mix: {video}")
+    if not soundtrack.is_file():
+        raise FileNotFoundError(f"Soundtrack file not found: {soundtrack}")
+
+    duration = float(clip_duration)
+    track_duration = _probe_duration(soundtrack)
+    if float(start_seconds) < 0 or float(end_seconds) > track_duration + 0.05:
+        raise ValueError("Selected soundtrack section must fit within the uploaded track.")
+    has_original_audio = _video_has_audio(video)
+    graph = build_manual_soundtrack_filter(
+        start_seconds, end_seconds, duration, volume, overflow_behavior,
+        has_original_audio=has_original_audio,
+    )
+    temp = video.with_name(f"{video.stem}.soundtrack-manual-tmp{video.suffix}")
+    temp.unlink(missing_ok=True)
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-v", "error", "-i", str(video), "-i", str(soundtrack),
+                "-filter_complex", graph,
+                "-map", "0:v:0", "-map", "[outa]",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-t", f"{duration:.3f}", "-movflags", "+faststart", str(temp),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=max(180, int(duration * 3)),
+        )
+        os.replace(temp, video)
+    except Exception as exc:
+        temp.unlink(missing_ok=True)
+        raise RuntimeError(f"Could not mix manual soundtrack into {video.name}: {exc}") from exc
+
+    return {
+        "file": str(soundtrack),
+        "name": soundtrack.name,
+        "offset_seconds": float(start_seconds),
+        "end_seconds": float(end_seconds),
+        "bpm": None,
+        "volume": min(0.4, max(0.05, float(volume))),
+        "voice_ducking": has_original_audio,
+        "selection": "manual",
+        "overflow_behavior": overflow_behavior,
+    }
+
+
 def _video_has_audio(video_path: pathlib.Path) -> bool:
     probe = subprocess.run(
         [

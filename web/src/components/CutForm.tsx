@@ -69,6 +69,10 @@ type Settings = {
   trimSilence: boolean;
   progressBar: boolean;
   soundtrackVolume: number;
+  soundtrackMode: "auto" | "manual";
+  soundtrackStart: number;
+  soundtrackEnd: number;
+  soundtrackOverflow: "" | "trim" | "loop";
 };
 
 const DEFAULTS: Settings = {
@@ -88,9 +92,13 @@ const DEFAULTS: Settings = {
   trimSilence: false,
   progressBar: false,
   soundtrackVolume: 0.18,
+  soundtrackMode: "auto",
+  soundtrackStart: 0,
+  soundtrackEnd: 0,
+  soundtrackOverflow: "",
 };
 
-const STORAGE_KEY = "cutform.settings.v1";
+const STORAGE_KEY = "cutform.settings.v2";
 const MAX_VIDEO_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB safety cap in browser dropzone
 const MAX_SOUNDTRACK_BYTES = 100 * 1024 * 1024;
 
@@ -506,6 +514,58 @@ export function CutForm() {
   const [soundtrackName, setSoundtrackName] = useState("");
   const [soundtrackError, setSoundtrackError] = useState("");
   const [uploadingSoundtrack, setUploadingSoundtrack] = useState(false);
+  const [soundtrackPreviewUrl, setSoundtrackPreviewUrl] = useState("");
+  const [soundtrackDuration, setSoundtrackDuration] = useState(0);
+  const [soundtrackWaveform, setSoundtrackWaveform] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (!soundtrackFile) {
+      setSoundtrackPreviewUrl("");
+      setSoundtrackDuration(0);
+      setSoundtrackWaveform([]);
+      return;
+    }
+    const url = URL.createObjectURL(soundtrackFile);
+    setSoundtrackPreviewUrl(url);
+    let cancelled = false;
+    let audioContext: AudioContext | null = null;
+
+    // Decode only modest files; large uploads keep the native audio preview without
+    // allocating a second, fully decoded copy in browser memory.
+    if (soundtrackFile.size <= 32 * 1024 * 1024 && typeof window !== "undefined" && "AudioContext" in window) {
+      audioContext = new AudioContext();
+      void soundtrackFile.arrayBuffer()
+        .then((data) => audioContext!.decodeAudioData(data))
+        .then((buffer) => {
+          if (cancelled) return;
+          const samples = buffer.getChannelData(0);
+          const bars = 96;
+          const samplesPerBar = Math.max(1, Math.floor(samples.length / bars));
+          const peaks = Array.from({ length: bars }, (_, index) => {
+            const start = index * samplesPerBar;
+            const end = Math.min(samples.length, start + samplesPerBar);
+            let peak = 0;
+            for (let cursor = start; cursor < end; cursor += 1) {
+              peak = Math.max(peak, Math.abs(samples[cursor]));
+            }
+            return Math.max(0.06, Math.min(1, peak));
+          });
+          setSoundtrackWaveform(peaks);
+        })
+        .catch(() => {
+          if (!cancelled) setSoundtrackWaveform([]);
+        })
+        .finally(() => {
+          if (audioContext && audioContext.state !== "closed") void audioContext.close();
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      URL.revokeObjectURL(url);
+      if (audioContext && audioContext.state !== "closed") void audioContext.close();
+    };
+  }, [soundtrackFile]);
 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -671,6 +731,8 @@ export function CutForm() {
       setSoundtrackPath("");
       setSoundtrackName("");
       setSoundtrackError("");
+      setSoundtrackDuration(0);
+      patch({ soundtrackStart: 0, soundtrackEnd: 0, soundtrackMode: "auto" });
       return;
     }
     if (!isAudioFile(file)) {
@@ -690,6 +752,7 @@ export function CutForm() {
       const uploaded = await uploadSoundtrack(file);
       setSoundtrackPath(uploaded.path);
       setSoundtrackName(file.name);
+      patch({ soundtrackStart: 0, soundtrackEnd: 0 });
       toast({ body: `Soundtrack attached: ${file.name}`, uniqueID: "cutform-audio-upload" });
     } catch (err) {
       setSoundtrackError(err instanceof Error ? err.message : "Soundtrack upload failed. Try again.");
@@ -719,6 +782,21 @@ export function CutForm() {
       return;
     }
 
+    if (soundtrackPath && settings.soundtrackMode === "manual") {
+      const end = settings.soundtrackEnd || soundtrackDuration;
+      if (!settings.soundtrackOverflow) {
+        setSoundtrackError("Choose whether to trim or loop the selected music when it is shorter than a clip.");
+        goTo("audio");
+        return;
+      }
+      if (end <= settings.soundtrackStart || end > soundtrackDuration + 0.05) {
+        setSoundtrackError("Choose a valid music section within the uploaded track.");
+        goTo("audio");
+        setBusy(false);
+        return;
+      }
+    }
+
     setBusy(true);
     try {
       const job = await createJob({
@@ -739,7 +817,17 @@ export function CutForm() {
         loudnorm: settings.loudnorm,
         soundtrackPath: soundtrackPath || undefined,
         soundtrackVolume: settings.soundtrackVolume,
+        soundtrackMode: settings.soundtrackMode,
+        soundtrackStart: settings.soundtrackStart,
+        soundtrackEnd: settings.soundtrackEnd || soundtrackDuration,
+        soundtrackOverflow: settings.soundtrackOverflow === "loop" ? "loop" : "trim",
       });
+      setSettings((current) => ({ ...current, soundtrackOverflow: "" }));
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, soundtrackOverflow: "" }));
+      } catch {
+        /* Settings persistence is optional. */
+      }
       toast({ body: "Cut launched — opening job studio.", uniqueID: "cutform-launch" });
       router.push(`/jobs/${job.id}`);
     } catch (err) {
@@ -1123,20 +1211,99 @@ export function CutForm() {
                   />
 
                   {soundtrackName ? (
-                    <SegmentedControl
-                      label="Soundtrack mix level"
-                      value={String(settings.soundtrackVolume)}
-                      onChange={(val) => patch({ soundtrackVolume: Number(val) })}
-                      layout="fill"
-                    >
-                      {VOLUMES.map((vol) => (
-                        <SegmentedControlItem
-                          key={vol.value}
-                          value={vol.value}
-                          label={`${vol.note} (${vol.label})`}
-                        />
-                      ))}
-                    </SegmentedControl>
+                    <VStack gap={3}>
+                      <SegmentedControl
+                        label="Music selection"
+                        value={settings.soundtrackMode}
+                        onChange={(val) => patch({ soundtrackMode: val as "auto" | "manual", ...(val === "manual" ? { soundtrackOverflow: "" } : {}) })}
+                        layout="fill"
+                      >
+                        <SegmentedControlItem value="auto" label="Automatic AI sync" />
+                        <SegmentedControlItem value="manual" label="Manual section" />
+                      </SegmentedControl>
+                      {settings.soundtrackMode === "manual" ? (
+                        <VStack gap={3}>
+                          <Text type="supporting" color="secondary">
+                            Preview the track, then set the exact section used for every generated clip.
+                          </Text>
+                          {soundtrackWaveform.length > 0 ? (
+                            <div
+                              role="img"
+                              aria-label="Audio waveform. Highlighted bars show the selected music section."
+                              className="flex h-14 items-center gap-[2px] rounded-md border border-subtle bg-body px-2"
+                            >
+                              {soundtrackWaveform.map((peak, index) => {
+                                const time = (index / soundtrackWaveform.length) * soundtrackDuration;
+                                const selected = time >= settings.soundtrackStart && time <= (settings.soundtrackEnd || soundtrackDuration);
+                                return (
+                                  <span
+                                    key={index}
+                                    aria-hidden="true"
+                                    className={`min-w-0 flex-1 rounded-sm ${selected ? "bg-accent" : "bg-subtle"}`}
+                                    style={{ height: `${Math.max(8, peak * 100)}%` }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          ) : soundtrackFile && soundtrackFile.size > 32 * 1024 * 1024 ? (
+                            <Text type="supporting" color="secondary">
+                              Waveform is skipped for large tracks to keep browser memory use low. The audio player and range controls remain available.
+                            </Text>
+                          ) : null}
+                          {soundtrackPreviewUrl ? (
+                            <audio controls preload="metadata" src={soundtrackPreviewUrl} className="w-full" onLoadedMetadata={(event) => {
+                              const duration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
+                              setSoundtrackDuration(duration);
+                              setSettings((current) => ({
+                                ...current,
+                                soundtrackEnd: current.soundtrackEnd > 0 ? Math.min(current.soundtrackEnd, duration) : duration,
+                              }));
+                            }} />
+                          ) : null}
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="grid gap-1 text-sm">
+                              <span className="text-secondary">Start (seconds)</span>
+                              <input aria-label="Music section start in seconds" type="number" min="0" max={soundtrackDuration || undefined} step="0.1" value={settings.soundtrackStart} onChange={(event) => patch({ soundtrackStart: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded-md border border-subtle bg-body px-3 py-2" />
+                            </label>
+                            <label className="grid gap-1 text-sm">
+                              <span className="text-secondary">End (seconds)</span>
+                              <input aria-label="Music section end in seconds" type="number" min="0.1" max={soundtrackDuration || undefined} step="0.1" value={settings.soundtrackEnd || soundtrackDuration} onChange={(event) => patch({ soundtrackEnd: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded-md border border-subtle bg-body px-3 py-2" />
+                            </label>
+                          </div>
+                          <div className="grid gap-1">
+                            <Text type="supporting" color="secondary">Fine-tune the selected section</Text>
+                            <input aria-label="Music section start slider" type="range" min="0" max={Math.max(0, soundtrackDuration)} step="0.1" value={Math.min(settings.soundtrackStart, soundtrackDuration)} onChange={(event) => patch({ soundtrackStart: Number(event.target.value) })} className="w-full accent-current" />
+                            <input aria-label="Music section end slider" type="range" min="0" max={Math.max(0, soundtrackDuration)} step="0.1" value={Math.min(settings.soundtrackEnd || soundtrackDuration, soundtrackDuration)} onChange={(event) => patch({ soundtrackEnd: Number(event.target.value) })} className="w-full accent-current" />
+                          </div>
+                          <SegmentedControl
+                            label="If selected section is shorter than a clip — choose each time"
+                            value={settings.soundtrackOverflow}
+                            onChange={(val) => patch({ soundtrackOverflow: val as "trim" | "loop" })}
+                            layout="fill"
+                          >
+                            <SegmentedControlItem value="trim" label="Trim to clip" />
+                            <SegmentedControlItem value="loop" label="Loop selection" />
+                          </SegmentedControl>
+                          {settings.soundtrackEnd > 0 && settings.soundtrackEnd <= settings.soundtrackStart ? (
+                            <Banner status="error" title="Invalid music section" description="The end point must be after the start point." />
+                          ) : null}
+                        </VStack>
+                      ) : null}
+                      <SegmentedControl
+                        label="Soundtrack mix level"
+                        value={String(settings.soundtrackVolume)}
+                        onChange={(val) => patch({ soundtrackVolume: Number(val) })}
+                        layout="fill"
+                      >
+                        {VOLUMES.map((vol) => (
+                          <SegmentedControlItem
+                            key={vol.value}
+                            value={vol.value}
+                            label={`${vol.note} (${vol.label})`}
+                          />
+                        ))}
+                      </SegmentedControl>
+                    </VStack>
                   ) : null}
                 </VStack>
               </Card>

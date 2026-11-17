@@ -360,6 +360,12 @@ async function spawnClipperProcess(job: Job): Promise<void> {
     if (job.soundtrackPath) {
       args.push("--soundtrack", job.soundtrackPath);
       args.push("--soundtrack-volume", String(job.soundtrackVolume ?? 0.18));
+      args.push("--soundtrack-mode", job.soundtrackMode || "auto");
+      if (job.soundtrackMode === "manual") {
+        args.push("--soundtrack-start", String(job.soundtrackStart ?? 0));
+        args.push("--soundtrack-end", String(job.soundtrackEnd ?? 0));
+        args.push("--soundtrack-overflow", job.soundtrackOverflow || "trim");
+      }
     }
 
     let spawnFailed = false;
@@ -670,6 +676,9 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 
   const clipCount = Math.min(10, Math.max(1, Math.round(input.clipCount) || 5));
   const soundtrackPath = input.soundtrackPath?.trim() ? await validateUploadedSoundtrack(input.soundtrackPath.trim()) : undefined;
+  if (soundtrackPath && input.soundtrackMode === "manual" && input.soundtrackOverflow !== "trim" && input.soundtrackOverflow !== "loop") {
+    throw new Error("Choose whether manual soundtrack sections should be trimmed or looped.");
+  }
   const template = input.template && ALLOWED_SOCIAL_TEMPLATES.has(input.template) ? input.template : "none";
   if (template !== "none" && !input.vertical) {
     throw new Error("Social media templates require Vertical 9:16 to be enabled.");
@@ -705,6 +714,10 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
     loudnorm: input.loudnorm !== false,
     soundtrackPath,
     soundtrackVolume,
+    soundtrackMode: input.soundtrackMode === "manual" ? "manual" : "auto",
+    soundtrackStart: Number.isFinite(Number(input.soundtrackStart)) ? Math.max(0, Number(input.soundtrackStart)) : 0,
+    soundtrackEnd: Number.isFinite(Number(input.soundtrackEnd)) ? Math.max(0, Number(input.soundtrackEnd)) : undefined,
+    soundtrackOverflow: input.soundtrackOverflow === "loop" ? "loop" : "trim",
     createdAt: now,
     startedAt: now,
     status: "running",
