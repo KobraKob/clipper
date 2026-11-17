@@ -516,16 +516,55 @@ export function CutForm() {
   const [uploadingSoundtrack, setUploadingSoundtrack] = useState(false);
   const [soundtrackPreviewUrl, setSoundtrackPreviewUrl] = useState("");
   const [soundtrackDuration, setSoundtrackDuration] = useState(0);
+  const [soundtrackWaveform, setSoundtrackWaveform] = useState<number[]>([]);
 
   useEffect(() => {
     if (!soundtrackFile) {
       setSoundtrackPreviewUrl("");
       setSoundtrackDuration(0);
+      setSoundtrackWaveform([]);
       return;
     }
     const url = URL.createObjectURL(soundtrackFile);
     setSoundtrackPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
+    let cancelled = false;
+    let audioContext: AudioContext | null = null;
+
+    // Decode only modest files; large uploads keep the native audio preview without
+    // allocating a second, fully decoded copy in browser memory.
+    if (soundtrackFile.size <= 32 * 1024 * 1024 && typeof window !== "undefined" && "AudioContext" in window) {
+      audioContext = new AudioContext();
+      void soundtrackFile.arrayBuffer()
+        .then((data) => audioContext!.decodeAudioData(data))
+        .then((buffer) => {
+          if (cancelled) return;
+          const samples = buffer.getChannelData(0);
+          const bars = 96;
+          const samplesPerBar = Math.max(1, Math.floor(samples.length / bars));
+          const peaks = Array.from({ length: bars }, (_, index) => {
+            const start = index * samplesPerBar;
+            const end = Math.min(samples.length, start + samplesPerBar);
+            let peak = 0;
+            for (let cursor = start; cursor < end; cursor += 1) {
+              peak = Math.max(peak, Math.abs(samples[cursor]));
+            }
+            return Math.max(0.06, Math.min(1, peak));
+          });
+          setSoundtrackWaveform(peaks);
+        })
+        .catch(() => {
+          if (!cancelled) setSoundtrackWaveform([]);
+        })
+        .finally(() => {
+          if (audioContext && audioContext.state !== "closed") void audioContext.close();
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      URL.revokeObjectURL(url);
+      if (audioContext && audioContext.state !== "closed") void audioContext.close();
+    };
   }, [soundtrackFile]);
 
   const [error, setError] = useState("");
@@ -1176,6 +1215,30 @@ export function CutForm() {
                           <Text type="supporting" color="secondary">
                             Preview the track, then set the exact section used for every generated clip.
                           </Text>
+                          {soundtrackWaveform.length > 0 ? (
+                            <div
+                              role="img"
+                              aria-label="Audio waveform. Highlighted bars show the selected music section."
+                              className="flex h-14 items-center gap-[2px] rounded-md border border-subtle bg-body px-2"
+                            >
+                              {soundtrackWaveform.map((peak, index) => {
+                                const time = (index / soundtrackWaveform.length) * soundtrackDuration;
+                                const selected = time >= settings.soundtrackStart && time <= (settings.soundtrackEnd || soundtrackDuration);
+                                return (
+                                  <span
+                                    key={index}
+                                    aria-hidden="true"
+                                    className={`min-w-0 flex-1 rounded-sm ${selected ? "bg-accent" : "bg-subtle"}`}
+                                    style={{ height: `${Math.max(8, peak * 100)}%` }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          ) : soundtrackFile && soundtrackFile.size > 32 * 1024 * 1024 ? (
+                            <Text type="supporting" color="secondary">
+                              Waveform is skipped for large tracks to keep browser memory use low. The audio player and range controls remain available.
+                            </Text>
+                          ) : null}
                           {soundtrackPreviewUrl ? (
                             <audio controls preload="metadata" src={soundtrackPreviewUrl} className="w-full" onLoadedMetadata={(event) => {
                               const duration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
