@@ -1180,7 +1180,6 @@ export function CutForm() {
                             <audio controls preload="metadata" src={soundtrackPreviewUrl} className="w-full" onLoadedMetadata={(event) => {
                               const duration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
                               setSoundtrackDuration(duration);
-                              patch(({}));
                               setSettings((current) => ({
                                 ...current,
                                 soundtrackEnd: current.soundtrackEnd > 0 ? Math.min(current.soundtrackEnd, duration) : duration,
@@ -1203,7 +1202,7 @@ export function CutForm() {
                             <input aria-label="Music section end slider" type="range" min="0" max={Math.max(0, soundtrackDuration)} step="0.1" value={Math.min(settings.soundtrackEnd || soundtrackDuration, soundtrackDuration)} onChange={(event) => patch({ soundtrackEnd: Number(event.target.value) })} className="w-full accent-current" />
                           </div>
                           <SegmentedControl
-                            label="If selected music is longer than a clip"
+                            label="If selected section is shorter than a clip"
                             value={settings.soundtrackOverflow}
                             onChange={(val) => patch({ soundtrackOverflow: val as "trim" | "loop" })}
                             layout="fill"
@@ -1231,23 +1230,6 @@ export function CutForm() {
                         ))}
                       </SegmentedControl>
                     </VStack>
-                  ) : null}
-                </VStack>
-              </Card>
-
-              {/* 5. Processing & Engine */}
-                      value={String(settings.soundtrackVolume)}
-                      onChange={(val) => patch({ soundtrackVolume: Number(val) })}
-                      layout="fill"
-                    >
-                      {VOLUMES.map((vol) => (
-                        <SegmentedControlItem
-                          key={vol.value}
-                          value={vol.value}
-                          label={`${vol.note} (${vol.label})`}
-                        />
-                      ))}
-                    </SegmentedControl>
                   ) : null}
                 </VStack>
               </Card>

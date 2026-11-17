@@ -234,13 +234,14 @@ def build_manual_soundtrack_filter(
         raise ValueError("Audio sample rate must be positive.")
 
     segment_duration = end - start
+    is_looping = overflow_behavior == "loop" and segment_duration < duration
     fade_duration = min(0.75, segment_duration / 4, duration / 4)
     music_parts = [
         "aresample={}".format(int(sample_rate)),
         f"atrim=start={start:.3f}:end={end:.3f}",
         "asetpts=PTS-STARTPTS",
     ]
-    if overflow_behavior == "loop" and segment_duration < duration:
+    if is_looping:
         loop_samples = max(1, int(round(segment_duration * sample_rate)))
         music_parts.extend([
             f"aloop=loop=-1:size={loop_samples}",
@@ -250,7 +251,7 @@ def build_manual_soundtrack_filter(
         music_parts.append(f"atrim=duration={min(segment_duration, duration):.3f}")
 
     bounded_volume = min(0.4, max(0.05, float(volume)))
-    fade_out_at = max(0.0, min(segment_duration, duration) - fade_duration)
+    fade_out_at = max(0.0, (duration if is_looping else min(segment_duration, duration)) - fade_duration)
     music_parts.extend([
         f"volume={bounded_volume:.3f}",
         f"afade=t=in:st=0:d={fade_duration:.3f}",
@@ -287,9 +288,13 @@ def mix_manual_soundtrack(
         raise FileNotFoundError(f"Soundtrack file not found: {soundtrack}")
 
     duration = float(clip_duration)
+    track_duration = _probe_duration(soundtrack)
+    if float(start_seconds) < 0 or float(end_seconds) > track_duration + 0.05:
+        raise ValueError("Selected soundtrack section must fit within the uploaded track.")
+    has_original_audio = _video_has_audio(video)
     graph = build_manual_soundtrack_filter(
         start_seconds, end_seconds, duration, volume, overflow_behavior,
-        has_original_audio=_video_has_audio(video),
+        has_original_audio=has_original_audio,
     )
     temp = video.with_name(f"{video.stem}.soundtrack-manual-tmp{video.suffix}")
     temp.unlink(missing_ok=True)
@@ -318,7 +323,7 @@ def mix_manual_soundtrack(
         "end_seconds": float(end_seconds),
         "bpm": None,
         "volume": min(0.4, max(0.05, float(volume))),
-        "voice_ducking": _video_has_audio(video),
+        "voice_ducking": has_original_audio,
         "selection": "manual",
         "overflow_behavior": overflow_behavior,
     }
