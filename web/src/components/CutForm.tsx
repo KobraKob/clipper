@@ -72,7 +72,7 @@ type Settings = {
   soundtrackMode: "auto" | "manual";
   soundtrackStart: number;
   soundtrackEnd: number;
-  soundtrackOverflow: "trim" | "loop";
+  soundtrackOverflow: "" | "trim" | "loop";
 };
 
 const DEFAULTS: Settings = {
@@ -95,10 +95,10 @@ const DEFAULTS: Settings = {
   soundtrackMode: "auto",
   soundtrackStart: 0,
   soundtrackEnd: 0,
-  soundtrackOverflow: "trim",
+  soundtrackOverflow: "",
 };
 
-const STORAGE_KEY = "cutform.settings.v1";
+const STORAGE_KEY = "cutform.settings.v2";
 const MAX_VIDEO_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB safety cap in browser dropzone
 const MAX_SOUNDTRACK_BYTES = 100 * 1024 * 1024;
 
@@ -784,6 +784,11 @@ export function CutForm() {
 
     if (soundtrackPath && settings.soundtrackMode === "manual") {
       const end = settings.soundtrackEnd || soundtrackDuration;
+      if (!settings.soundtrackOverflow) {
+        setSoundtrackError("Choose whether to trim or loop the selected music when it is shorter than a clip.");
+        goTo("audio");
+        return;
+      }
       if (end <= settings.soundtrackStart || end > soundtrackDuration + 0.05) {
         setSoundtrackError("Choose a valid music section within the uploaded track.");
         goTo("audio");
@@ -815,8 +820,14 @@ export function CutForm() {
         soundtrackMode: settings.soundtrackMode,
         soundtrackStart: settings.soundtrackStart,
         soundtrackEnd: settings.soundtrackEnd || soundtrackDuration,
-        soundtrackOverflow: settings.soundtrackOverflow,
+        soundtrackOverflow: settings.soundtrackOverflow === "loop" ? "loop" : "trim",
       });
+      setSettings((current) => ({ ...current, soundtrackOverflow: "" }));
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, soundtrackOverflow: "" }));
+      } catch {
+        /* Settings persistence is optional. */
+      }
       toast({ body: "Cut launched — opening job studio.", uniqueID: "cutform-launch" });
       router.push(`/jobs/${job.id}`);
     } catch (err) {
@@ -1204,7 +1215,7 @@ export function CutForm() {
                       <SegmentedControl
                         label="Music selection"
                         value={settings.soundtrackMode}
-                        onChange={(val) => patch({ soundtrackMode: val as "auto" | "manual" })}
+                        onChange={(val) => patch({ soundtrackMode: val as "auto" | "manual", ...(val === "manual" ? { soundtrackOverflow: "" } : {}) })}
                         layout="fill"
                       >
                         <SegmentedControlItem value="auto" label="Automatic AI sync" />
@@ -1265,7 +1276,7 @@ export function CutForm() {
                             <input aria-label="Music section end slider" type="range" min="0" max={Math.max(0, soundtrackDuration)} step="0.1" value={Math.min(settings.soundtrackEnd || soundtrackDuration, soundtrackDuration)} onChange={(event) => patch({ soundtrackEnd: Number(event.target.value) })} className="w-full accent-current" />
                           </div>
                           <SegmentedControl
-                            label="If selected section is shorter than a clip"
+                            label="If selected section is shorter than a clip — choose each time"
                             value={settings.soundtrackOverflow}
                             onChange={(val) => patch({ soundtrackOverflow: val as "trim" | "loop" })}
                             layout="fill"
