@@ -820,8 +820,31 @@ def generate_metadata(
     trend_region: str = "IN",
     is_short: bool = True,
     segments: Optional[Sequence[Dict[str, Any]]] = None,
+    use_engine: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Create viewer-psychology & search-aligned SEO metadata grounded in the transcript."""
+    import os
+    should_use_engine = (
+        use_engine is True
+        or (use_engine is None and os.getenv("SEO_ENGINE", "").lower() in ("pipeline", "engine", "true"))
+    )
+    if should_use_engine:
+        try:
+            from seo.pipeline import SEOPipeline
+            from seo.config import SEOConfig
+            config = SEOConfig(geo=trend_region, language=language)
+            pipeline = SEOPipeline(config=config, llm=llm)
+            return pipeline.run(
+                clip=clip,
+                transcript_text=transcript_text,
+                segments=segments,
+                source_url=source_url,
+                is_short=is_short,
+                trending_topics=trending_topics,
+            )
+        except Exception as exc:
+            logger.warning("[seo] SEOPipeline execution failed (%s); falling back to legacy generator.", exc)
+
     text = " ".join(str(transcript_text or "").split())[:6000]
     reference = " ".join([str(clip.get("title", "")), str(clip.get("hook", "")), text])
     duration = float(clip.get("duration") or max(0.0, float(clip.get("end", 0)) - float(clip.get("start", 0))))
@@ -1064,7 +1087,74 @@ def generate_metadata(
 
     mobile_front_loaded = _is_front_loaded(title, primary_kw)
 
+    try:
+        from seo.stages.s3_hashtags import build_hashtag_pool
+        from seo.config import get_seo_config
+
+        pool_topic_data = {
+            "main_topic": primary_kw,
+            "entities": raw.get("alternate_names", []),
+            "category": "lifestyle",
+        }
+        pool_research = {
+            "trending_now": [
+                {"query": str(t.get("title") or t.get("query") or ""), "traffic": "trending"}
+                for t in (trending_topics or [])
+                if isinstance(t, dict)
+            ],
+            "autocomplete": [{"suggestions": keywords}],
+            "top_recent_videos": [],
+            "web": [],
+        }
+        pool_keywords = {
+            "primary_keyword": primary_kw,
+            "secondary_keywords": keywords[1:4],
+            "longtail": keywords[4:8],
+        }
+        pool, trending_conf, pool_warnings = build_hashtag_pool(
+            pool_topic_data, pool_research, pool_keywords, llm=llm
+        )
+    except Exception as exc:
+        logger.debug("[seo] hashtag pool construction error: %s", exc)
+        pool = {
+            "topic": [{"tag": f"#{t}", "source": "topic", "reason": "Relevant niche topic"} for t in (yt_niche_tags * 4)[:10]],
+            "trending": [{"tag": f"#{t}", "source": "trending", "reason": "Trending topic"} for t in (trend_tags * 10)[:10]] if trend_tags else [{"tag": f"#trend_{i}", "source": "trending", "reason": "Trending topic"} for i in range(1, 11)],
+            "adjacent": [{"tag": f"#adjacent_{i}", "source": "adjacent", "reason": "Adjacent interest"} for i in range(1, 11)],
+        }
+        trending_conf = "high" if trend_tags else "low"
+        pool_warnings = []
+
+    title_alts = [v["title"] for v in variants[1:]]
+    while len(title_alts) < 4:
+        title_alts.append(f"{primary_kw.title()}: Key Breakdown")
+    title_alts = title_alts[:4]
+
     return {
+        # Section 5 Official Schema
+        "title": title,
+        "title_alternatives": title_alts,
+        "description": description,
+        "hidden_tags": youtube_tags,
+        "hashtag_pool": pool,
+        "platform_output": {
+            "youtube_shorts": {
+                "hashtags": [f"#{t}" if not str(t).startswith("#") else str(t) for t in yt_niche_tags],
+                "description_final": description,
+                "tags_field": ", ".join(youtube_tags),
+            },
+            "instagram_reels": {
+                "caption_final": instagram_caption[:IG_CAPTION_MAX],
+            },
+        },
+        "research_summary": {
+            "primary_keyword": primary_kw,
+            "secondary_keywords": keywords[1:4],
+            "providers_used": ["google_trends_rss"] if trending_topics is not None else [],
+        },
+        "trending_confidence": trending_conf,
+        "warnings": pool_warnings,
+
+        # Backward compatibility
         "primary_keyword": primary_kw,
         "youtube": {
             "title": title,
@@ -1107,3 +1197,11 @@ def generate_metadata(
         },
         "generated_by": "llm" if raw else "heuristic",
     }
+
+
+# Forwarding exports for modular SEO engine
+try:
+    from seo.pipeline import SEOPipeline, run_seo_pipeline
+except ImportError:
+    pass
+
