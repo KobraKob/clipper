@@ -676,6 +676,9 @@ export async function createJob(input: CreateJobInput): Promise<JobView> {
 
   const clipCount = Math.min(10, Math.max(1, Math.round(input.clipCount) || 5));
   const soundtrackPath = input.soundtrackPath?.trim() ? await validateUploadedSoundtrack(input.soundtrackPath.trim()) : undefined;
+  if (soundtrackPath && input.soundtrackMode === "manual" && input.soundtrackOverflow !== "trim" && input.soundtrackOverflow !== "loop") {
+    throw new Error("Choose whether manual soundtrack sections should be trimmed or looped.");
+  }
   const template = input.template && ALLOWED_SOCIAL_TEMPLATES.has(input.template) ? input.template : "none";
   if (template !== "none" && !input.vertical) {
     throw new Error("Social media templates require Vertical 9:16 to be enabled.");
