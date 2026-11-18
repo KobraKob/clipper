@@ -15,3 +15,5 @@ web/.data/
 **/.git-backup/
 
 supabase/.temp/
+
+clips.jsonl

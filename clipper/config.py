@@ -70,6 +70,25 @@ class Settings:
     min_clip_duration: int = int(_env("MIN_CLIP_DURATION", "20"))
     max_clip_duration: int = int(_env("MAX_CLIP_DURATION", "60"))
 
+    # ---- Replay-Peak Clip Selection ----
+    clip_selection_mode: str = _env("CLIP_SELECTION_MODE", "hybrid")  # heatmap | llm | hybrid
+    clips_per_video: int = int(_env("CLIPS_PER_VIDEO", "5"))
+    clip_min_sec: float = float(_env("CLIP_MIN_SEC", "30.0"))
+    clip_max_sec: float = float(_env("CLIP_MAX_SEC", "39.0"))
+    fill_with_llm: bool = _env_bool("FILL_WITH_LLM", False)
+    peak_min_value: float = float(_env("PEAK_MIN_VALUE", "0.55"))
+    peak_min_contrast: float = float(_env("PEAK_MIN_CONTRAST", "0.15"))
+    peak_edge_ignore_pct: float = float(_env("PEAK_EDGE_IGNORE_PCT", "3.0"))
+    peak_min_gap_sec: float = float(_env("PEAK_MIN_GAP_SEC", "45.0"))
+    peak_width_fraction: float = float(_env("PEAK_WIDTH_FRACTION", "0.6"))
+    peak_setup_share: float = float(_env("PEAK_SETUP_SHARE", "0.65"))
+    refine_if_bucket_sec: float = float(_env("REFINE_IF_BUCKET_SEC", "15.0"))
+    w_heat: float = float(_env("W_HEAT", "0.5"))
+    w_llm: float = float(_env("W_LLM", "0.35"))
+    w_audio: float = float(_env("W_AUDIO", "0.15"))
+    skip_videos_under_sec: float = float(_env("SKIP_VIDEOS_UNDER_SEC", "90.0"))
+    clips_log_path: str = _env("CLIPS_LOG_PATH", "clips.jsonl")
+
     # ---- Source download quality (yt-dlp) ----
     min_source_height: int = int(_env("MIN_SOURCE_HEIGHT", "720"))
     max_source_height: int = int(_env("MAX_SOURCE_HEIGHT", "1080"))

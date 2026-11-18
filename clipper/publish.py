@@ -235,6 +235,15 @@ def upload_youtube(
     if on_progress:
         on_progress(1.0)
 
+    # Record uploaded video ID to clips.jsonl for retention feedback and A/B tracking
+    clip_id = meta.get("clip_id") or meta.get("id")
+    if clip_id:
+        try:
+            from .selection.log import record_uploaded_video_id
+            record_uploaded_video_id(str(clip_id), str(vid))
+        except Exception as log_exc:
+            logger.debug("[publish] Could not record uploaded video ID: %s", log_exc)
+
     # Upload custom cover thumbnail if available
     if cover_image:
         cover_path = pathlib.Path(cover_image)

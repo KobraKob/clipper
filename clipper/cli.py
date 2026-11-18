@@ -117,6 +117,9 @@ def run(
     proxy: Optional[str] = typer.Option(
         None, "--proxy", help="Proxy URL for yt-dlp downloads (e.g. http://127.0.0.1:7890)."
     ),
+    selection_mode: Optional[str] = typer.Option(
+        None, "--selection-mode", help="Clip selection mode: hybrid | heatmap | llm."
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose debug logging."),
 ) -> None:
     """Run full automated clipping pipeline."""
@@ -141,6 +144,7 @@ def run(
         video_encoder=encoder,
         ytdlp_force_ipv4=force_ipv4,
         ytdlp_proxy=proxy,
+        clip_selection_mode=selection_mode,
     )
 
     try:
@@ -432,6 +436,56 @@ def cut_clip(
     out_path = pathlib.Path(output)
     cut(pathlib.Path(source), start, end, out_path)
     console.print(f"[green]Cut saved to:[/green] [bold]{out_path.resolve()}[/bold]")
+
+
+@app.command("ab-stats")
+def ab_stats(
+    log_file: str = typer.Option("clips.jsonl", "--file", "-f", help="Path to clips.jsonl log file."),
+) -> None:
+    """Display A/B test distribution comparing replay-peak heatmap clips vs LLM clips."""
+    p = pathlib.Path(log_file)
+    if not p.exists():
+        console.print(f"[yellow]No log file found at {p.resolve()}. No clips recorded yet.[/yellow]")
+        return
+
+    records = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                records.append(json.loads(line))
+            except Exception:
+                pass
+
+    if not records:
+        console.print("[yellow]No valid records in clips.jsonl.[/yellow]")
+        return
+
+    table = Table(title="Replay-Peak vs LLM A/B Tracking", header_style="bold green")
+    table.add_column("Source", style="cyan")
+    table.add_column("Total Generated", justify="right")
+    table.add_column("Uploaded to YouTube", justify="right")
+    table.add_column("Avg Final Score", justify="right")
+
+    sources = ("heatmap", "llm", "hybrid")
+    for src in sources:
+        matching = [r for r in records if r.get("source") == src]
+        total = len(matching)
+        uploaded = sum(1 for r in matching if r.get("youtube_video_id"))
+        avg_score = (
+            sum(float(r.get("final_score", 0.0)) for r in matching) / total
+            if total > 0
+            else 0.0
+        )
+        table.add_row(
+            src.capitalize(),
+            str(total),
+            str(uploaded),
+            f"{avg_score:.2f}",
+        )
+
+    console.print(table)
+    console.print(f"[dim]Total clips logged: {len(records)} across {p.resolve()}[/dim]")
 
 
 if __name__ == "__main__":

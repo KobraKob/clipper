@@ -29,6 +29,7 @@ from .retention import (
     remap_words_after_trim,
 )
 from .scoring import rank
+from .selection import run as select_clips
 from .seo import generate_metadata
 from .soundtrack import analyze_soundtrack, mix_manual_soundtrack, mix_soundtrack
 from .social_templates import apply_social_template, validate_social_template
@@ -153,6 +154,8 @@ def run_pipeline(
     template: str = "none",
     template_display_name: str = "Your Name",
     template_handle: str = "@yourhandle",
+    selection_mode: Optional[str] = None,
+    **kwargs: Any,
 ) -> Dict[str, Any]:
     """
     Execute full automated video clipping pipeline with real stage progress tracking,
@@ -272,13 +275,43 @@ def run_pipeline(
         _log_elapsed("scene detection / scene cache", stage_started)
 
         stage_started = time.perf_counter()
-        # 5. Build and pre-filter candidates
-        write_progress(job_dir, "candidates", 48, "Generating sentence-aligned candidate windows...", base_out_dir)
+        source_info = load_source_info(job_dir) if is_url(source) else {}
+        llm_service = llm or get_llm(s)
+
+        # 5. Candidate generation and scoring (Replay-Peak selection or Legacy)
+        chosen_mode = (selection_mode or getattr(s, "clip_selection_mode", "hybrid")).lower()
         if candidates_cache.exists():
-            logger.info("[pipeline] Loading pre-filtered candidates from cache...")
-            cands = json.loads(candidates_cache.read_text(encoding="utf-8"))
+            logger.info("[pipeline] Loading candidates from cache: %s", candidates_cache)
+            ranked_clips = json.loads(candidates_cache.read_text(encoding="utf-8"))
+        elif chosen_mode in ("hybrid", "heatmap", "llm"):
+            write_progress(job_dir, "candidates", 48, "Selecting high-retention replay peaks and short candidates...", base_out_dir)
+            logger.info("[pipeline] Selecting candidates via replay peaks / LLM (mode: %s)...", chosen_mode)
+            dur_val = source_info.get("duration")
+            c_min = float(s.clip_min_sec) if s.min_clip_duration == 20 else float(s.min_clip_duration)
+            c_max = float(s.clip_max_sec) if s.max_clip_duration == 60 else float(s.max_clip_duration)
+            skip_under = min(float(s.skip_videos_under_sec), c_min) if s.min_clip_duration < 20 else float(s.skip_videos_under_sec)
+
+            clip_plans = select_clips(
+                source=source,
+                segments=segments,
+                duration=float(dur_val) if dur_val else None,
+                llm=llm_service,
+                settings=s,
+                work_dir=job_dir,
+                clips_per_video=n_clips,
+                clip_min_sec=c_min,
+                clip_max_sec=c_max,
+                skip_videos_under_sec=skip_under,
+                clip_selection_mode=chosen_mode,
+            )
+            if not clip_plans:
+                raise RuntimeError("No suitable candidate windows found matching duration criteria.")
+            ranked_clips = [p.to_dict() for p in clip_plans]
+            candidates_cache.write_text(json.dumps(ranked_clips, indent=2), encoding="utf-8")
         else:
-            logger.info("[pipeline] Generating sentence-snapped candidate windows...")
+            # Legacy candidate generation & rank() path
+            write_progress(job_dir, "candidates", 48, "Generating sentence-aligned candidate windows...", base_out_dir)
+            logger.info("[pipeline] Generating sentence-snapped candidate windows (legacy mode)...")
             raw_cands = build_candidates(
                 segments,
                 min_len=float(s.min_clip_duration),
@@ -289,23 +322,18 @@ def run_pipeline(
                 top_k=max(s.shortlist * 3, 30),
                 scene_cuts=scene_cuts,
             )
-            candidates_cache.write_text(json.dumps(cands, indent=2), encoding="utf-8")
+            if not cands:
+                raise RuntimeError("No suitable candidate windows found matching duration criteria.")
+            write_progress(job_dir, "score", 55, "Scoring viral candidates with LLM...", base_out_dir)
+            history_dir = pathlib.Path(s.outputs_dir) if pathlib.Path(s.outputs_dir).exists() else base_out_dir.parent
+            analytics_ctx = format_top_hooks_prompt_context(history_dir)
+            ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist, analytics_context=analytics_ctx)
+            candidates_cache.write_text(json.dumps(ranked_clips, indent=2), encoding="utf-8")
 
-        if not cands:
+        if not ranked_clips:
             raise RuntimeError("No suitable candidate windows found matching duration criteria.")
 
-        _log_elapsed("candidate generation / candidate cache", stage_started)
-
-        stage_started = time.perf_counter()
-        # 6. Two-Stage LLM Scoring with Channel Analytics Feedback Loop
-        write_progress(job_dir, "score", 55, "Scoring viral candidates with LLM...", base_out_dir)
-        llm_service = llm or get_llm(s)
-        logger.info("[pipeline] Scoring candidates using %s tier LLM...", s.llm_provider)
-        history_dir = pathlib.Path(s.outputs_dir) if pathlib.Path(s.outputs_dir).exists() else base_out_dir.parent
-        analytics_ctx = format_top_hooks_prompt_context(history_dir)
-        ranked_clips = rank(cands, llm_service, n=n_clips, shortlist_size=s.shortlist, analytics_context=analytics_ctx)
-
-        _log_elapsed("LLM candidate scoring", stage_started)
+        _log_elapsed("candidate selection and scoring", stage_started)
         tokens_used = getattr(llm_service, "tokens_used", 0)
         if tokens_used:
             logger.info("[pipeline] LLM tokens consumed: %d", tokens_used)
@@ -313,7 +341,6 @@ def run_pipeline(
         # 7. Render clips (Cut -> [Silence Trim] -> [Reframe + Captions + Hook Overlay] -> Cover -> SEO)
         exported_clips: List[Dict[str, Any]] = []
         pad_offset = 0.15
-        source_info = load_source_info(job_dir) if is_url(source) else {}
 
         soundtrack_profile: Optional[Dict[str, Any]] = None
         resolved_soundtrack: Optional[pathlib.Path] = None
@@ -346,7 +373,7 @@ def run_pipeline(
 
         for idx, clip in enumerate(ranked_clips, start=1):
             clip_started = time.perf_counter()
-            clip_title = clip.get("title", f"Clip {idx}")
+            clip_title = clip.get("title") or f"Clip {idx}"
             slug = slugify(clip_title)
             current_pct = 60 + int((idx - 1) / max(1, len(ranked_clips)) * 35)
             write_progress(
@@ -410,7 +437,7 @@ def run_pipeline(
             if seo_on:
                 logger.info("  -> Generating Title A/B variants, SEO chapters, tags & thumbnail hooks...")
                 seo_data = generate_metadata(
-                    {**clip, "duration": clip_duration},
+                    {**clip, "duration": clip_duration, "source_title": source_info.get("title")},
                     transcript_text,
                     llm=llm_service,
                     language=s.seo_language,
@@ -533,9 +560,16 @@ def run_pipeline(
 
             clip_record: Dict[str, Any] = {
                 "rank": idx,
-                "title": clip_title,
+                "clip_id": clip.get("clip_id") or f"{job_id}_clip_{idx}",
+                "title": (seo_data or {}).get("youtube", {}).get("title") or clip_title,
                 "score": clip.get("score", 0),
-                "score_breakdown": clip.get("score_breakdown", {}),
+                "final_score": clip.get("final_score"),
+                "score_breakdown": clip.get("score_breakdown") or {"final": clip.get("score", 0)},
+                "source": clip.get("source"),
+                "peak_time": clip.get("peak_time"),
+                "peak_value": clip.get("peak_value"),
+                "heatmap_rank": clip.get("heatmap_rank"),
+                "selection_warnings": clip.get("warnings", []),
                 "hook": clip.get("hook", ""),
                 "reason": clip.get("reason", ""),
                 "start": start_time,
